@@ -1,0 +1,5 @@
+error: missing required observation namespace
+ --> src/fixtures/invalid_missing_namespace_test.rs:5:8
+  |
+5 | struct Missing;
+  |        ^^^^^^^

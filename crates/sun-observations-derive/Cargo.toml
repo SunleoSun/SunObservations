@@ -1,0 +1,14 @@
+[package]
+name = "sun-observations-derive"
+version.workspace = true
+edition.workspace = true
+description = "Observation metadata derive for sun-observations"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+proc-macro-crate = "3"

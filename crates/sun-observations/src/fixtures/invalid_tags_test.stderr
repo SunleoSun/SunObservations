@@ -1,0 +1,17 @@
+error: tags must match [a-z][a-z0-9_]*
+ --> src/fixtures/invalid_tags_test.rs:5:44
+  |
+5 | #[observation(namespace = "bad::tag", tags("Upper"))]
+  |                                            ^^^^^^^
+
+error: tags must match [a-z][a-z0-9_]*
+ --> src/fixtures/invalid_tags_test.rs:9:50
+  |
+9 | #[observation(namespace = "bad::empty_tag", tags(""))]
+  |                                                  ^^
+
+error: tags must match [a-z][a-z0-9_]*
+  --> src/fixtures/invalid_tags_test.rs:13:49
+   |
+13 | #[observation(namespace = "bad::tree_tag", tags("a::b"))]
+   |                                                 ^^^^^^

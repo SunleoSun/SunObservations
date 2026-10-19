@@ -1,0 +1,23 @@
+error: level must be INFO, WARN, or ERROR; severity is not verbosity
+ --> src/fixtures/invalid_levels_test.rs:5:49
+  |
+5 | #[observation(namespace = "bad::debug", level = DEBUG)]
+  |                                                 ^^^^^
+
+error: level must be INFO, WARN, or ERROR; severity is not verbosity
+ --> src/fixtures/invalid_levels_test.rs:9:49
+  |
+9 | #[observation(namespace = "bad::trace", level = TRACE)]
+  |                                                 ^^^^^
+
+error: level must be INFO, WARN, or ERROR; severity is not verbosity
+  --> src/fixtures/invalid_levels_test.rs:13:51
+   |
+13 | #[observation(namespace = "bad::unknown", level = FATAL)]
+   |                                                   ^^^^^
+
+error: expected identifier
+  --> src/fixtures/invalid_levels_test.rs:17:50
+   |
+17 | #[observation(namespace = "bad::string", level = "INFO")]
+   |                                                  ^^^^^^

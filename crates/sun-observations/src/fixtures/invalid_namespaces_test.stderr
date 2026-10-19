@@ -1,0 +1,41 @@
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+ --> src/fixtures/invalid_namespaces_test.rs:5:27
+  |
+5 | #[observation(namespace = "Encoder::Train")]
+  |                           ^^^^^^^^^^^^^^^^
+
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+ --> src/fixtures/invalid_namespaces_test.rs:9:27
+  |
+9 | #[observation(namespace = "encoder/Train")]
+  |                           ^^^^^^^^^^^^^^^
+
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+  --> src/fixtures/invalid_namespaces_test.rs:13:27
+   |
+13 | #[observation(namespace = "encoder::::train")]
+   |                           ^^^^^^^^^^^^^^^^^^
+
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+  --> src/fixtures/invalid_namespaces_test.rs:17:27
+   |
+17 | #[observation(namespace = "::encoder")]
+   |                           ^^^^^^^^^^^
+
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+  --> src/fixtures/invalid_namespaces_test.rs:21:27
+   |
+21 | #[observation(namespace = "encoder::")]
+   |                           ^^^^^^^^^^^
+
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+  --> src/fixtures/invalid_namespaces_test.rs:25:27
+   |
+25 | #[observation(namespace = "")]
+   |                           ^^
+
+error: namespace must contain [a-z][a-z0-9_]* segments separated by ::
+  --> src/fixtures/invalid_namespaces_test.rs:29:27
+   |
+29 | #[observation(namespace = "2digits")]
+   |                           ^^^^^^^^^
