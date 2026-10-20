@@ -36,6 +36,14 @@ pub fn matches_subtree(root: &str, namespace: &str) -> bool {
             .is_some_and(|rest| rest.starts_with("::"))
 }
 
+/// Borrowed ancestor prefixes, including the namespace itself, in root-to-leaf order.
+pub(crate) fn prefixes(namespace: &str) -> impl Iterator<Item = &str> {
+    namespace
+        .match_indices("::")
+        .map(|(end, _)| &namespace[..end])
+        .chain(std::iter::once(namespace))
+}
+
 #[cfg(test)]
 #[path = "namespace_test.rs"]
 mod tests;

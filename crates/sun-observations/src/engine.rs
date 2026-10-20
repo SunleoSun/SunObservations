@@ -2,15 +2,17 @@ use crate::{
     channel::{dispatch, flush_sinks},
     context,
     namespace::InvalidNamespace,
+    plan::{next_identity, ResolvedPlan},
     routing::Routing,
     scope::ScopeState,
     span::SpanGuard,
-    Channel, Observation, ObservationLevel, ObservationRecord, Phase, ScopeConfig, Selection, Sink,
+    Observation, ObservationLevel, ObservationRecord, Phase, Policy, ScopeConfig, Selection, Sink,
 };
 use chrono::{SecondsFormat, Utc};
 use parking_lot::RwLock;
 use serde_json::Value;
 use std::{
+    any::TypeId,
     error::Error,
     fmt, io,
     sync::{
@@ -42,22 +44,22 @@ impl Error for ObservationError {
         })
     }
 }
+#[derive(Default)]
+struct Configuration {
+    selection: Selection,
+    routing: Routing,
+}
 
-/// Process-global entry point; independent engines are also useful for isolated embedding.
 pub struct ObservationEngine {
+    pub(crate) id: u64,
     process: String,
     started: Instant,
-    selection: RwLock<Selection>,
-    routing: RwLock<Routing>,
-    unscoped: ScopeState,
+    config: RwLock<Configuration>,
+    generation: AtomicU64,
+    pub(crate) unscoped: ScopeState,
     sink_errors: AtomicU64,
 }
-
-pub(crate) struct Admission {
-    pub scope: Option<String>,
-    pub sinks: Vec<Arc<dyn Sink>>,
-}
-
+pub(crate) type Admission = Arc<ResolvedPlan>;
 impl Default for ObservationEngine {
     fn default() -> Self {
         Self::new()
@@ -66,10 +68,11 @@ impl Default for ObservationEngine {
 impl ObservationEngine {
     pub fn new() -> Self {
         Self {
+            id: next_identity(),
             process: format!("{}_{}", std::process::id(), Uuid::new_v4().simple()),
             started: Instant::now(),
-            selection: RwLock::new(Selection::new()),
-            routing: RwLock::new(Routing::default()),
+            config: RwLock::new(Configuration::default()),
+            generation: AtomicU64::new(1),
             unscoped: ScopeState::new(ScopeConfig::new("")),
             sink_errors: AtomicU64::new(0),
         }
@@ -77,53 +80,101 @@ impl ObservationEngine {
     pub fn process_id(&self) -> &str {
         &self.process
     }
-    /// Atomically replace process-wide selectors; exclusions still veto scope activations.
-    pub fn set_selection(&self, selection: Selection) {
-        *self.selection.write() = selection;
+    #[inline]
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
-    pub fn channel(&self, name: &str) -> Arc<Channel> {
-        self.routing.write().channel(name)
+    pub fn set_selection(&self, selection: Selection) {
+        let mut config = self.config.write();
+        config.selection = selection;
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+    /// Central attachment boundary; publishes a new generation for all cached plans.
+    pub fn add_channel_sink(&self, channel: &str, sink: Arc<dyn Sink>) {
+        let mut config = self.config.write();
+        config.routing.add_sink(channel, sink);
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+    /// Detach this channel's sinks; existing spans keep their start-time snapshots.
+    pub fn clear_channel_sinks(&self, channel: &str) {
+        let mut config = self.config.write();
+        let retired = config.routing.clear_sinks(channel);
+        self.generation.fetch_add(1, Ordering::Release);
+        drop(config);
+        drop(retired);
     }
     pub fn register_namespace_channel(
         &self,
         namespace: &str,
         channel: &str,
     ) -> Result<(), InvalidNamespace> {
-        self.routing.write().register(namespace, channel)
+        let mut config = self.config.write();
+        config.routing.register(namespace, channel)?;
+        self.generation.fetch_add(1, Ordering::Release);
+        Ok(())
     }
-    /// Number of failed dispatch/flush operations, including errors during span Drop.
     pub fn sink_error_count(&self) -> u64 {
         self.sink_errors.load(Ordering::Relaxed)
     }
-    pub fn flush(&self) -> Result<(), ObservationError> {
-        let channels = self.routing.read().all();
-        let sinks: Vec<_> = channels.iter().flat_map(|c| c.sinks()).collect();
+    /// Wait for each unique attached sink's flush barrier. No engine locks held while waiting.
+    pub fn flush_channels(&self) -> Result<(), ObservationError> {
+        let sinks = self.config.read().routing.sinks();
         self.check_sink_result(flush_sinks(&sinks))
     }
-    pub(crate) fn admit<T: Observation>(&self) -> Option<Admission> {
-        let scope = context::current_scope();
-        let selection = self.selection.read();
-        let local = scope.as_ref().map(|s| &s.config.selection);
-        let excluded = selection.excludes(T::NAMESPACE, T::TAGS)
-            || local.is_some_and(|s| s.excludes(T::NAMESPACE, T::TAGS));
-        let active = selection.activates(T::NAMESPACE, T::TAGS)
-            || local.is_some_and(|s| s.activates(T::NAMESPACE, T::TAGS));
-        drop(selection);
-        if excluded || !active {
-            return None;
+    pub(crate) fn resolve<T: Observation>(&self, scope: &ScopeState) -> Arc<ResolvedPlan> {
+        let mut cache = scope.plans.lock();
+        let config = self.config.read();
+        let generation = self.generation();
+        let key = (self.id, TypeId::of::<T>());
+        if let Some(plan) = cache.plans.get(&key) {
+            if plan.generation == generation {
+                return plan.clone();
+            }
         }
-        if !scope.as_deref().unwrap_or(&self.unscoped).admit::<T>() {
-            return None;
-        }
-        let channels = self.routing.read().matching(T::NAMESPACE);
-        Some(Admission {
-            scope: scope.as_ref().map(|s| s.config.name.clone()),
-            sinks: channels.iter().flat_map(|c| c.sinks()).collect(),
-        })
+        let global = &config.selection;
+        let local = &scope.config.selection;
+        let active = (global.activates(T::NAMESPACE, T::TAGS)
+            || local.activates(T::NAMESPACE, T::TAGS))
+            && !global.excludes(T::NAMESPACE, T::TAGS)
+            && !local.excludes(T::NAMESPACE, T::TAGS);
+        let policy = scope
+            .config
+            .policies
+            .get(&TypeId::of::<T>())
+            .copied()
+            .unwrap_or(Policy::Always);
+        let counter = if active && !matches!(policy, Policy::Always | Policy::Never) {
+            Some(cache.counters.entry(TypeId::of::<T>()).or_default().clone())
+        } else {
+            None
+        };
+        let sinks: Vec<_> = if active {
+            config
+                .routing
+                .matching(T::NAMESPACE)
+                .iter()
+                .flat_map(|c| c.sinks.iter().cloned())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let plan = Arc::new(ResolvedPlan {
+            generation,
+            active: active && policy != Policy::Never,
+            policy,
+            counter,
+            scope: (scope.id != self.unscoped.id).then(|| scope.config.name.clone()),
+            sinks: sinks.into(),
+        });
+        let retired = cache.plans.insert(key, plan.clone());
+        drop(config);
+        drop(cache);
+        drop(retired);
+        plan
     }
     pub(crate) fn record(
         &self,
-        admission: &Admission,
+        plan: &ResolvedPlan,
         namespace: &str,
         level: ObservationLevel,
         data: Value,
@@ -132,7 +183,7 @@ impl ObservationEngine {
             ts: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
             proc: self.process.clone(),
             proc_ms: self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
-            scope: admission.scope.clone(),
+            scope: plan.scope.clone(),
             namespace: namespace.to_owned(),
             level,
             data,
@@ -149,55 +200,71 @@ impl ObservationEngine {
     }
     pub(crate) fn dispatch(
         &self,
-        admission: &Admission,
-        record: &ObservationRecord,
+        plan: &ResolvedPlan,
+        record: ObservationRecord,
     ) -> Result<(), ObservationError> {
-        self.check_sink_result(dispatch(&admission.sinks, record))
+        self.check_sink_result(dispatch(&plan.sinks, Arc::new(record)))
     }
-    /// Admission precedes payload construction and serialization. Rejection is Ok(false).
+    #[inline]
     pub fn observe_if_active<T: Observation, F: FnOnce() -> T>(
         &self,
         build: F,
     ) -> Result<bool, ObservationError> {
-        let Some(admission) = self.admit::<T>() else {
+        let plan = context::cached_plan::<T>(self);
+        if !plan.admit() {
             return Ok(false);
-        };
+        }
         let payload = build();
         let data = serde_json::to_value(&payload).map_err(ObservationError::Serialize)?;
-        let mut record = self.record(&admission, T::NAMESPACE, T::LEVEL, data);
-        record.message = payload.message().map(str::to_owned);
-        self.dispatch(&admission, &record)?;
+        let message = payload.message();
+        // No consumer can observe envelope allocation/formatting, but payload serialization
+        // and message callbacks still run (including their errors/side effects).
+        if plan.sinks.is_empty() {
+            return Ok(true);
+        }
+        let mut record = self.record(&plan, T::NAMESPACE, T::LEVEL, data);
+        record.message = message.map(str::to_owned);
+        self.dispatch(&plan, record)?;
         Ok(true)
     }
     pub fn span_if_active<T: Observation, F: FnOnce() -> T>(
         &self,
         build: F,
     ) -> Result<SpanGuard<'_>, ObservationError> {
-        let Some(admission) = self.admit::<T>() else {
+        let plan = context::cached_plan::<T>(self);
+        if !plan.admit() {
             return Ok(SpanGuard::inactive(self));
-        };
+        }
         let payload = build();
         let data = serde_json::to_value(&payload).map_err(ObservationError::Serialize)?;
-        let mut record = self.record(&admission, T::NAMESPACE, T::LEVEL, data);
+        let mut record = self.record(&plan, T::NAMESPACE, T::LEVEL, data);
         record.message = payload.message().map(str::to_owned);
         record.phase = Some(Phase::Start);
         let span = Uuid::new_v4().simple().to_string();
         record.span = Some(span.clone());
-        self.dispatch(&admission, &record)?;
+        self.dispatch(&plan, record)?;
         Ok(SpanGuard::active(
             self,
-            admission,
+            (*plan).clone(),
             T::NAMESPACE,
             T::LEVEL,
             span,
         ))
     }
 }
-
+impl Drop for ObservationEngine {
+    fn drop(&mut self) {
+        if let Err(error) = self.flush_channels() {
+            eprintln!("SunObservations shutdown: {error}");
+        }
+        context::forget_engine(self.id);
+    }
+}
 pub fn global() -> &'static ObservationEngine {
     static ENGINE: OnceLock<ObservationEngine> = OnceLock::new();
     ENGINE.get_or_init(ObservationEngine::new)
 }
+#[inline]
 pub fn observe_if_active<T: Observation, F: FnOnce() -> T>(
     build: F,
 ) -> Result<bool, ObservationError> {

@@ -1,0 +1,4 @@
+[build]
+# Place all build artifacts in C:\Temp to keep the project directory clean
+# and potentially speed up builds if Temp is on a faster drive
+target-dir = "C:\\Temp\\sun-observations-build"

@@ -15,11 +15,16 @@ serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 uuid = { version = "1", features = ["v4"] }
 parking_lot = "0.12"
+crossbeam-channel = "0.5"
+tempfile = "3"
 rayon = { version = "1.10", optional = true }
+
+[[bench]]
+name = "runtime"
+harness = false
 
 [dev-dependencies]
 trybuild = "1"
-tempfile = "3"
 
 [[example]]
 name = "basic"

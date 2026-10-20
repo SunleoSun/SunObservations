@@ -39,6 +39,43 @@ fn out_of_order_drop_does_not_resurrect_old_scope() {
 }
 
 #[test]
+fn retired_sink_destructors_run_without_tls_borrows() {
+    use crate::{Observation, ObservationEngine, Selection, Sink};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    struct Probe(Arc<AtomicBool>);
+    impl Sink for Probe {
+        fn write(&self, _: &crate::ObservationRecord) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            let _ = Context::capture();
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+    #[derive(serde::Serialize, Observation)]
+    #[observation(namespace = "context_tests::retired")]
+    struct Event;
+    let engine = ObservationEngine::new();
+    engine.set_selection(Selection::new().activate_all());
+    let dropped = Arc::new(AtomicBool::new(false));
+    engine.add_channel_sink("probe", Arc::new(Probe(dropped.clone())));
+    engine
+        .register_namespace_channel("context_tests", "probe")
+        .unwrap();
+    engine.observe_if_active(|| Event).unwrap();
+    engine.clear_channel_sinks("probe");
+    engine.observe_if_active(|| Event).unwrap();
+    assert!(!dropped.load(Ordering::Relaxed));
+    let _guard = Context::default().enter();
+    assert!(dropped.load(Ordering::Relaxed));
+}
+
+#[test]
 fn snapshot_can_outlive_original_guard() {
     let scope = start_scope(ScopeConfig::new("captured"));
     let context = Context::capture();

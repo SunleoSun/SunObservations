@@ -8,6 +8,7 @@ pub mod level;
 mod macros;
 pub mod namespace;
 pub mod observation;
+mod plan;
 pub mod policy;
 pub mod record;
 pub mod routing;
@@ -30,7 +31,7 @@ pub use record::{ObservationRecord, Phase};
 pub use scope::{start_scope, ScopeConfig};
 pub use selection::Selection;
 pub use sink::Sink;
-pub use sinks::{JsonlSink, MemorySink};
+pub use sinks::{JsonlConfig, JsonlSink, JsonlStats, MemorySink};
 pub use span::{span_if_active, SpanGuard};
 pub use sun_observations_derive::Observation;
 

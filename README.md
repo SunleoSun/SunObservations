@@ -53,8 +53,8 @@ fn work(index: usize) -> Result<(), ObservationError> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(MemorySink::new());
     let engine = global();
-    engine.channel("training").add_sink(memory.clone());
-    engine.channel("training").add_sink(Arc::new(JsonlSink::new(std::io::stdout())));
+    engine.add_channel_sink("training", memory.clone());
+    engine.add_channel_sink("training", Arc::new(JsonlSink::new(std::io::stdout())));
     engine.register_namespace_channel("compute", "training")?;
 
     let scope = start_scope(
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(scope);
     work(3)?; // No selectors outside the scope: still lazy.
     assert_eq!(memory.len(), 1);
-    engine.flush()?;
+    engine.flush_channels()?;
     Ok(())
 }
 ```
@@ -106,7 +106,8 @@ on invalid namespaces/tags; route registration instead returns `InvalidNamespace
 
 `global().set_selection(Selection::new().activate_namespace("compute"))` replaces
 process-wide selection atomically. Routing alone does **not** activate observations.
-An admitted observation without any routed sinks is still constructed and serialized.
+An admitted observation without any routed sinks is still constructed and serialized;
+only its unobservable output envelope is skipped.
 
 | Policy | Selected occurrences admitted |
 | --- | --- |
@@ -128,6 +129,42 @@ scope-local. A scope override never changes an unscoped or another scope's polic
 true means admitted and successfully dispatched (possibly to zero sinks). For closures,
 use `observe_if_active::<Type, _>(|| payload)`. A payload already constructed before
 the macro cannot be made lazy retroactively.
+
+## Resolved plans and hot-path model
+
+A scope is the canonical owner of shared resolved plans. Child threads/Rayon workers
+inherit the same scope state and can reuse the parent's resolution. Each plan freezes
+activation/exclusion results, effective policy, counter handle and immutable sink snapshot.
+Changing engine selection, routes or attachments increments one atomic configuration
+generation; the next call re-resolves a stale plan without resetting scope policy counters.
+
+TLS holds only **four fixed entries**, keyed by engine identity, scope identity, concrete
+TypeId and generation. A warm hit performs no general-purpose HashMap lookup, Mutex or
+RwLock acquisition, selector/route scan, or plan Arc refcount traffic: a local Rc reference
+keeps the shared Arc plan alive across payload callbacks. Rejected warm calls allocate
+nothing and never construct/serialize the payload (covered by an allocation-counting test).
+Context boundaries clear fast references, not shared scope plans. A new thread allocates
+no large TLS table; a first type miss creates one small local reference.
+
+Cache misses/evictions are deliberately cold: they use a shared scope map and configuration
+read lock. Indexed namespace prefix sets and tag membership sets avoid scanning all rules;
+routing likewise looks up namespace ancestors, then only matching channels. More than four
+interleaved concrete types can cause tiny-cache misses, but still reuse shared resolution.
+Always/Never need no counter. Counting policies use a relaxed atomic, saturating increment
+per admitted selection; shared counters can contend at high thread counts because strict
+scope-wide occurrence ordering is intentional. No per-occurrence scope map lock remains.
+
+For admitted observations with no destinations, payload serialization and message callbacks
+still execute (including errors/side effects), but an unobservable envelope/timestamp is not
+allocated. Delivered records keep the same public ObservationRecord and FORMAT.md schema.
+
+[ BENCHMARKS.md ](BENCHMARKS.md) records actual 1M-call macro workloads, selector scale,
+cold/warm paths, enqueue versus end-to-end file throughput, thread scaling and compaction.
+Run the complete suite with:
+
+```sh
+cargo bench -p sun-observations --bench runtime
+```
 
 ## Execution-local scopes and propagation
 
@@ -194,34 +231,119 @@ are local to that thread; to propagate those further, create another explicit bo
 Unrelated parents can execute concurrently on separate pools without context contamination.
 Rayon is not a default dependency.
 
-## Channels and sinks
+## Channels, sinks and asynchronous persistence
 
-Namespace → Channel → Sink is routing, independent from selection. Multiple matching
-subtree routes fan out to multiple channels, each containing any number of `Arc<dyn Sink>`.
-Routes to the same channel are deduplicated, including overlapping roots. A shared sink
-attached to two distinct matching channels receives two writes by design. A channel is
-never restricted to one file, and neither channel names nor metadata tags enter records.
+Namespace → Channel → Sink remains independent from selection. All graph mutation goes
+through the engine:
 
-`MemorySink` offers synchronized `records()` snapshots, `drain()`, `len()` and
-`is_empty()`. `JsonlSink::append(path)` creates/appends without truncation;
-`JsonlSink::new(writer)` accepts any owned `Write + Send + 'static` (including a
-buffered writer). Share an `Arc<JsonlSink>` to synchronize a destination. A single lock
-covers each full line; independent sink instances/processes targeting the same file are
-not coordinated. `flush()` drains writers but is not a disk durability/fsync guarantee.
-See [FORMAT.md](FORMAT.md) for framing, fields and lifecycle interpretation.
+- `add_channel_sink(channel, Arc<dyn Sink>)` attaches a consumer;
+- `register_namespace_channel(namespace, channel)` only registers a subtree route;
+- `clear_channel_sinks(channel)` detaches that channel's consumers.
 
-Writes are synchronous and can block. Engine/channel configuration locks are released
-before payload construction or sink callbacks. All fan-out targets are attempted even
-if one fails; the first error is returned. `ObservationError` distinguishes serialization
-and sink errors. `engine.sink_error_count()` counts failed dispatch/flush operations
-(including span Drop); it is not a count of individual failed sinks. No transactional
-multi-sink guarantee, retries, background buffering, file rotation or error callback exists.
-A failed write can leave partial external output; applications choose their error policy.
-Flush explicitly before consuming buffered output or shutdown.
+Each mutation publishes a new configuration generation. There is no external mutable
+`channel().add_sink()` handle. Multiple matching channels fan out; each channel can have
+many sinks. Overlapping/repeated routes to the same channel are deduplicated. The same
+sink attached to two matching channels still receives **two deliveries**, with the same
+immutable record allocation. Channel names and metadata tags never enter the envelope.
 
-Independent `ObservationEngine::new()` instances support isolated embedding/testing
-through their closure methods, with their own configuration, identities and clocks. Public
-macros intentionally always use `global()`, never a hidden per-test engine override.
+The engine dispatches `Arc<ObservationRecord>` through `Sink::write_shared()`. Its default
+implementation calls the borrowed `write()` method for simple custom sinks. MemorySink and
+JsonlSink override it to retain/enqueue the shared allocation without deep cloning data.
+MemorySink offers cheap `shared_records()` / `drain_shared()`; `records()` / `drain()`
+remain owned compatibility snapshots. A borrowed direct `sink.write(&record)` must clone
+when ownership is needed; engine fan-out never uses that convenience path.
+
+### JsonlSink configuration and worker
+
+`JsonlSink` is now asynchronous for **all** destinations; there is no parallel synchronous
+file implementation. `append(path)` uses defaults: flush interval 1000 ms, no size limit,
+trim fraction 0.10. Configure file behavior when constructing/attaching the sink, not in
+namespace route registration:
+
+```rust
+use std::sync::Arc;
+use sun_observations::{global, JsonlConfig, JsonlSink};
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let config = JsonlConfig::new()
+    .flush_ms(1000)
+    .file_size_mb(10) // MiB: 10 * 1024 * 1024 bytes
+    .trim_fraction(0.10);
+let file = Arc::new(JsonlSink::with_config("observations.jsonl", config)?);
+global().add_channel_sink("training", file);
+global().register_namespace_channel("compute::train", "training")?;
+global().flush_channels()?;
+# Ok(())
+# }
+```
+
+Registration, construction and flushing an unused sink do **not** open/create a file or
+start a thread. The first actual write starts a named background worker. File open errors
+therefore surface through the async error model, not necessarily the constructor.
+`new(writer)` and `writer_with_config(writer, config)` support owned `Write + Send + 'static`
+writers on the same background path; file-size settings are rejected for non-file writers.
+`max_file_size_bytes(bytes)` is available for exact byte limits. Zero flush interval/size,
+unrepresentable intervals, and non-finite or non-(0,1) trim fractions fail construction.
+
+The producer constructs/serializes the typed payload to Value, captures timestamps, then
+enqueues a shared record. It performs **no file open, JSONL encoding, write, flush or
+compaction**. The worker blocks for a message, snapshots and drains the queued prefix,
+then encodes/writes batches. New arrivals cannot indefinitely starve writes or periodic
+flush. Periodic flush runs while idle and under continuous traffic, at batch boundaries;
+it is best-effort and can be delayed by a slow I/O operation or large batch.
+
+The queue is deliberately **unbounded**: disk slowdown means backlog grows in memory,
+not overflow drops. There is no bounded queue, overflow policy or backpressure guarantee.
+A successful observe/enqueue does **not** mean persisted data; failures must be checked
+at a flush barrier. File mode buffers writes and appends without truncation unless explicit
+retention is enabled. Share one Arc<JsonlSink> per physical destination; independent
+instances/processes writing or compacting the same path are not coordinated.
+
+### Flush, shutdown and errors
+
+`global().flush_channels()?` synchronously visits every unique currently attached sink,
+including unrouted sinks. Each JSONL queue receives a barrier: successful return means
+all records enqueued before that barrier were processed and the underlying writer's
+`flush()` completed. Writes concurrent with the call may or may not be included. Sink
+locks/configuration locks are not held while waiting. Flush is **not fsync** or a crash
+recovery guarantee. Use it before reading JSONL and before deterministic shutdown, without
+sleeps/retries. Flush before detaching sinks, or flush a retained sink directly afterward;
+a detached sink is no longer included in the engine's current graph barrier.
+
+A last-owner JsonlSink Drop closes its queue, drains accepted messages, flushes and joins
+the worker. Independent engine Drop also attempts a channel flush. Cached plans and spans
+can extend a sink's lifetime beyond detachment. **Rust process-global statics are not
+dropped on main return**: applications using global() must explicitly flush_channels()
+before exit. Abort, process termination, leaked owners and I/O failure cannot guarantee
+persistence. Drop errors are reported to stderr; explicit barriers return errors to callers.
+
+All fan-out targets are attempted if one fails, with the first synchronous error returned.
+The JSONL worker latches its first I/O/encoding error or caught writer panic, stops writing,
+and exposes a sticky `last_error()`; subsequent writes/flushes fail. An enqueue that raced
+with that failure can have returned Ok, so the final barrier is mandatory for error checking.
+No errors are silently cleared and there are no retries or transactional multi-sink writes.
+`is_started()` and `stats()` expose lifecycle/batch/flush/compaction diagnostics without
+test-only production branches. `engine.sink_error_count()` counts failed dispatch/flush
+operations, including when the barrier surfaces a background error, not individual failed
+sinks or background failures that have not yet been checked.
+
+### Line-safe file retention
+
+When size exceeds the configured maximum, the worker targets approximately
+`max_bytes * (1 - trim_fraction)`. For 10 MiB and 0.10 this is roughly 9 MiB. It seeks to
+an approximate oldest-byte cut, scans forward to a newline, copies the complete suffix
+to a temporary sibling and replaces the file. No retained first/last record is split;
+the newest record is always kept whole, even if it alone exceeds the maximum. A normal
+boundary cut can undershoot the target by one line; later appends grow within the hysteresis
+window. Size is approximate during a batch. Retention intentionally removes oldest records,
+possibly span starts whose ends remain; parsers must handle unmatched lifecycle records.
+Replacement/file I/O failure is sticky and reported, not ignored. Small thresholds can be
+expensive on filesystems with costly replacement/antivirus hooks; see BENCHMARKS.md.
+
+See [FORMAT.md](FORMAT.md) for unchanged persisted fields, framing and lifecycle meanings.
+
+Independent `ObservationEngine::new()` instances support isolated embedding/testing through
+their closure methods, with their own configuration, identities and clocks. Public macros
+always use global(), never a hidden per-test engine override.
 
 ## Typed RAII spans
 
@@ -247,8 +369,9 @@ with `data: null`. Both have identical namespace, level, process, scope and span
 each separate span gets a fresh id. Configuration changes or dropping the scope do not
 suppress end. Policy counts **spans**, not their two records. No distributed tracing,
 parent-span tree or automatic duration field is modeled. Normal Drop cannot return I/O
-errors; they increment the engine counter. Aborts, leaks, process termination and I/O
-failures can leave unmatched spans. See FORMAT.md before aggregating overlapping timings.
+errors; synchronous enqueue failures increment the engine counter. Async end-write failures
+surface at flush_channels(), not necessarily at finish()/Drop. Aborts, leaks, process
+termination, retention and I/O failures can leave unmatched spans. See FORMAT.md before aggregating overlapping timings.
 
 ## Validation
 

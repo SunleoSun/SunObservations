@@ -121,6 +121,71 @@ fn message_works_without_registration_and_policy_defaults_to_always() {
 }
 
 #[test]
+fn sinkless_admission_still_serializes_and_calls_message() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Probed {
+        calls: Arc<AtomicUsize>,
+        fail: bool,
+    }
+    impl Serialize for Probed {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.fail {
+                Err(serde::ser::Error::custom("failed"))
+            } else {
+                serializer.serialize_unit()
+            }
+        }
+    }
+    impl Observation for Probed {
+        const NAMESPACE: &'static str = "engine_tests::sinkless";
+        fn message(&self) -> Option<&str> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            Some("message")
+        }
+    }
+    let engine = ObservationEngine::new();
+    engine.set_selection(Selection::new().activate_all());
+    let calls = Arc::new(AtomicUsize::new(0));
+    assert!(engine
+        .observe_if_active(|| Probed {
+            calls: calls.clone(),
+            fail: false
+        })
+        .unwrap());
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    assert!(matches!(
+        engine.observe_if_active(|| Probed {
+            calls: calls.clone(),
+            fail: true
+        }),
+        Err(ObservationError::Serialize(_))
+    ));
+    assert_eq!(calls.load(Ordering::Relaxed), 3);
+}
+
+#[test]
+fn flush_barrier_visits_shared_sinks_once_even_without_routes() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Flushed(AtomicUsize);
+    impl Sink for Flushed {
+        fn write(&self, _: &ObservationRecord) -> io::Result<()> {
+            Ok(())
+        }
+        fn flush(&self) -> io::Result<()> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+    let engine = ObservationEngine::new();
+    let sink = Arc::new(Flushed(AtomicUsize::new(0)));
+    engine.add_channel_sink("a", sink.clone());
+    engine.add_channel_sink("b", sink.clone());
+    engine.flush_channels().unwrap();
+    assert_eq!(sink.0.load(Ordering::Relaxed), 1);
+}
+
+#[test]
 fn sink_failures_are_counted_and_other_channels_still_receive() {
     struct Broken;
     impl Sink for Broken {
@@ -133,8 +198,8 @@ fn sink_failures_are_counted_and_other_channels_still_receive() {
     }
     let engine = ObservationEngine::new();
     let memory = Arc::new(MemorySink::new());
-    engine.channel("broken").add_sink(Arc::new(Broken));
-    engine.channel("healthy").add_sink(memory.clone());
+    engine.add_channel_sink("broken", Arc::new(Broken));
+    engine.add_channel_sink("healthy", memory.clone());
     engine
         .register_namespace_channel("engine_tests", "broken")
         .unwrap();
@@ -148,6 +213,6 @@ fn sink_failures_are_counted_and_other_channels_still_receive() {
     ));
     assert_eq!(memory.len(), 1);
     assert_eq!(engine.sink_error_count(), 1);
-    assert!(engine.flush().is_err());
+    assert!(engine.flush_channels().is_err());
     assert_eq!(engine.sink_error_count(), 2);
 }

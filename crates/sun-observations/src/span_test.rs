@@ -25,7 +25,7 @@ fn start_end_share_identity_scope_and_frozen_routing() {
     drop(scope);
     engine.set_selection(Selection::new());
     let later = Arc::new(crate::MemorySink::new());
-    engine.channel("span_tests").add_sink(later.clone());
+    engine.add_channel_sink("span_tests", later.clone());
     drop(span);
     let records = sink.records();
     assert_eq!(records.len(), 2);
@@ -129,7 +129,7 @@ fn explicit_finish_reports_end_error_and_never_retries() {
     }
     let engine = ObservationEngine::new();
     let sink = Arc::new(FailEnd(AtomicUsize::new(0)));
-    engine.channel("end").add_sink(sink.clone());
+    engine.add_channel_sink("end", sink.clone());
     engine
         .register_namespace_channel("span_tests", "end")
         .unwrap();

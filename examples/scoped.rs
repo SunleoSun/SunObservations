@@ -23,7 +23,7 @@ fn work() {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(MemorySink::new());
-    global().channel("capture").add_sink(memory.clone());
+    global().add_channel_sink("capture", memory.clone());
     global().register_namespace_channel("compute", "capture")?;
     let _scope = start_scope(
         ScopeConfig::new("run-a")

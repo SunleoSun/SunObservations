@@ -78,11 +78,14 @@ Normal panic unwinding runs Drop; abort, leaked guards, termination, serializati
 failure or incomplete transport can leave unmatched pairs. Readers must handle them
 explicitly, not invent an end timestamp or duration.
 
-## Ordering, fan-out and durability
+## Ordering, fan-out and asynchronous persistence
 
-Each shared JsonlSink serializes concurrent calls under a lock for whole-line writes.
-Ordering is sink lock-acquisition order; concurrent timestamps can be equal or appear
-out of order. There is no sequence number or cross-sink total ordering guarantee.
+JsonlSink enqueues immutable shared records into an unbounded queue. One lazy worker
+per sink performs JSONL encoding, buffered writes, flush and optional file compaction.
+Construction/registration alone creates neither a file nor a worker. Queue order defines
+per-sink delivery order; concurrent timestamps can be equal or appear out of order. There
+is no sequence number or cross-sink total ordering guarantee. ts/proc_ms are captured at
+observation emission, **not** at background persistence, and do not include queue latency.
 
 One observation may route to several logical channels and each channel to several sinks.
 Repeated/overlapping routes to the same channel are deduplicated. The same sink attached
@@ -91,11 +94,36 @@ absent from records. Consumers should decide whether their wiring requires avoid
 duplicates; v1 provides no point-event id for automatic deduplication. A span id identifies
 the span, not a globally unique lifecycle-record delivery.
 
-File mode appends and never truncates existing contents. Share one sink instance for
-concurrent writers to a destination; separate instances/processes are not coordinated.
-Flush drains the writer, not an fsync guarantee. Failed/partial I/O can leave a torn final
-line; sinks do not retry, roll back other sinks, repair preexisting files or rotate them.
-Parsers should report malformed lines and explicitly choose a recovery policy.
+Without a size limit, file mode appends without truncation. With retention configured,
+after exceeding maximum bytes the worker trims oldest **whole records** toward
+max_bytes * (1 - trim_fraction). It aligns the approximate cut forward to a newline,
+copies the complete suffix to a temporary sibling, then replaces the original file.
+The newest record is always retained whole: an oversized single record can exceed the
+maximum. A normal cut can undershoot the target by a line; later appends grow within
+the hysteresis window. The configured maximum is approximate during batches. This
+bounded historical retention is deliberate, not queue-overflow loss. Trimming can remove
+span starts/ends independently; retained files can legitimately contain unmatched spans.
+
+Share one sink instance for a physical destination. Separate instances/processes writing
+or compacting the same file are not coordinated. Periodic flush defaults to 1000 ms
+(configurable); it is best-effort at batch boundaries, not a real-time deadline. Underlying
+I/O or a large backlog can delay it. The queue is unbounded: slow disks consume memory,
+not overflow drops. A successful enqueue does not establish persistence.
+
+After successful engine.flush_channels(), each currently attached sink has processed its
+queue prefix up to its barrier and its underlying writer has been flushed. Writes concurrent
+with the barrier may or may not be included. Flush is not fsync or a disk durability/crash
+recovery guarantee. Use an explicit barrier before reading the file or deterministic global
+shutdown; process-global Rust statics are not dropped automatically. Last-owner sink Drop
+drains the queue, flushes and joins the writer. A detached sink needs its own barrier if it
+is still used by a captured span/old plan.
+
+Background failure is sticky and observable through last_error(), subsequent write/flush
+errors and a stderr report at last-owner Drop. There is no automatic retry, multi-sink
+rollback or repair of preexisting corruption. Failed/partial I/O or process termination can
+leave a torn final line. Parsers must report malformed lines and choose an explicit recovery
+policy. Retention replacement only operates on complete records from a valid JSONL file;
+it is not a repair mechanism for a preexisting incomplete tail.
 
 ## Namespace interpretation for future tools
 

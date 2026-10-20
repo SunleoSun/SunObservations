@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 pub fn capture(engine: &ObservationEngine, namespace: &str) -> Arc<MemorySink> {
     let sink = Arc::new(MemorySink::new());
-    engine.channel(namespace).add_sink(sink.clone());
+    engine.add_channel_sink(namespace, sink.clone());
     engine
         .register_namespace_channel(namespace, namespace)
         .unwrap();

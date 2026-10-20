@@ -1,6 +1,14 @@
-use crate::{context, ContextGuard, Observation, Policy, Selection};
+use crate::{
+    context,
+    plan::{next_identity, ResolvedPlan},
+    ContextGuard, Observation, Policy, Selection,
+};
 use parking_lot::Mutex;
-use std::{any::TypeId, collections::HashMap, sync::Arc};
+use std::{
+    any::TypeId,
+    collections::HashMap,
+    sync::{atomic::AtomicU64, Arc},
+};
 
 /// One execution identity, not a verbosity category. Each start creates fresh counters.
 #[derive(Clone, Debug)]
@@ -56,29 +64,23 @@ impl ScopeConfig {
     }
 }
 
-pub(crate) struct ScopeState {
-    pub config: ScopeConfig,
-    counters: Mutex<HashMap<TypeId, u64>>,
+#[derive(Default)]
+pub(crate) struct ScopePlans {
+    pub plans: HashMap<(u64, TypeId), Arc<ResolvedPlan>>,
+    pub counters: HashMap<TypeId, Arc<AtomicU64>>,
 }
 
+pub(crate) struct ScopeState {
+    pub id: u64,
+    pub config: ScopeConfig,
+    pub plans: Mutex<ScopePlans>,
+}
 impl ScopeState {
     pub fn new(config: ScopeConfig) -> Self {
         Self {
+            id: next_identity(),
             config,
-            counters: Mutex::new(HashMap::new()),
-        }
-    }
-    pub fn admit<T: Observation>(&self) -> bool {
-        let policy = self
-            .config
-            .policies
-            .get(&TypeId::of::<T>())
-            .copied()
-            .unwrap_or(Policy::Always);
-        match policy {
-            Policy::Always => true,
-            Policy::Never => false,
-            _ => policy.admit(self.counters.lock().entry(TypeId::of::<T>()).or_default()),
+            plans: Mutex::new(ScopePlans::default()),
         }
     }
 }

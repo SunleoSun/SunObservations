@@ -1,0 +1,249 @@
+# SunObservations benchmark report
+
+## Environment and reproduction
+
+Measured on AMD Ryzen 9 5950X (16 physical cores / 32 logical CPUs), 64 GiB RAM,
+Windows 11 Pro 10.0.26200, x86_64-pc-windows-msvc, NTFS on local C: storage.
+Toolchain: rustc 1.96.0 (ac68faa20 2026-05-25), cargo 1.96.0. Cargo bench uses the
+optimized bench/release profile; no additional task-supplied RUSTFLAGS, CPU-native flags,
+affinity, LTO or custom allocator. Temporary JSONL files use the OS temporary directory.
+OS write caching is enabled by the ordinary file API: flush is not fsync. These are
+application-level buffered-persistence measurements, **not power-loss durable device IOPS**.
+The machine was not isolated/pinned; scheduler, allocator and filesystem variation remains.
+
+Run **all groups in one command** from the workspace root:
+
+```sh
+cargo bench -p sun-observations --bench runtime
+```
+
+The harness is `crates/sun-observations/benches/runtime.rs`, with no adaptive iterations.
+It runs three complete samples by default. Optional environment variables:
+
+- `SUN_OBS_BENCH_REPEATS`: positive sample count (default 3).
+- `SUN_OBS_BENCH_GROUP`: hot, selectors, sinks, threads, short_threads or compaction;
+  absent/empty selects everything.
+
+Captured final command:
+
+```sh
+cargo bench -p sun-observations --bench runtime > benchmarks/final.csv 2> benchmarks/final_stderr.txt
+```
+
+Raw observations: [final.csv](benchmarks/final.csv), worker/file verification diagnostics:
+[final_stderr.txt](benchmarks/final_stderr.txt). All scenarios completed successfully.
+Tables below are medians of three samples, in **ns per macro call**, not CPU cycles or
+per-admitted-record latency. Throughput is aggregate million calls/s, computed as 1000/ns.
+All main workloads execute **1,000,000 actual observe! calls per sample** with the same
+Event { index: u64, value: f64 } payload. Counting policies reject before payload construction.
+Cold selector samples use 1000 fresh-scope first resolutions, not 1M warm calls.
+Batch-detail rows classify subsets of the same 1M-call compaction workload, not extra runs.
+
+## Timing boundaries
+
+- Warm hot/selector rows seed the same type outside the timer. Scope/configuration setup
+  and rule compilation are excluded. No sink rows retain payload serialization and message
+  callbacks but do not materialize a destination-less envelope.
+- Cold rows time the first macro call after scope entry; they include shared-plan/TLS
+  resolution and its allocations. Scope creation/drop and selector construction are outside
+  the interval. This is first-observation latency, not pure string matching alone.
+- Sink rows warm the worker and a parent plan, flush once outside the interval, and then
+  launch the timed 1M workload. Producer time includes admission, payload serialization,
+  envelope/timestamp construction and enqueue/append, **not just Sender::send**. The worker
+  runs concurrently with producers. End-to-end adds the final flush_channels() barrier.
+- Thread rows use a barrier to exclude OS-thread creation from steady-state producer timing.
+  There are 1/2/4/8/16 producers, always 1M total calls. Workers inherit one scope; their
+  first TLS miss reuses its already-resolved shared plan. Producer timing ends after join.
+- Short-thread rows deliberately include sequential OS-thread spawn/join, context entry/exit
+  and the first small TLS reference, comparing 1 x 1M with 1000 x 1000 calls.
+- Writer/retention rows use 256-record execution batches with a barrier after each (and a
+  shorter final batch). They include first worker startup/open, synchronous barrier waiting,
+  periodic flush if due, and compaction. No sleeps are used. These execution batches are
+  distinct from the worker's queue-drained internal batches.
+- All file parsing/count/line-completeness/retention checks and memory snapshots/cleanup
+  are **outside** the timed region. Normal sink cases check 1M records plus one warm record.
+  Retention intentionally checks the surviving suffix, not preservation of purged history.
+
+## Warm hot path
+
+| Mode (no sink) | ns/call | min–max ns/call | M calls/s |
+| --- | ---: | ---: | ---: |
+| inactive | 7.37 | 7.32–7.41 | 135.76 |
+| excluded | 7.28 | 7.28–7.42 | 137.38 |
+| never | 7.36 | 7.28–7.39 | 135.87 |
+| always | 154.45 | 152.92–156.17 | 6.47 |
+| every100 | 9.55 | 9.50–9.58 | 104.69 |
+
+Always and no-sink admission are the same mode in the hot group. Separate sink comparisons
+below include an explicit no-sink control. EveryN(100) admits 1% of occurrences, so its
+number must not be interpreted as the cost of serializing every record. Always/Never use
+no policy counter. Counting plans use a shared relaxed saturating atomic increment.
+
+## Selector scale: no linear warm degradation
+
+Each count N means N irrelevant positive namespaces, N positive tags, N excluded namespaces
+and N excluded tags (**4N rules**), plus the base activation in active cases. Observation
+namespace depth and tag count remain fixed. Both positive and exclusion lookups are indexed.
+
+| N per category | Cold first resolution ns | Warm rejected ns | Warm admitted/no sink ns |
+| ---: | ---: | ---: | ---: |
+| 0 | 290.20 | 7.33 | 154.42 |
+| 10 | 335.50 | 7.30 | 155.24 |
+| 100 | 286.50 | 7.33 | 156.20 |
+| 1000 | 280.30 | 7.32 | 155.82 |
+| 10000 | 283.40 | 7.35 | 152.82 |
+
+Warm 10 vs 10,000 rules/category is 7.30 vs 7.35 ns rejected and
+155.24 vs 152.82 ns admitted. There is no linear dependence on selector count in this workload.
+The production fast path checks a fixed TLS key and configuration generation; it does not
+scan rules/routes, hash TypeId, take a Mutex/RwLock or atomically clone the shared plan.
+Cold resolution uses scope maps and indexed namespace-prefix/tag membership. Four-entry
+TLS caching targets recurring few-type callsites; more interleaved types can evict entries
+and return to the shared cache. This suite does not claim unlimited-type constant latency.
+An allocation-counting regression test independently proves zero allocations on warm
+selection/exclusion/Never/EveryN rejection, and tests verify parent/child plan pointer reuse.
+
+## Sink comparison (one producer)
+
+| Destination | Producer ns/call | End-to-end ns/call | End-to-end M calls/s |
+| --- | ---: | ---: | ---: |
+| no_sink | 157.95 | 157.95 | 6.33 |
+| memory | 630.22 | 630.22 | 1.59 |
+| jsonl | 678.89 | 678.93 | 1.47 |
+| memory_jsonl | 783.04 | 783.08 | 1.28 |
+| fanout_2channels_4sinks | 674.88 | 674.88 | 1.48 |
+
+JSONL is async in both columns. The producer column alone is **not file throughput**;
+on one producer the writer can often keep up, so the final barrier adds little. At higher
+producer counts the distinction becomes substantial. Memory/JSONL share one immutable
+record allocation per occurrence. Fan-out is two matching channels with two MemorySinks
+each; payload serialization/construction is not repeated four times. Retention is disabled
+in these cases so every record can be verified.
+
+## Thread scaling (1M total, shared parent scope)
+
+Values are aggregate ns/call. Single-sink cases use one shared physical sink.
+
+| Producers | Always/no sink | EveryN(100)/no sink | Memory | JSONL producer | JSONL end-to-end |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 157.43 | 9.65 | 625.95 | 665.07 | 665.11 |
+| 2 | 81.01 | 18.57 | 343.72 | 334.70 | 720.27 |
+| 4 | 42.29 | 28.76 | 210.19 | 188.47 | 862.99 |
+| 8 | 22.05 | 33.08 | 149.45 | 153.03 | 819.79 |
+| 16 | 18.67 | 37.49 | 628.82 | 136.78 | 888.42 |
+
+At 16 producers JSONL takes 136.78 ns/call producer-side and 888.42 ns/call
+end-to-end. More producers grow backlog; a single destination still has one encoder/writer.
+Strict scope-wide counting introduces atomic cache-line contention, visible in EveryN.
+MemorySink's single append mutex stops scaling at high thread counts on this host (16 is
+worse than 8). This is a measured sink bottleneck, **not** a plan-lookup lock: the no-sink
+control continues to scale and shared-plan refcounts are not touched per warm occurrence.
+No allocator/scheduler/cross-CCD contribution is isolated by this harness; do not generalize
+these ratios to every host or payload.
+
+## Short-lived threads
+
+| Pattern | Rejected ns/call | Always/no sink ns/call |
+| --- | ---: | ---: |
+| 1 threads x 1000000 calls | 7.77 | 155.70 |
+| 1000 threads x 1000 calls | 80.09 | 234.37 |
+
+The rejected workload adds roughly 72.39 microseconds per additional
+short-lived OS thread, including spawn/join/context lifecycle and one TLS miss. This is
+not a standalone TLS-initialization measurement. Threads do not build dynamic type tables
+or duplicate 10k-rule selector/routing resolution: they reuse the parent's scope plan.
+
+## Writer batches and line-safe compaction
+
+Retention uses **1 MiB maximum, trim_fraction 0.25** (target 768 KiB), versus an unlimited
+normal file. 1M calls force hundreds of replacements, not one threshold crossing. Size may
+finish anywhere from roughly target to maximum because later appends fill the hysteresis
+window. The dedicated deterministic regression test checks a threshold crossing finishes
+at/below target (within one complete line) and does not compact on the next small append.
+
+| Workload | End-to-end ns/call | M calls/s |
+| --- | ---: | ---: |
+| normal | 888.19 | 1.13 |
+| compacting_amortized | 8223.68 | 0.12 |
+| non_compacting | 1025.35 | 0.98 |
+| compaction_triggering | 38665.80 | 0.03 |
+
+Batch-detail rows classify 256-call execution batches in the same retained run according
+to whether their worker compaction count increased. They include write/barrier cost and
+one or more replacements, not a pure filesystem microbenchmark. The amortized row covers
+the whole 1M workload, including non-compacting batches, bookkeeping and final barrier.
+
+Actual final retention diagnostics (full raw diagnostics linked above):
+
+| Sample | Compactions | Retained lines | First retained index | Bytes after final append |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 747 | 5056 | 994944 | 996032 |
+| 1 | 747 | 5055 | 994945 | 995835 |
+| 2 | 747 | 4991 | 995009 | 983227 |
+
+Outside timing the harness parsed **every** retained line, checked a complete first/last
+line and final LF, verified consecutive retained indices and newest index 999999, proved
+oldest records removed, and checked final size lies in the hysteresis window. Normal files
+retain all 1M records. Unit tests additionally cover oversized-single-record preservation,
+repeated compaction, preexisting-file append, lazy open, off-producer writes/flush, periodic
+flush by event synchronization (no sleeps), concurrent barriers, panic/error propagation,
+and normal Drop drain. No certification logic was added.
+
+Compaction is visibly expensive versus ordinary buffered appends: copying a retained suffix
+and replacing/reopening the file is deliberate safety work. Very small limits/high-frequency
+replacement are not free; choose file size/trim hysteresis to suit the destination. No
+claim of fsync/crash durability, multiprocess path coordination or bounded backlog is made.
+
+## Baseline and measured follow-up
+
+[baseline.csv](benchmarks/baseline.csv) was measured **before runtime edits** at repository
+HEAD 0b20d57 on the same host/toolchain. It is one 1M-call sample per case, not a statistical
+confidence estimate. Historical harness: [baseline_source.rs.txt](benchmarks/baseline_source.rs.txt).
+To reproduce it, check out that commit in a separate worktree, copy the saved source into
+crates/sun-observations/benches/runtime.rs, add the same [[bench]] name=runtime / harness=false
+manifest entry, then run cargo bench -p sun-observations --bench runtime. No current API
+compatibility shim or synchronous file sink is retained in production.
+
+| Comparable workload | Baseline ns/call | Final median ns/call |
+| --- | ---: | ---: |
+| Warm rejected, no irrelevant selectors | 18.77 | 7.37 |
+| Warm rejected, 10k/category | 41831.22 | 7.35 |
+| Warm Policy::Never | 25.92 | 7.36 |
+| EveryN(100), no sink | 43.77 | 9.55 |
+| Always, no sink | 499.94 | 154.45 |
+| MemorySink | 1548.28 | 630.22 |
+| Memory + file, end-to-end | 5390.52 (synchronous) | 783.08 (async + barrier) |
+
+After the first architectural implementation, a focused 3-sample hot run still spent a
+median **1094.16 ns/call** on Always with no destination, allocating/formatting an envelope
+that no consumer could see. A simple follow-up skips that envelope only after payload
+serialization and message callbacks: the immediate follow-up measured **169.62 ns/call**.
+Raw paired runs: [pre_followup.csv](benchmarks/pre_followup.csv),
+[post_followup.csv](benchmarks/post_followup.csv). Payload errors/message side effects are
+covered by a dedicated regression test. Rejected-path code generation also improved when
+the generic admitted path shrank; that is not claimed as a separately isolated algorithmic win.
+The final run additionally includes cold-path separation and safe cache retirement outside
+TLS borrows/configuration locks; compare final numbers to the final source, not an intermediate
+binary. Saturating policy semantics are preserved by relaxed CAS, not a wrapping counter.
+
+Further raw-JSON payload storage or deferred timestamp formatting was **not** introduced.
+Delivered records retain the straightforward public Value/String envelope; these runs do not
+justify that API/lifecycle complexity. The remaining measured limitations are actual record
+materialization, serialized MemorySink append, shared counting-policy contention, single-writer
+file service rate and file replacement cost. No broader speedup claim or certification follows
+from this microbenchmark suite.
+
+## Validation and limits
+
+The implementation was checked with cargo fmt --all --check,
+cargo check --workspace --all-features --all-targets,
+cargo test --workspace --all-features, and
+cargo clippy --workspace --all-targets --all-features -- -D warnings.
+The default-feature tests and executable examples were also validated.
+The benchmark itself is independent of test-only allocator instrumentation.
+
+Unbounded queues can exhaust RAM if storage cannot catch up. Explicit flush_channels() is
+required for deterministic global shutdown because process statics are not dropped. Flush is
+not fsync; fail-stop writer errors must be checked. Background I/O never runs on a producer.
+Certification placeholders remain empty. Existing user .cargo/config.toml (target-dir only)
+was not changed.

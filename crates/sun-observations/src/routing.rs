@@ -1,45 +1,66 @@
 use crate::{
-    namespace::{matches_subtree, validate_namespace, InvalidNamespace},
-    Channel,
+    namespace::{prefixes, validate_namespace, InvalidNamespace},
+    Channel, Sink,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 #[derive(Default)]
 pub(crate) struct Routing {
-    channels: HashMap<String, Arc<Channel>>,
-    routes: Vec<(String, Arc<Channel>)>,
+    channels: HashMap<String, Channel>,
+    routes: HashMap<String, Vec<String>>,
 }
 impl Routing {
-    pub fn channel(&mut self, name: &str) -> Arc<Channel> {
+    pub fn add_sink(&mut self, channel: &str, sink: Arc<dyn Sink>) {
         self.channels
-            .entry(name.to_owned())
-            .or_insert_with(|| Arc::new(Channel::new(name)))
-            .clone()
+            .entry(channel.to_owned())
+            .or_insert_with(|| Channel::new(channel))
+            .sinks
+            .push(sink);
+    }
+    pub fn clear_sinks(&mut self, channel: &str) -> Vec<Arc<dyn Sink>> {
+        self.channels
+            .get_mut(channel)
+            .map(|channel| std::mem::take(&mut channel.sinks))
+            .unwrap_or_default()
     }
     pub fn register(&mut self, namespace: &str, channel: &str) -> Result<(), InvalidNamespace> {
         validate_namespace(namespace)?;
-        let channel = self.channel(channel);
-        if !self
-            .routes
-            .iter()
-            .any(|(root, c)| root == namespace && Arc::ptr_eq(c, &channel))
-        {
-            self.routes.push((namespace.to_owned(), channel));
+        self.channels
+            .entry(channel.to_owned())
+            .or_insert_with(|| Channel::new(channel));
+        let channels = self.routes.entry(namespace.to_owned()).or_default();
+        if !channels.iter().any(|c| c == channel) {
+            channels.push(channel.to_owned());
         }
         Ok(())
     }
-    pub fn matching(&self, namespace: &str) -> Vec<Arc<Channel>> {
+    pub fn matching(&self, namespace: &str) -> Vec<&Channel> {
+        let mut seen = HashSet::new();
         let mut channels = Vec::new();
-        for (root, channel) in &self.routes {
-            if matches_subtree(root, namespace) && !channels.iter().any(|c| Arc::ptr_eq(c, channel))
-            {
-                channels.push(channel.clone());
+        for prefix in prefixes(namespace) {
+            if let Some(names) = self.routes.get(prefix) {
+                for name in names {
+                    if seen.insert(name) {
+                        channels.push(&self.channels[name]);
+                    }
+                }
             }
         }
         channels
     }
-    pub fn all(&self) -> Vec<Arc<Channel>> {
-        self.channels.values().cloned().collect()
+    pub fn sinks(&self) -> Vec<Arc<dyn Sink>> {
+        let mut sinks = Vec::new();
+        for channel in self.channels.values() {
+            for sink in &channel.sinks {
+                if !sinks.iter().any(|s| Arc::ptr_eq(s, sink)) {
+                    sinks.push(sink.clone());
+                }
+            }
+        }
+        sinks
     }
 }
 
