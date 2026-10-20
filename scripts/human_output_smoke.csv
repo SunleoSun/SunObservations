@@ -1,0 +1,17 @@
+group,scenario,threads,calls,sample,producer_ns_per_call,e2e_ns_per_call,renders
+delivery,arc_record,1,1000000,0,6.554,6.554,0
+delivery,stack_delivery,1,1000000,0,6.281,6.281,0
+delivery,shared_text_delivery,1,1000000,0,13.931,13.931,0
+render,metrics_row,1,262144,0,601.651,601.651,262144
+console,default,1,262144,0,862.878,863.006,0
+console,custom,1,262144,0,1693.505,1693.676,262144
+console,jsonl_custom,1,262144,0,1843.468,1843.658,262144
+console,jsonl_two_human,1,262144,0,2042.574,2042.792,262144
+console,default,4,262144,0,317.377,804.414,0
+console,custom,4,262144,0,408.124,659.370,262144
+console,jsonl_custom,4,262144,0,523.146,849.006,262144
+console,jsonl_two_human,4,262144,0,513.177,804.428,262144
+console,default,16,262144,0,167.709,859.553,0
+console,custom,16,262144,0,296.700,931.272,262144
+console,jsonl_custom,16,262144,0,508.094,1696.977,262144
+console,jsonl_two_human,16,262144,0,550.212,1946.420,262144

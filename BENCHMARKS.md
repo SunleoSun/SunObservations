@@ -30,7 +30,7 @@ It runs three complete samples by default. Optional environment variables:
 
 ### Generated artifacts
 
-All four targets (`runtime`, `batch`, `investigation`, `investigation_allocations`)
+All five targets (`runtime`, `batch`, `investigation`, `investigation_allocations`, `human`)
 automatically create a unique `<target>-<id>` run directory under a `benchmarks`
 directory beside the active Cargo profile directory containing:
 
@@ -272,3 +272,147 @@ producer queue. [BATCH_BENCHMARKS.md](BATCH_BENCHMARKS.md) contains actual paire
 JsonlSink runs (1/4/16 producers, Event/Rich, enqueue and engine-flush completion), raw evidence
 and 4096/8192/16384 comparisons. Saturated cases improved 6.4–12.4%; single-producer Rich
 regressed 9.3%. The earlier prefilled result is not a universal production speedup claim.
+
+## Human rendering follow-up
+
+This is a separate same-host before/after experiment, not a revision of historical
+numbers above. Host remains Ryzen 9 5950X, Windows 11 10.0.26200, local C: NTFS,
+rustc 1.96.0 (ac68faa20 2026-05-25), optimized release profile, default features,
+no affinity, native flags, allocator replacement, or fsync. Five complete samples
+per case. Baseline source: 9476476ea99bdde1e16e9ef3c9f38cc8735a5f67, clean workspace.
+Controls were measured before production edits; final runs include the new delivery
+contract, cached capability, and Console worker. JSONL's bounded architecture is unchanged.
+
+Reproduce current measurements:
+
+~~~sh
+# Equivalent optimized harness invocation when a command wrapper has no bench subcommand:
+# Set SUN_OBS_BENCH_GROUP=sinks and SUN_OBS_BENCH_REPEATS=5 for the runtime command.
+cargo test --release -p sun-observations --bench runtime
+cargo test --release -p sun-observations --bench human
+# Ordinary Cargo also supports: cargo bench -p sun-observations --bench human
+~~~
+
+The runtime controls use 1,000,000 Event { index, value } observations per sample.
+The final Event implements a numeric table renderer, deliberately unused on structured
+routes. Human scenarios use 262,144 five-field Metrics observations (epoch/loss/accuracy/
+trades/profit) and 1/4/16 producers sharing one captured scope. Workers and parent plans
+are warmed and flushed outside timing. OS-thread creation is excluded by a barrier;
+producer timing includes admission, serialization, envelope, optional custom formatting,
+enqueue, and joins. End-to-end adds engine flush of all sinks. Validation and temporary
+file cleanup are outside timing. Renderer counts are thread-local, avoiding an artificial
+cross-producer atomic bottleneck; they assert exactly N renders for every custom scenario,
+including two human sinks plus JSONL. Default projection returns None (no rendered String).
+
+ConsoleSink::new(File) uses the production human worker with actual buffered-OS file
+writes and flush, not io::sink(), simulated queue service, or terminal emulator painting.
+Every human file has N+1 complete lines; every JSONL record is independently parsed.
+Correct content, stdout/stderr destinations, worker identity, multiline ordering and
+lifecycle are separately certified. These measurements do **not** predict interactive
+terminal capacity: terminal painting, stdout/stderr locking/encoding and slow pipes can
+make service much slower. The file destination isolates a reproducible human-output path.
+
+Tracked raw reports (all samples, not only medians):
+
+- [human_structured_before.csv](scripts/human_structured_before.csv), from runtime-0TXOOW;
+- [human_structured_after.csv](scripts/human_structured_after.csv), from runtime-3D9se8;
+- [human_output.csv](scripts/human_output.csv), from human-GzMCJj.
+
+Original run directories live under the configured target's benchmarks directory;
+metrics.csv/stderr.txt are retained there by the existing report harness. The tracked
+CSV copies are the measured report bytes, not synthetic chart inputs. Each run exited
+successfully with no benchmark diagnostics/errors. Subsequent chart generation validates
+its dataset against the following report tables.
+
+## Human structured control
+
+All values are aggregate ns/call, medians of five. Delta uses unrounded end-to-end values.
+
+| Destination | Before producer ns | After producer ns | Before e2e ns | After e2e ns | Delta % | Before e2e min–max | After e2e min–max |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| no_sink | 156.54 | 152.22 | 156.54 | 152.22 | -2.76 | 149.09–166.03 | 149.14–152.63 |
+| memory | 737.08 | 712.75 | 737.08 | 712.75 | -3.30 | 692.01–785.35 | 675.30–723.29 |
+| jsonl | 674.68 | 679.98 | 674.72 | 680.09 | 0.80 | 621.66–834.91 | 674.68–698.42 |
+| memory_jsonl | 997.08 | 848.52 | 997.15 | 848.57 | -14.90 | 786.60–1025.23 | 779.74–856.95 |
+| fanout_2channels_4sinks | 735.42 | 740.16 | 735.42 | 740.16 | 0.64 | 691.39–787.70 | 703.53–844.51 |
+
+All ranges overlap. JSONL's +0.80% and four-Memory fan-out's +0.64% are small relative
+to variation; the other medians improved. The large Memory+JSONL change must not be
+attributed to human capability: that path performs the same structured work, and
+allocator/worker scheduling and host variability are not controlled. These measurements
+do not demonstrate a material structured-only regression or a universal speedup.
+Structured fan-out still calls write_shared directly; capability is sampled without
+locks at attachment, then aggregated during plan resolution.
+Allocation tests prove no new delivery allocation and no rendered buffer on those routes.
+
+## Console producer and service
+
+Median of five, aggregate ns/call. Service M/s = 1000 / e2e ns, not a second timing.
+Custom output is one five-column formatted numeric row; default output is a longer
+compact human line with timestamp/scope/namespace/JSON data. Their byte counts and
+which thread formats them differ, so the path difference is not pure renderer CPU cost.
+
+| Scenario | Producers | Producer ns | E2e ns | E2e min–max ns | Service M/s |
+| --- | ---: | ---: | ---: | --- | ---: |
+| default | 1 | 782.36 | 782.46 | 772.54–811.22 | 1.278 |
+| custom | 1 | 1606.16 | 1606.23 | 1596.26–1618.48 | 0.623 |
+| jsonl_custom | 1 | 1770.35 | 1770.58 | 1756.89–1793.95 | 0.565 |
+| jsonl_two_human | 1 | 1826.60 | 1826.80 | 1817.13–1872.62 | 0.547 |
+| default | 4 | 233.32 | 767.37 | 723.56–850.12 | 1.303 |
+| custom | 4 | 397.02 | 600.05 | 580.68–614.66 | 1.667 |
+| jsonl_custom | 4 | 432.95 | 817.79 | 548.65–860.05 | 1.223 |
+| jsonl_two_human | 4 | 422.38 | 590.55 | 518.29–822.33 | 1.693 |
+| default | 16 | 157.42 | 816.33 | 796.36–857.03 | 1.225 |
+| custom | 16 | 199.80 | 764.29 | 742.76–817.53 | 1.308 |
+| jsonl_custom | 16 | 228.97 | 976.66 | 882.18–1073.08 | 1.024 |
+| jsonl_two_human | 16 | 248.09 | 996.32 | 961.92–1102.08 | 1.004 |
+
+Four-producer mixed scenarios are visibly noisy (JSONL+two-human: 518–822 ns).
+Adding a sink even appears faster in some samples; do not infer negative sink cost
+from independently scheduled producer/worker runs. The default worker formats while
+custom rows format on producers; at four producers custom
+rendering parallelizes and produces fewer bytes. Allocation ownership/drop scheduling
+also differs. Do not interpret the 1p→4p change as a universal scaling factor.
+
+At 16 producers default enqueue reaches 6.35M calls/s while through-flush service is
+1.23M/s; custom reaches 5.01M/s producer versus 1.31M/s service. Backlog is real:
+additional producers do not create extra service workers for one sink. Median default
+completion is about 214 ms for 262,144 records versus 41 ms enqueue (about 173 ms extra
+barrier time); custom is about 200 ms versus 52 ms. Queues are unbounded, not capacity
+control. Provision against measured destination service, not enqueue throughput.
+
+## Human representation and rendering
+
+Two fan-out clone/drop operations per iteration, 1M iterations per sample, shared
+record/text preallocated outside timing; black_box prevents dead-code elimination.
+No renderer, envelope, queue, sink I/O or allocation is timed in the delivery controls.
+The row-only case formats and drops one allocated five-column String per iteration.
+
+| Case | Median ns | Min–max ns |
+| --- | ---: | --- |
+| arc_record | 5.92 | 5.55–6.44 |
+| stack_delivery | 5.73 | 5.27–6.03 |
+| shared_text_delivery | 13.06 | 13.03–13.19 |
+| metrics_row | 595.38 | 590.00–599.46 |
+
+The empty stack wrapper has indistinguishable clone cost from the Arc-only control
+(the small negative difference is noise). Sharing Some(text) adds about 7.14 ns for
+two clone/drop operations, not an allocation per sink. Rendering itself is about
+595 ns in this numeric example and is performed once, never once per sink. Arc<String>
+adds one shared-header allocation only for Some(text); it keeps the original String
+buffer, unlike conversion into Arc<str> which copies its bytes. Allocation-counting
+regressions prove that constructing/cloning deliveries allocates zero, that the buffer
+pointer is preserved, and that absent-text human dispatch has the same allocation count
+as the existing structured path. No mandatory Arc<ObservationDelivery> is introduced.
+
+A subsequent one-sample smoke run after untimed read-error validation hardening
+also passed; the timed workload and production code were unchanged. Its raw report
+[human_output_smoke.csv](scripts/human_output_smoke.csv) (human-WOEr7S) is kept separate
+from the fixed five-sample dataset. Default 16p completion was 859.55 ns/call, but
+16p JSONL+custom and JSONL+two-human rose to 1696.98/1946.42 ns/call. This reinforces
+the mixed-concurrency scheduling noise rather than a stable throughput promise.
+
+These are microbenchmarks on one unpinned machine. They do not establish confidence
+intervals, long-running memory bounds, tail latency, actual terminal throughput, or
+power-loss durability. Re-measure representative rendering and actual terminals before
+choosing production observation rates.

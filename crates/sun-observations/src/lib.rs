@@ -30,8 +30,8 @@ pub use policy::Policy;
 pub use record::{ObservationRecord, Phase};
 pub use scope::{start_scope, ScopeConfig};
 pub use selection::Selection;
-pub use sink::Sink;
-pub use sinks::{JsonlConfig, JsonlSink, JsonlStats, MemorySink};
+pub use sink::{ObservationDelivery, Sink};
+pub use sinks::{ConsoleSink, JsonlConfig, JsonlSink, JsonlStats, MemorySink};
 pub use span::{span_if_active, SpanGuard};
 pub use sun_observations_derive::Observation;
 

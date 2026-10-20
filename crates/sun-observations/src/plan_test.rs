@@ -34,10 +34,74 @@ unsafe impl GlobalAlloc for AllocationCounter {
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 }
-#[derive(Serialize, Observation)]
-#[observation(namespace = "plans::event", tags("detail"))]
+#[derive(Serialize)]
 struct Event {
     value: usize,
+}
+impl Observation for Event {
+    const NAMESPACE: &'static str = "plans::event";
+    const TAGS: &'static [&'static str] = &["detail"];
+    fn render_text(&self) -> Option<String> {
+        panic!("structured plans never render")
+    }
+}
+
+#[test]
+fn delivery_and_human_fanout_clones_allocate_nothing() {
+    let record = Arc::new(crate::support_test::record("plans::delivery"));
+    let text = "formatted text".to_owned();
+    let buffer = text.as_ptr();
+    let shared = Arc::new(text);
+    assert_eq!(shared.as_ptr(), buffer);
+    ALLOCATIONS.with(|count| count.set(Some(0)));
+    let delivery = crate::ObservationDelivery::new(record.clone(), Some(shared.clone()));
+    let copy = delivery.clone();
+    let structured = crate::ObservationDelivery::new(record.clone(), None);
+    let count = ALLOCATIONS.with(|count| count.replace(None).unwrap());
+    assert_eq!(count, 0);
+    assert!(Arc::ptr_eq(delivery.shared_record(), copy.shared_record()));
+    assert!(Arc::ptr_eq(
+        delivery.shared_render_text().unwrap(),
+        copy.shared_render_text().unwrap()
+    ));
+    assert_eq!(delivery.render_text().unwrap().as_ptr(), buffer);
+    assert!(structured.render_text().is_none());
+}
+
+#[test]
+fn structured_dispatch_and_stack_human_delivery_have_equal_allocation_cost() {
+    struct Discard(bool);
+    impl crate::Sink for Discard {
+        fn write(&self, _: &crate::ObservationRecord) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn wants_render_text(&self) -> bool {
+            self.0
+        }
+    }
+    #[derive(Serialize, Observation)]
+    #[observation(namespace = "plans::allocation")]
+    struct Payload {
+        value: u64,
+    }
+    let engine = ObservationEngine::new();
+    engine.set_selection(Selection::new().activate_all());
+    engine.register_namespace_channel("plans", "all").unwrap();
+    let counts: Vec<_> = [false, true]
+        .into_iter()
+        .map(|human| {
+            engine.clear_channel_sinks("all");
+            engine.add_channel_sink("all", Arc::new(Discard(human)));
+            engine.observe_if_active(|| Payload { value: 1 }).unwrap();
+            ALLOCATIONS.with(|count| count.set(Some(0)));
+            for _ in 0..100 {
+                engine.observe_if_active(|| Payload { value: 1 }).unwrap();
+            }
+            ALLOCATIONS.with(|count| count.replace(None).unwrap())
+        })
+        .collect();
+    assert!(counts[0] > 0);
+    assert_eq!(counts[0], counts[1]);
 }
 
 #[test]

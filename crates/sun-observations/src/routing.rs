@@ -13,17 +13,21 @@ pub(crate) struct Routing {
     routes: HashMap<String, Vec<String>>,
 }
 impl Routing {
-    pub fn add_sink(&mut self, channel: &str, sink: Arc<dyn Sink>) {
-        self.channels
+    pub fn add_sink(&mut self, channel: &str, sink: Arc<dyn Sink>, needs_render_text: bool) {
+        let channel = self
+            .channels
             .entry(channel.to_owned())
-            .or_insert_with(|| Channel::new(channel))
-            .sinks
-            .push(sink);
+            .or_insert_with(|| Channel::new(channel));
+        channel.needs_render_text |= needs_render_text;
+        channel.sinks.push(sink);
     }
     pub fn clear_sinks(&mut self, channel: &str) -> Vec<Arc<dyn Sink>> {
         self.channels
             .get_mut(channel)
-            .map(|channel| std::mem::take(&mut channel.sinks))
+            .map(|channel| {
+                channel.needs_render_text = false;
+                std::mem::take(&mut channel.sinks)
+            })
             .unwrap_or_default()
     }
     pub fn register(&mut self, namespace: &str, channel: &str) -> Result<(), InvalidNamespace> {

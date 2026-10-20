@@ -11,6 +11,12 @@ pub trait Observation: Serialize + 'static {
     fn message(&self) -> Option<&str> {
         None
     }
+
+    /// Transient human projection, evaluated once only when a routed sink requests it.
+    /// This is independent of the persisted message and structured payload.
+    fn render_text(&self) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(test)]

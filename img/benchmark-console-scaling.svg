@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="473" viewBox="0 0 960 473" role="img" aria-labelledby="title desc">
+<title id="title">Console producer vs through-flush service</title>
+<desc id="desc">Default formatting; file-backed production worker; 5 x 262144 records. 1 producer, Producer: 782.36 ns/call; 1 producer, Through flush: 782.46 ns/call; 4 producers, Producer: 233.32 ns/call; 4 producers, Through flush: 767.37 ns/call; 16 producers, Producer: 157.42 ns/call; 16 producers, Through flush: 816.33 ns/call. Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: BENCHMARKS.md</desc>
+<rect width="960" height="473" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Console producer vs through-flush service</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">Default formatting; file-backed production worker; 5 x 262144 records</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Producer</text>
+<rect x="545" y="114" width="12" height="12" fill="#b55112"/>
+<text x="563.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Through flush</text>
+<path d="M255.00 138V369" stroke="#dce4e9"/>
+<text x="255.00" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V369" stroke="#dce4e9"/>
+<text x="398.75" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">1.9</text>
+<path d="M542.50 138V369" stroke="#dce4e9"/>
+<text x="542.50" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">3.7</text>
+<path d="M686.25 138V369" stroke="#dce4e9"/>
+<text x="686.25" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">5.6</text>
+<path d="M830.00 138V369" stroke="#dce4e9"/>
+<text x="830.00" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">7.5</text>
+<text x="542.50" y="412.00" font-size="13" text-anchor="middle" fill="#172b3a">Million calls/s (higher is better)</text>
+<text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">1 producer</text>
+<rect x="255" y="146" width="98.05" height="21" fill="#126b96"/>
+<text x="360.05" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">1.28</text>
+<rect x="255" y="177" width="98.04" height="21" fill="#b55112"/>
+<text x="360.04" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">1.28</text>
+<text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">4 producers</text>
+<rect x="255" y="223" width="328.77" height="21" fill="#126b96"/>
+<text x="590.77" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">4.29</text>
+<rect x="255" y="254" width="99.96" height="21" fill="#b55112"/>
+<text x="361.96" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">1.30</text>
+<text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">16 producers</text>
+<rect x="255" y="300" width="487.29" height="21" fill="#126b96"/>
+<text x="749.29" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">6.35</text>
+<rect x="255" y="331" width="93.97" height="21" fill="#b55112"/>
+<text x="355.97" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">1.22</text>
+<text x="24.00" y="446.00" font-size="13" text-anchor="start" fill="#172b3a">Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: BENCHMARKS.md</text>
+</g>
+</svg>

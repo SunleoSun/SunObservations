@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="550" viewBox="0 0 960 550" role="img" aria-labelledby="title desc">
+<title id="title">Human capability: structured-only control</title>
+<desc id="desc">Same-machine before/after; 5 x 1M calls; render-capable type after, no human sinks. No sink, Before: 156.54 ns/call; No sink, After: 152.22 ns/call; Memory, Before: 737.08 ns/call; Memory, After: 712.75 ns/call; JSONL, Before: 674.72 ns/call; JSONL, After: 680.09 ns/call; Memory + JSONL, Before: 997.15 ns/call; Memory + JSONL, After: 848.57 ns/call. Overlapping ranges; do not interpret small median changes as universal speedups. Source: BENCHMARKS.md</desc>
+<rect width="960" height="550" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Human capability: structured-only control</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">Same-machine before/after; 5 x 1M calls; render-capable type after, no human sinks</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Before</text>
+<rect x="545" y="114" width="12" height="12" fill="#b55112"/>
+<text x="563.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">After</text>
+<path d="M255.00 138V446" stroke="#dce4e9"/>
+<text x="255.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V446" stroke="#dce4e9"/>
+<text x="398.75" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">294.2</text>
+<path d="M542.50 138V446" stroke="#dce4e9"/>
+<text x="542.50" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">588.3</text>
+<path d="M686.25 138V446" stroke="#dce4e9"/>
+<text x="686.25" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">882.5</text>
+<path d="M830.00 138V446" stroke="#dce4e9"/>
+<text x="830.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">1176.6</text>
+<text x="542.50" y="489.00" font-size="13" text-anchor="middle" fill="#172b3a">ns/call (lower is better)</text>
+<text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">No sink</text>
+<rect x="255" y="146" width="76.50" height="21" fill="#126b96"/>
+<text x="338.50" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">156.54</text>
+<rect x="255" y="177" width="74.39" height="21" fill="#b55112"/>
+<text x="336.39" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">152.22</text>
+<text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">Memory</text>
+<rect x="255" y="223" width="360.20" height="21" fill="#126b96"/>
+<text x="622.20" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">737.08</text>
+<rect x="255" y="254" width="348.31" height="21" fill="#b55112"/>
+<text x="610.31" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">712.75</text>
+<text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">JSONL</text>
+<rect x="255" y="300" width="329.72" height="21" fill="#126b96"/>
+<text x="591.72" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">674.72</text>
+<rect x="255" y="331" width="332.35" height="21" fill="#b55112"/>
+<text x="594.35" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">680.09</text>
+<text x="240.00" y="411.00" font-size="14" text-anchor="end" fill="#172b3a">Memory + JSONL</text>
+<rect x="255" y="377" width="487.29" height="21" fill="#126b96"/>
+<text x="749.29" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">997.15</text>
+<rect x="255" y="408" width="414.68" height="21" fill="#b55112"/>
+<text x="676.68" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">848.57</text>
+<text x="24.00" y="523.00" font-size="13" text-anchor="start" fill="#172b3a">Overlapping ranges; do not interpret small median changes as universal speedups. Source: BENCHMARKS.md</text>
+</g>
+</svg>

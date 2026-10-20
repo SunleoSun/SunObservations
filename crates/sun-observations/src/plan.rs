@@ -12,6 +12,7 @@ pub(crate) struct ResolvedPlan {
     pub counter: Option<Arc<AtomicU64>>,
     pub scope: Option<String>,
     pub sinks: Arc<[Arc<dyn Sink>]>,
+    pub needs_render_text: bool,
 }
 impl ResolvedPlan {
     #[inline]

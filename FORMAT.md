@@ -21,6 +21,10 @@ This document remains the canonical persisted-format contract.
 - The sink serializes supplied ObservationRecord values as-is. Applications constructing
   records directly are responsible for satisfying the same envelope/lifecycle invariants.
 
+Human sink rendering (`Observation::render_text`) is transient presentation, not part
+of the v1 envelope and never persisted by JsonlSink. It is distinct from `message`.
+Downstream presentation fields inside `data` remain ordinary typed payload fields.
+
 ## Envelope
 
 | Member | JSON type | Meaning |

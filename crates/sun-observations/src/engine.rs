@@ -91,8 +91,9 @@ impl ObservationEngine {
     }
     /// Central attachment boundary; publishes a new generation for all cached plans.
     pub fn add_channel_sink(&self, channel: &str, sink: Arc<dyn Sink>) {
+        let needs_render_text = sink.wants_render_text();
         let mut config = self.config.write();
-        config.routing.add_sink(channel, sink);
+        config.routing.add_sink(channel, sink, needs_render_text);
         self.generation.fetch_add(1, Ordering::Release);
     }
     /// Detach this channel's sinks; existing spans keep their start-time snapshots.
@@ -148,12 +149,16 @@ impl ObservationEngine {
         } else {
             None
         };
+        let mut needs_render_text = false;
         let sinks: Vec<_> = if active {
             config
                 .routing
                 .matching(T::NAMESPACE)
                 .iter()
-                .flat_map(|c| c.sinks.iter().cloned())
+                .flat_map(|c| {
+                    needs_render_text |= c.needs_render_text;
+                    c.sinks.iter().cloned()
+                })
                 .collect()
         } else {
             Vec::new()
@@ -164,6 +169,7 @@ impl ObservationEngine {
             policy,
             counter,
             scope: (scope.id != self.unscoped.id).then(|| scope.config.name.clone()),
+            needs_render_text,
             sinks: sinks.into(),
         });
         let retired = cache.plans.insert(key, plan.clone());
@@ -202,8 +208,16 @@ impl ObservationEngine {
         &self,
         plan: &ResolvedPlan,
         record: ObservationRecord,
+        render_text: Option<String>,
     ) -> Result<(), ObservationError> {
-        self.check_sink_result(dispatch(&plan.sinks, Arc::new(record)))
+        let record = Arc::new(record);
+        let result = if plan.needs_render_text {
+            let delivery = crate::ObservationDelivery::new(record, render_text.map(Arc::new));
+            crate::channel::dispatch_delivery(&plan.sinks, &delivery)
+        } else {
+            dispatch(&plan.sinks, record)
+        };
+        self.check_sink_result(result)
     }
     #[inline]
     pub fn observe_if_active<T: Observation, F: FnOnce() -> T>(
@@ -224,7 +238,12 @@ impl ObservationEngine {
         }
         let mut record = self.record(&plan, T::NAMESPACE, T::LEVEL, data);
         record.message = message.map(str::to_owned);
-        self.dispatch(&plan, record)?;
+        let render_text = if plan.needs_render_text {
+            payload.render_text()
+        } else {
+            None
+        };
+        self.dispatch(&plan, record, render_text)?;
         Ok(true)
     }
     pub fn span_if_active<T: Observation, F: FnOnce() -> T>(
@@ -242,7 +261,7 @@ impl ObservationEngine {
         record.phase = Some(Phase::Start);
         let span = Uuid::new_v4().simple().to_string();
         record.span = Some(span.clone());
-        self.dispatch(&plan, record)?;
+        self.dispatch(&plan, record, None)?;
         Ok(SpanGuard::active(
             self,
             (*plan).clone(),
@@ -278,3 +297,7 @@ mod tests;
 #[cfg(test)]
 #[path = "engine_certification_test.rs"]
 mod certification;
+
+#[cfg(test)]
+#[path = "render_certification_test.rs"]
+mod human_certification;

@@ -17,7 +17,8 @@ Principal properties:
 - Explicit, stable namespaces independent of Rust type names; Serde payloads.
 - Lazy admission: rejected observations do not construct or serialize their payload.
 - Execution-local Scopes and explicitly propagated Context, including optional Rayon.
-- Independent namespace routing through Channels to memory, JSONL, or custom Sinks.
+- Independent routing to structured Memory/JSONL, asynchronous human Console, or custom Sinks.
+- Opt-in transient `render_text()`, evaluated once only for human-capable routes.
 - RAII Spans and a documented persisted JSONL contract.
 - Executable production-contract certifications and measured performance evidence.
 
@@ -46,7 +47,7 @@ typed Observation expression
 - [Core Model](#core-model), [Observations](#observations), [Namespaces and Tags](#namespaces-and-tags)
 - [Runtime Selection](#runtime-selection), [Scopes and Policies](#scopes-and-policies)
 - [Threads and Rayon](#threads-and-rayon), [Channels and Routing](#channels-and-routing)
-- [Sinks](#sinks), [Spans](#spans), [Error Handling and Shutdown](#error-handling-and-shutdown)
+- [Human Rendering](#human-rendering), [Sinks](#sinks), [Spans](#spans), [Error Handling and Shutdown](#error-handling-and-shutdown)
 - [Persisted Format](#persisted-format), [Benchmarks](#benchmarks), [Examples](#examples)
 - [Production Usage Patterns](#production-usage-patterns), [Performance Guidelines](#performance-guidelines)
 - [Production Certification](#production-certification), [Guarantees and Non-Guarantees](#guarantees-and-non-guarantees)
@@ -145,7 +146,8 @@ application should report both errors if both operations fail.
 | Policy | Occurrence control for one concrete Observation type in a Scope |
 | Context | A capturable handle to the current Scope, or explicit absence of one |
 | Channel | A logical routing destination with attached Sinks |
-| Sink | A consumer of records, such as `MemorySink` or `JsonlSink` |
+| Sink | A structured or human consumer; human consumers opt into transient rendering |
+| ObservationDelivery | Shared canonical record plus optional shared human text; not a persisted envelope |
 | Span | One admitted RAII lifecycle producing paired start/end records |
 
 Selection answers **whether** to emit. Scope answers **which execution** owns it.
@@ -210,6 +212,70 @@ Put expensive work **inside** the macro expression or the closure passed to
 `observe_if_active::<Type, _>(|| payload)`. Work done before the call cannot become
 lazy retroactively. Rejection skips payload construction, serialization, and the
 message callback; admission performs real Serde-to-JSON-value work on the producer.
+
+## Human Rendering
+
+Structured data remains canonical. These are three distinct contracts:
+
+| Source | Meaning |
+| --- | --- |
+| Serde payload / record `data` | Canonical machine-readable data |
+| `message() -> Option<&str>` | Optional persisted semantic context |
+| `render_text() -> Option<String>` | Optional transient human projection; never added to JSONL or MemorySink |
+
+Implement the trait manually to customize rendering; existing derives/types work unchanged:
+
+~~~rust
+use serde::Serialize;
+use sun_observations::Observation;
+
+#[derive(Serialize)]
+struct Epoch { epoch: u64, loss: f64, accuracy: f64 }
+impl Observation for Epoch {
+    const NAMESPACE: &'static str = "encoder::train::epoch";
+    fn render_text(&self) -> Option<String> {
+        Some(format!("{:>5} | {:8.4} | {:8.4}", self.epoch, self.loss, self.accuracy))
+    }
+}
+~~~
+
+The default renderer returns `None`. Rejected, excluded, and Never observations do
+not build, serialize, call message, or render. Admitted sinkless observations retain
+serialization/message callbacks but never render. Memory-only, JSONL-only, and their
+combination never call the renderer or allocate human text, even on a render-capable
+type. A cached routing decision requests rendering only when at least one routed Sink
+opts in. Capability is sampled once at attachment, without engine locks; plans aggregate
+the published routing flags. Attaching/detaching sinks or adding routes invalidates
+that decision without resetting counting Policies. Capabilities are not rescanned on warm calls.
+
+With human consumers, rendering runs synchronously on the producer after successful
+serialization, at most once per admitted payload. Multiple human sinks share the same
+text and immutable record; no `Arc<ObservationDelivery>` is allocated. Keep expensive
+formatting inside `render_text()` rather than doing it before admission. A renderer
+panic propagates like a payload/message callback panic; it is not an I/O error.
+
+### Tables are observation streams
+
+Use independent ordinary types: `TableStart { columns }`, `Epoch { epoch, loss, accuracy }`,
+and `TableEnd { epochs }`. Each implements its own `render_text()` for header/row/footer.
+Emit `TableStart → Epoch → Epoch → TableEnd` and explicitly flush. The human sink sees:
+
+~~~text
+Epoch | Loss     | Accuracy
+------+----------+---------
+    1 |   0.3800 |   0.6300
+    2 |   0.1900 |   0.6500
+------+----------+---------
+~~~
+
+[human.rs](examples/human.rs) implements and emits all three types, plus a default-
+formatted status to stderr. Add a JsonlSink to the table channel to independently
+persist four structured records; header/footer text does not enter those records.
+No Span is needed. Spans remain lifecycle/profiling observations and do not invoke
+`render_text()`; human sinks use their default structured formatter for span lifecycle records.
+
+Presentation fields chosen by downstream code remain ordinary structured `data`.
+The core defines no tone, kind, table phase, styling, terminal, or UI event model.
 
 ## Namespaces and Tags
 
@@ -634,6 +700,57 @@ Applications using `global()` must explicitly flush before returning from `main`
 when deterministic persistence is required. Do not rely on sleep, periodic flush,
 or destructor ordering as the shutdown protocol.
 
+### ConsoleSink
+
+`JsonlSink` and `MemorySink` are structured-only. `ConsoleSink` is human output:
+
+~~~rust,no_run
+use std::sync::Arc;
+use sun_observations::{ConsoleSink, JsonlSink, ObservationEngine, Selection};
+let engine = ObservationEngine::new();
+engine.set_selection(Selection::new().activate_namespace("encoder"));
+engine.register_namespace_channel("encoder", "output")?;
+engine.add_channel_sink("output", Arc::new(ConsoleSink::stdout()));
+engine.add_channel_sink("output", Arc::new(JsonlSink::append("training.jsonl")?));
+// ConsoleSink::stderr() selects stderr instead. Both may be used on distinct channels.
+engine.flush_channels()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+`Some(text)` is the complete human representation: literal UTF-8, no prefix, no
+trimming, with one final LF added only if absent (empty text produces a blank line).
+This preserves multiline tables. It is not escaped or sanitized. `None` uses:
+
+~~~text
+2026-10-20T00:00:00.000Z INFO [training] encoder::train::epoch data={"epoch":1,"loss":0.38}
+~~~
+
+The exact order is RFC3339 record timestamp, level, optional ` [scope]`, namespace,
+optional ` phase=start|end`, optional ` span=id`, optional ` message="JSON-escaped context"`,
+then ` data=<compact JSON>` and LF. Scope/span identifiers are literal. Custom text
+replaces this entire format; it never repurposes persisted `message`.
+
+One lazy worker per instance owns output I/O and default formatting. Producer calls
+only render when needed, materialize the canonical record, and enqueue shared ownership;
+no console I/O runs on producers. Construction and unused flush start no thread. The
+unbounded FIFO queue is processed in chunks of at most 1024 messages, not a byte limit
+or backpressure. Each stdout/stderr chunk holds its stream lock, so a multiline record
+is not interleaved with another ConsoleSink record. Concurrent producers have per-
+producer order, not a fictitious global chronology or cross-sink ordering guarantee.
+
+`flush()`/`engine.flush_channels()` waits for the queued prefix and output flush; racing
+later writes need not be included. Last-owner local Drop disconnects, drains, flushes,
+and joins, subject to failure; it may block and cannot return errors. Engine plans,
+captured contexts and spans can retain ownership. Global statics require explicit flush
+before exit. Write/flush failures and caught worker panics are sticky, stop the worker,
+release pending barriers, and surface through `last_error()` and subsequent writes/flush.
+There is no retry, fsync promise, or rollback of partial output. Retain the handle to
+check errors, especially after detaching. Slow destinations can grow queue memory.
+
+`ConsoleSink::new(writer)` accepts an owned `Write + Send + 'static` output using exactly
+the same worker/barrier path, useful for embedding, deterministic tests, and benchmarks.
+It is a human writer, not an alternate JSONL serializer.
+
 ### Custom Sinks
 
 Implement `Sink: Send + Sync + 'static` with `write(&ObservationRecord) -> io::Result<()>`.
@@ -643,6 +760,43 @@ buffering/barrier contract your consumer needs (the default is a no-op). Callbac
 run without engine/configuration locks, can be concurrent, and must synchronize their
 own state. The engine cannot give a custom Sink stronger persistence guarantees than
 its implementation provides.
+
+Existing structured implementations need no changes. To consume human rendering,
+implement `wants_render_text() -> bool` returning true and override `write_delivery()`.
+The default delivery method calls `write_shared()`, preserving legacy structured sinks.
+Capability must be immutable while attached; reconfigure through engine attachment
+boundaries rather than silently toggling it. Human callbacks can also receive `None`
+(e.g. the renderer default or a Span end); the sink chooses its own fallback.
+
+~~~rust
+use std::{io, sync::{Arc, Mutex}};
+use sun_observations::{ObservationDelivery, ObservationRecord, Sink};
+
+#[derive(Default)]
+struct HumanQueue(Mutex<Vec<ObservationDelivery>>);
+impl Sink for HumanQueue {
+    fn write(&self, record: &ObservationRecord) -> io::Result<()> {
+        self.write_delivery(&ObservationDelivery::new(Arc::new(record.clone()), None))
+    }
+    fn wants_render_text(&self) -> bool { true }
+    fn write_delivery(&self, delivery: &ObservationDelivery) -> io::Result<()> {
+        self.0.lock().unwrap().push(delivery.clone());
+        Ok(())
+    }
+}
+let sink = HumanQueue::default();
+# let _ = sink;
+~~~
+
+A real async downstream sink enqueues the cloned stack value to its worker rather than
+retaining an unbounded Vec. `record()` and `render_text()` borrow the values;
+`shared_record()` exposes `&Arc<ObservationRecord>` and `shared_render_text()` exposes
+`Option<&Arc<String>>` for independent async ownership. Cloning a delivery shares both;
+it neither re-renders nor deep-clones the record. `Arc<String>` preserves the rendered
+String buffer without copying bytes into `Arc<str>`. Only `Some(text)` allocates its
+shared header. No delivery wrapper heap allocation is needed, including on structured
+paths. A downstream human sink can interpret its application's ordinary `data` fields
+without any framework-specific UI dependencies.
 
 ## Spans
 
@@ -691,7 +845,8 @@ intervals cannot simply be summed as disjoint work. See [FORMAT.md](FORMAT.md#li
 | Payload serialization | `ObservationError::Serialize` before dispatch; no target receives that attempt |
 | Synchronous Sink error | `ObservationError::Sink` from emission/finish; all fan-out targets are attempted, first error returned |
 | JSONL worker open/encoding/write/flush error or caught writer panic | Sticky first failure; writer stops, no automatic retry; `last_error()` and subsequent write/flush calls report it |
-| JSONL enqueue racing with worker failure | Enqueue may have returned success; explicit barrier detects failure |
+| Console worker write/flush error or caught panic | Sticky first failure, no retry; pending barriers fail, healthy fan-out still attempted |
+| JSONL/Console enqueue racing with worker failure | Enqueue may have returned success; explicit barrier detects failure |
 | Scope/Span/Sink Drop | Cannot return errors; use explicit finish/flush where errors must be handled |
 
 `sink_error_count()` counts checked failed engine dispatch/flush **operations**, not
@@ -849,6 +1004,23 @@ end-to-end costs improved **6.4–12.4%**, while single-producer Rich **regresse
 run variation. This is **not a universal speedup** or a payload-byte/latency bound.
 [Paired measurements, alternative caps, and limitations](BATCH_BENCHMARKS.md).
 
+### Human rendering and structured-path control
+
+![Same-machine structured before and after medians](img/benchmark-human-structured.svg)
+
+![Console default producer and through-flush service by producer count](img/benchmark-console-scaling.svg)
+
+![Default versus custom row formatting Console costs](img/benchmark-console-rendering.svg)
+
+The five-sample follow-up keeps the historical datasets above separate. Structured
+end-to-end medians changed by −2.8% no-sink, −3.3% Memory, +0.8% JSONL, and −14.9%
+Memory+JSONL, with overlapping ranges: no material regression is demonstrated. Improvements
+are not isolated causal speedups. Console's file-backed default output measured 782 ns/call
+with one producer; custom five-column rows measured 1606 ns/call including rendering.
+At 16 producers default enqueue was 157 ns/call versus 816 ns/call through flush,
+exposing backlog rather than promising terminal throughput. Real terminal rendering can be much slower.
+See [human benchmark methodology, raw data and limits](BENCHMARKS.md#human-rendering-follow-up).
+
 ### Reproduce the graphics, not a new benchmark dataset
 
 ```sh
@@ -870,6 +1042,7 @@ All examples live in [examples/](examples/) and use the public API.
 
 | Example | What it teaches |
 | --- | --- |
+| [human.rs](examples/human.rs) | Console stdout/stderr, default output and independent table header/row/footer types |
 | [basic.rs](examples/basic.rs) | Derived point Observation, global activation, stdout JSONL, explicit flush |
 | [scoped.rs](examples/scoped.rs) | Scope-local FirstN shared with a child thread and an RAII Span captured in memory |
 | [channels.rs](examples/channels.rs) | Overlapping routes, multi-Sink Channel, Memory/stdout fan-out |
@@ -879,6 +1052,7 @@ All examples live in [examples/](examples/) and use the public API.
 | [rayon.rs](examples/rayon.rs) | Construction-bound pool reused by another caller, nested Rayon work and shared cap |
 
 ```sh
+cargo run -p sun-observations --example human
 cargo run -p sun-observations --example basic
 cargo run -p sun-observations --example scoped
 cargo run -p sun-observations --example channels
@@ -968,6 +1142,8 @@ is under test. A local engine still uses the installed Context; use
 
 - Keep expensive work inside lazy payload expressions. Disabled calls cannot undo work
   already performed by the application.
+- Human rendering is dormant on structured-only routes. When requested, custom rendering
+  executes once on the producer; Console default formatting/output runs on its worker.
 - Accepted payload serialization is real CPU/allocation work even without Sinks.
   Prefer focused payloads and scope-local occurrence Policies for high-rate diagnostics.
 - Activate deep profiling selectively. Broad tag activation is an OR across the taxonomy.
@@ -999,7 +1175,9 @@ gate. It covers namespace/derive contracts, admission/laziness/exclusions, exact
 scope Policies, configuration invalidation, Scope isolation, OS-thread and optional
 Rayon propagation, Channel fan-out, Span lifecycle, JSONL framing/FIFO, multi-producer
 integrity, barriers, sticky failures, retention, explicit process shutdown, FORMAT v1,
-public end-to-end scenarios, and downstream renamed-dependency compilation.
+public end-to-end scenarios, and downstream renamed-dependency compilation. Human
+rendering adds laziness/isolation, shared delivery, table streams, routing invalidation,
+and Console worker FIFO/barriers/failure/drain/stdout/stderr process checks.
 
 Owner-adjacent certifications run in the runtime test harness. The
 `sun-observations-certifications` workspace package adds public cross-module and
@@ -1016,7 +1194,8 @@ certification or a guarantee for every host/workload.
 - Scope/type-owned occurrence budgets shared by explicitly propagated children.
 - Segment-aware namespace routes and documented fan-out multiplicity.
 - Span admission once with frozen Scope/destinations and normal-unwind RAII end.
-- JSONL per-Sink FIFO and per-producer integrity; explicit queue-prefix flush barriers.
+- JSONL and Console per-Sink FIFO and per-producer integrity; explicit queue-prefix flush barriers.
+- No human rendering for structured-only routes; at most one render for multi-human fan-out.
 - Complete-record newest-suffix retention, preserving the newest record whole.
 - A stable documented v1 envelope independent of Rust type names and Channel names.
 
@@ -1040,7 +1219,7 @@ This is a navigation map, not a replacement for source-generated Rust API docs.
 
 | Item | Role |
 | --- | --- |
-| `Observation` trait / derive | Static namespace, level, tags, optional message, and Serde payload contract |
+| `Observation` trait / derive | Static metadata, optional message/render_text, and canonical Serde payload |
 | `ObservationEngine` | Owns Selection, routing, identity/clocks, emission methods and flush barrier |
 | `Selection` | Builds positive/excluded namespace/tag rules |
 | `ScopeConfig` | Names an execution and configures its local Selection/Policy overrides |
@@ -1049,7 +1228,9 @@ This is a navigation map, not a replacement for source-generated Rust API docs.
 | `Policy` | Always/Never/FirstN/EveryN/MaxPerScope occurrence control |
 | `ObservationLevel` | INFO/WARN/ERROR severity |
 | `Channel` | Named routing destination; graph mutation is through the engine |
-| `Sink` | Thread-safe record-consumer interface with optional shared ownership and flush |
+| `Sink` | Structured interface plus optional human capability/delivery and flush |
+| `ObservationDelivery` | Stack wrapper sharing canonical record and optional transient text |
+| `ConsoleSink` | Lazy asynchronous stdout/stderr or owned human writer |
 | `MemorySink` | Synchronized in-process capture and drain |
 | `JsonlSink` / `JsonlConfig` / `JsonlStats` | Background JSONL consumer, configuration, and diagnostics |
 | `ObservationRecord` / `Phase` | Persisted envelope and start/end lifecycle phase |
@@ -1096,6 +1277,7 @@ To intentionally collect new benchmark evidence:
 ```sh
 cargo bench -p sun-observations --bench runtime
 cargo bench -p sun-observations --bench batch
+cargo bench -p sun-observations --bench human
 ```
 
 All benchmark targets save `metrics.csv` and `stderr.txt` in unique run directories

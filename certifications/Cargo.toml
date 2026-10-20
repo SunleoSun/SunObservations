@@ -8,6 +8,10 @@ publish = false
 default = []
 rayon = ["obs/rayon", "dep:rayon"]
 
+[[test]]
+name = "human_delivery_certification"
+path = "human_delivery_certification_test.rs"
+
 [dependencies]
 obs = { package = "sun-observations", path = "../crates/sun-observations" }
 serde.workspace = true

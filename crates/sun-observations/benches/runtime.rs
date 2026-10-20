@@ -14,11 +14,24 @@ use sun_observations::{
 };
 
 const N: u64 = 1_000_000;
-#[derive(Serialize, Observation)]
-#[observation(namespace = "bench::event", tags("detail"))]
+#[derive(Serialize)]
 struct Event {
     index: u64,
     value: f64,
+}
+impl Observation for Event {
+    const NAMESPACE: &'static str = "bench::event";
+    const TAGS: &'static [&'static str] = &["detail"];
+    fn render_text(&self) -> Option<String> {
+        Some(format!(
+            "{:>5} | {:8.4} | {:8.4} | {:6} | {:7.2}%",
+            self.index,
+            self.value,
+            self.value * 0.9,
+            self.index % 1000,
+            self.value * 100.0
+        ))
+    }
 }
 
 fn emit(index: u64) {

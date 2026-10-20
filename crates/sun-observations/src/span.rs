@@ -56,7 +56,7 @@ impl<'a> SpanGuard<'a> {
             );
             record.phase = Some(Phase::End);
             record.span = Some(span.id);
-            self.engine.dispatch(&span.admission, record)?;
+            self.engine.dispatch(&span.admission, record, None)?;
         }
         Ok(())
     }

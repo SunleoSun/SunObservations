@@ -41,3 +41,23 @@ chart,case,series,value_ns,source,section,row_key,column
 "writer-batch","16p Event","8192-message chunk","724.79","BATCH_BENCHMARKS.md","Actual sink results","16;Event","After e2e ns"
 "writer-batch","16p Rich","Before (unbounded chunk)","1827.66","BATCH_BENCHMARKS.md","Actual sink results","16;Rich","Before e2e ns"
 "writer-batch","16p Rich","8192-message chunk","1600.99","BATCH_BENCHMARKS.md","Actual sink results","16;Rich","After e2e ns"
+human-structured,No sink,Before,156.54,BENCHMARKS.md,Human structured control,no_sink,Before e2e ns
+human-structured,No sink,After,152.22,BENCHMARKS.md,Human structured control,no_sink,After e2e ns
+human-structured,Memory,Before,737.08,BENCHMARKS.md,Human structured control,memory,Before e2e ns
+human-structured,Memory,After,712.75,BENCHMARKS.md,Human structured control,memory,After e2e ns
+human-structured,JSONL,Before,674.72,BENCHMARKS.md,Human structured control,jsonl,Before e2e ns
+human-structured,JSONL,After,680.09,BENCHMARKS.md,Human structured control,jsonl,After e2e ns
+human-structured,Memory + JSONL,Before,997.15,BENCHMARKS.md,Human structured control,memory_jsonl,Before e2e ns
+human-structured,Memory + JSONL,After,848.57,BENCHMARKS.md,Human structured control,memory_jsonl,After e2e ns
+console-scaling,1 producer,Producer,782.36,BENCHMARKS.md,Console producer and service,default;1,Producer ns
+console-scaling,1 producer,Through flush,782.46,BENCHMARKS.md,Console producer and service,default;1,E2e ns
+console-scaling,4 producers,Producer,233.32,BENCHMARKS.md,Console producer and service,default;4,Producer ns
+console-scaling,4 producers,Through flush,767.37,BENCHMARKS.md,Console producer and service,default;4,E2e ns
+console-scaling,16 producers,Producer,157.42,BENCHMARKS.md,Console producer and service,default;16,Producer ns
+console-scaling,16 producers,Through flush,816.33,BENCHMARKS.md,Console producer and service,default;16,E2e ns
+console-rendering,1 producer,Default,782.46,BENCHMARKS.md,Console producer and service,default;1,E2e ns
+console-rendering,1 producer,Custom row,1606.23,BENCHMARKS.md,Console producer and service,custom;1,E2e ns
+console-rendering,4 producers,Default,767.37,BENCHMARKS.md,Console producer and service,default;4,E2e ns
+console-rendering,4 producers,Custom row,600.05,BENCHMARKS.md,Console producer and service,custom;4,E2e ns
+console-rendering,16 producers,Default,816.33,BENCHMARKS.md,Console producer and service,default;16,E2e ns
+console-rendering,16 producers,Custom row,764.29,BENCHMARKS.md,Console producer and service,custom;16,E2e ns

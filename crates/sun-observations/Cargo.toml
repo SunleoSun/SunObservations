@@ -20,6 +20,10 @@ tempfile = "3"
 rayon = { version = "1.10", optional = true }
 
 [[bench]]
+name = "human"
+harness = false
+
+[[bench]]
 name = "batch"
 harness = false
 
@@ -43,6 +47,10 @@ path = "benches/support/report_test.rs"
 trybuild = "1"
 # Benchmark-only equivalent-schema raw-payload comparison; no production representation change.
 serde_json = { workspace = true, features = ["raw_value"] }
+
+[[example]]
+name = "human"
+path = "../../examples/human.rs"
 
 [[example]]
 name = "basic"

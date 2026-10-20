@@ -70,6 +70,29 @@ Each row is enforced by the full release commands, not solely the name-filtered 
 | Full public release path: derived types, tags/levels/exclusions, threads, optional Rayon, mixed policy, spans, overlapping routes, generation mutation, explicit barrier, independent file consumer | certifications/runtime_end_to_end_certification_test.rs + isolated scenario child |
 | Actual batch performance evidence, enqueue vs engine-barrier completion, alternative caps | BATCH_BENCHMARKS.md; benches/batch.rs |
 
+## Human-presentation production group
+
+All paths are relative to the runtime src directory unless prefixed certifications/.
+These checks extend the structured production matrix; FORMAT v1 and the JSONL writer
+are unchanged. No test uses timing sleeps to establish ordering.
+
+| Production contract | Executable evidence |
+| --- | --- |
+| Exact renderer/build/serialization counts for rejected, excluded, Never, sinkless, Memory, JSONL, Memory+JSONL, one/two human and human+JSONL routes | render_certification_test.rs::exact_render_laziness_and_real_structured_sink_isolation |
+| Sentinel received by humans but absent from real JSONL and Memory capture; semantic message/data retained | render_certification_test.rs::exact_render_laziness_and_real_structured_sink_isolation |
+| Once-per-attachment capability discovery without engine/scope locks, route addition/attachment/detachment invalidation and continuous EveryN counter | render_certification_test.rs::human_capability_is_cold_and_route_mutations_preserve_counting_policy; attachment_capability_can_reenter_configuration_without_engine_or_scope_locks |
+| Serialization failure never renders/dispatches; span start/end remain profiling lifecycle records and never invoke the point renderer | render_certification_test.rs::serialization_failure_never_renders_or_delivers_and_spans_never_render |
+| Legacy structured Sink needs only write; custom human Sink sees shared canonical record/text; two humans and Console render once | certifications/human_delivery_certification_test.rs |
+| Independent TableStart/Row/Row/End observations, exact ordered Console table, four independently validated v1 JSONL records, no spans | certifications/human_delivery_certification_test.rs::public_table_stream_shares_render_and_record_without_changing_v1_or_legacy_sinks |
+| Wrapper construction/clones allocate zero, preserve renderer buffer/Arc identity; absent-text human path equals structured allocation cost; render-panicking type still has allocation-free rejection | plan_test.rs |
+| Lazy stdout/stderr, unused flush, exact fallback format, literal multiline/empty/already-terminated custom text | sinks/console_certification_test.rs::lazy_targets_default_format_and_literal_multiline_text |
+| Off-producer single worker, >4 chunks of gated backlog, FIFO, exact prefix flush snapshot, last-owner disconnect drain | sinks/console_certification_test.rs::gated_backlog_fifo_flush_boundary_and_drop_drain_off_producer |
+| 16 concurrent producers, 16000 records, exact per-producer order and indivisible multiline records | sinks/console_certification_test.rs::concurrent_producers_preserve_each_producer_order_and_multiline_record_integrity |
+| Sticky write/flush/panic errors, no retry, 16 already-queued concurrent public barriers all released, Drop completes | sinks/console_certification_test.rs::write_flush_and_panic_failures_are_sticky_and_release_all_barriers; failure_releases_concurrent_already_queued_public_flush_barriers |
+| Checked error count and healthy structured fan-out after Console failure | sinks/console_certification_test.rs::failed_console_does_not_prevent_healthy_structured_fanout |
+| Actual stdout/stderr target selection, local Drop and explicit global flush survive child exit (4000 multiline records each) | certifications/tests/console_process.rs + certifications/src/bin/console_scenario.rs |
+| Same-machine before/after structured controls; default/custom/mixed fan-out and 1/4/16 producer enqueue versus service; raw CSV and generated charts | BENCHMARKS.md human follow-up; benches/human.rs; benches/runtime.rs |
+
 ## Isolation and synchronization
 
 Every test mutating global() runs its scenario in a fresh scenario executable process.
@@ -90,15 +113,18 @@ Cargo target failed with exit 101, then passed after restoration. No assertion r
 
 ## Acceptance evidence
 
-Validated on the current bounded implementation and production guide: default workspace
-tests (84 runtime, 11 cross-module/process certifications, 2 derive tests, 14 doctests);
-all-features workspace tests (88 runtime including 23 owner certifications,
-12 cross-module/process certifications, 2 derive tests, 14 doctests). The benchmark-report
-integration test also passes. All seven public examples compile and execute with all
-features; the six non-Rayon examples also compile and execute with default features.
-The dedicated default/all-features package gates, owner subset, Cargo discovery, fmt,
-both workspace checks and warning-denying all-targets Clippy also pass.
-No certification is ignored. Benchmark raw output and limitations are in BATCH_BENCHMARKS.md.
+Validated human-delivery revision: 96 default/100 all-features runtime tests,
+14 default/15 all-features public cross-module/process tests, 2 derive tests, and
+17 doctests; the separate all-features owner gate passes all 33 certifications.
+Default/all-features workspace tests, the all-features public package gate, fmt,
+workspace and all-features/all-targets checks, warning-denying Clippy, and benchmark
+report integration pass. All eight public examples build and execute with all
+features; all seven non-Rayon examples also build and execute with default features.
+The human example's exact table output and separate stderr status were checked.
+The five-sample benchmark targets and all eight report-validated SVGs pass.
+No certification is ignored.
+Human follow-up raw samples, variation and destination limitations are in BENCHMARKS.md;
+historical JSONL batch evidence remains in BATCH_BENCHMARKS.md.
 
 ## Findings and limits
 

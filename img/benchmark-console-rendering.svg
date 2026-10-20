@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="473" viewBox="0 0 960 473" role="img" aria-labelledby="title desc">
+<title id="title">Console default vs custom numeric row</title>
+<desc id="desc">Through-flush ns/call; different output bytes and formatting threads; median of 5. 1 producer, Default: 782.46 ns/call; 1 producer, Custom row: 1606.23 ns/call; 4 producers, Default: 767.37 ns/call; 4 producers, Custom row: 600.05 ns/call; 16 producers, Default: 816.33 ns/call; 16 producers, Custom row: 764.29 ns/call. File-backed worker, not terminal painting. Row-only renderer: 595.38 ns. Source: BENCHMARKS.md</desc>
+<rect width="960" height="473" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Console default vs custom numeric row</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">Through-flush ns/call; different output bytes and formatting threads; median of 5</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Default</text>
+<rect x="545" y="114" width="12" height="12" fill="#b55112"/>
+<text x="563.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Custom row</text>
+<path d="M255.00 138V369" stroke="#dce4e9"/>
+<text x="255.00" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V369" stroke="#dce4e9"/>
+<text x="398.75" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">473.8</text>
+<path d="M542.50 138V369" stroke="#dce4e9"/>
+<text x="542.50" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">947.7</text>
+<path d="M686.25 138V369" stroke="#dce4e9"/>
+<text x="686.25" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">1421.5</text>
+<path d="M830.00 138V369" stroke="#dce4e9"/>
+<text x="830.00" y="389.00" font-size="12" text-anchor="middle" fill="#172b3a">1895.4</text>
+<text x="542.50" y="412.00" font-size="13" text-anchor="middle" fill="#172b3a">ns/call (lower is better)</text>
+<text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">1 producer</text>
+<rect x="255" y="146" width="237.38" height="21" fill="#126b96"/>
+<text x="499.38" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">782.46</text>
+<rect x="255" y="177" width="487.29" height="21" fill="#b55112"/>
+<text x="749.29" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">1606.23</text>
+<text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">4 producers</text>
+<rect x="255" y="223" width="232.80" height="21" fill="#126b96"/>
+<text x="494.80" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">767.37</text>
+<rect x="255" y="254" width="182.04" height="21" fill="#b55112"/>
+<text x="444.04" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">600.05</text>
+<text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">16 producers</text>
+<rect x="255" y="300" width="247.65" height="21" fill="#126b96"/>
+<text x="509.65" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">816.33</text>
+<rect x="255" y="331" width="231.87" height="21" fill="#b55112"/>
+<text x="493.87" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">764.29</text>
+<text x="24.00" y="446.00" font-size="13" text-anchor="start" fill="#172b3a">File-backed worker, not terminal painting. Row-only renderer: 595.38 ns. Source: BENCHMARKS.md</text>
+</g>
+</svg>
