@@ -9,10 +9,15 @@ default = []
 rayon = ["obs/rayon", "dep:rayon"]
 
 [[test]]
+name = "analysis_certification"
+path = "analysis_certification_test.rs"
+
+[[test]]
 name = "human_delivery_certification"
 path = "human_delivery_certification_test.rs"
 
 [dependencies]
+analysis = { package = "sun-observations-analysis", path = "../crates/sun-observations-analysis" }
 obs = { package = "sun-observations", path = "../crates/sun-observations" }
 serde.workspace = true
 serde_json.workspace = true

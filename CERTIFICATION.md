@@ -20,6 +20,7 @@ cargo test --workspace
 cargo test --workspace --all-features
 cargo test -p sun-observations --all-features --lib certification
 cargo test -p sun-observations-certifications
+cargo test -p sun-observations-analysis
 cargo test -p sun-observations-certifications --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ~~~
@@ -70,6 +71,34 @@ Each row is enforced by the full release commands, not solely the name-filtered 
 | Full public release path: derived types, tags/levels/exclusions, threads, optional Rayon, mixed policy, spans, overlapping routes, generation mutation, explicit barrier, independent file consumer | certifications/runtime_end_to_end_certification_test.rs + isolated scenario child |
 | Actual batch performance evidence, enqueue vs engine-barrier completion, alternative caps | BATCH_BENCHMARKS.md; benches/batch.rs |
 
+## Analysis certification
+
+The independent sun-observations-analysis crate consumes canonical runtime records;
+no runtime/derive behavior or persisted FORMAT v1 changes. The default and all-features
+workspace gates run **38 analysis tests plus one compiled documentation example**:
+34 owner-adjacent tests and four public integration certifications in
+certifications/analysis_certification_test.rs. No performance threshold is a correctness
+assertion. Statistical reference comparisons use absolute-plus-relative tolerance
+1e-10 * (1 + abs(expected)); large public-capture scenarios use 1e-9 * (1 + abs(expected)).
+Exact key/indices/count/report fields use exact equality.
+
+| Contract | Evidence (under crates/sun-observations-analysis/src unless qualified) |
+| --- | --- |
+| Snapshot isolation, shared Arc/data identity, all envelope selectors and combinations, strict data decoding/source errors, decode-once reuse | dataset_test.rs (4 tests) |
+| Compensated sums/means, population/sample variance, type-7 quantiles, median/IQR/MAD, empty/constant/odd/even/invalid/overflow/underflow, large common offsets, independent two-pass reference | stats_certification_test.rs (6 tests) |
+| Exact/min/nonempty counts, unique keys, compressed contiguous gaps and u64 boundaries, exact key sets, finite/range/positive/nonnegative evidence | integrity_certification_test.rs (3 tests) |
+| Missing/duplicate rejection, original side indices, generic string keys, sorted-order failure, dense/sparse/overflow/duplicate integer adaptation, BTreeMap reference equivalence, long duplicate-run merge | join_certification_test.rs (6 tests) |
+| Pearson/Spearman/covariance/OLS/R², average ties and signed zero, nonlinear monotonicity, constant/empty/nonfinite/underflow, offset stability, positive/negative/wrong-scale expectations, differences/residuals, bounded-heap/full-sort equivalence, source-keyed errors, structured serialization | relation_certification_test.rs (10 tests) |
+| MAD scores versus independent reference, explicit zero-MAD tolerance, invalid/nonfinite input, adjacent absolute/relative jumps, zero/near-zero denominator floor, strict thresholds and earliest maxima | anomaly_certification_test.rs (5 tests) |
+| Real runtime capture of two different Observation types, positive/negative/wrong-scale scenarios, hard alignment failures, executable public example, exact 100k and 1M-record traces with generic/integer equivalence | certifications/analysis_certification_test.rs (4 tests) |
+
+Run the benchmark separately with cargo bench -p sun-observations-analysis --bench analysis.
+The equivalent nonadaptive release harness invocation is
+cargo test -p sun-observations-analysis --release --bench analysis -- --measure.
+Tracked measurements, memory/materialization qualifications and reproduction details are
+in [ANALYSIS_BENCHMARKS.md](ANALYSIS_BENCHMARKS.md). Reference implementations are test/
+benchmark support only; production analyses never consult them or infer domain acceptance.
+
 ## Human-presentation production group
 
 All paths are relative to the runtime src directory unless prefixed certifications/.
@@ -112,6 +141,11 @@ Cargo discovery was also checked by temporarily breaking a fan-out assertion: th
 Cargo target failed with exit 101, then passed after restoration. No assertion remains disabled.
 
 ## Acceptance evidence
+
+The analysis addition passes all required workspace checks, default/all-features tests,
+warning-denying Clippy, 38 analysis tests plus its doctest and executable example, and
+the 240-sample release benchmark matrix documented in ANALYSIS_BENCHMARKS.md.
+Runtime, derive and FORMAT v1 source contracts remain unchanged.
 
 Validated human-delivery revision: 96 default/100 all-features runtime tests,
 14 default/15 all-features public cross-module/process tests, 2 derive tests, and

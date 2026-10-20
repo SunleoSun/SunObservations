@@ -43,6 +43,7 @@ typed Observation expression
 
 ### Guide map
 
+- [Captured-evidence analysis](#captured-evidence-analysis)
 - [Quick Start](#quick-start)
 - [Core Model](#core-model), [Observations](#observations), [Namespaces and Tags](#namespaces-and-tags)
 - [Runtime Selection](#runtime-selection), [Scopes and Policies](#scopes-and-policies)
@@ -59,8 +60,32 @@ typed Observation expression
 | [FORMAT.md](FORMAT.md) | **Canonical** persisted JSONL compatibility contract |
 | [CERTIFICATION.md](CERTIFICATION.md) | **Canonical** certification matrix, executable evidence, and release gate |
 | [BENCHMARKS.md](BENCHMARKS.md) | Principal performance methodology and measured results |
+| [crates/sun-observations-analysis/README.md](crates/sun-observations-analysis/README.md) | Typed immutable analysis, integrity, joins, statistics and structured certification reports |
+| [ANALYSIS_BENCHMARKS.md](ANALYSIS_BENCHMARKS.md) | Analysis scaling measurements through one million records/pairs |
 | [BATCH_BENCHMARKS.md](BATCH_BENCHMARKS.md) | Bounded JSONL writer experiment and production measurements |
 | [PERFORMANCE_INVESTIGATION.md](PERFORMANCE_INVESTIGATION.md) | Historical engineering investigation, not current usage guidance |
+
+## Captured-evidence analysis
+
+The separate workspace crate [sun-observations-analysis](crates/sun-observations-analysis/README.md)
+consumes shared canonical ObservationRecords without changing the runtime or FORMAT v1.
+It provides fixed snapshots, composable envelope queries, reusable typed decoding,
+streaming/robust statistics, hard integrity checks, domain-key joins, numeric differences,
+Pearson/Spearman/linear relations, scenario-owned expectations, MAD outliers and jumps.
+Reports and failures are typed, JSON-serializable evidence; suspicion is not automatically
+an application failure. Production Observation types do not need Deserialize unless a
+consumer requests typed decoding.
+
+Start with the executable [module input/output certification example](crates/sun-observations-analysis/examples/module_relation.rs).
+It captures two different Observation types, joins by row rather than insertion order,
+checks correlation and scale independently, and serializes a wrong-direction failure.
+When row identity is not globally unique, first narrow the dataset with proc/scope envelope
+selectors, or include execution identity in the typed payload key. Generic and sorted joins
+use cache-friendly vectors; the integer-key entry point also selects a
+bounded dense path automatically. There is no hash-table fallback or runtime dependency
+on analysis. See [certification coverage](CERTIFICATION.md#analysis-certification) and
+[measured scaling](ANALYSIS_BENCHMARKS.md); rolling, lag, drift and arbitrary JSON queries
+are deliberately excluded.
 
 ## Quick Start
 
@@ -1242,11 +1267,18 @@ This is a navigation map, not a replacement for source-generated Rust API docs.
 | `context::rayon::ContextThreadPool` | Optional construction-bound Rayon pool (`rayon` feature) |
 | `namespace::validate_namespace` / `namespace::InvalidNamespace` | Runtime namespace validation and route error |
 
+The separate analysis API is documented in its [crate guide](crates/sun-observations-analysis/README.md):
+ObservationDataset/EnvelopeQuery/TypedView, integrity reports, generic/sorted/integer joins,
+NumericSeries, relation metrics/expectations/failures and outlier/jump reports. These
+are consumers of the runtime API above, not runtime re-exports.
+
 ## Development and Release Checks
 
 Repository layout: runtime in `crates/sun-observations`, derive in
-`crates/sun-observations-derive`, public/process checks in `certifications`, and
-executable consumers in `examples`. Tests stay adjacent to their semantic owners.
+`crates/sun-observations-derive`, offline analysis in `crates/sun-observations-analysis`,
+public/process checks in `certifications`, and runtime consumers in `examples`.
+The analysis module-boundary example lives in its own crate. Tests stay adjacent
+to their semantic owners.
 The README is included in runtime rustdoc, so its Rust code blocks are doctests;
 feature-dependent code must also be checked with all features.
 
@@ -1260,6 +1292,7 @@ cargo test --workspace
 cargo test --workspace --all-features
 cargo test -p sun-observations --all-features --lib certification
 cargo test -p sun-observations-certifications
+cargo test -p sun-observations-analysis
 cargo test -p sun-observations-certifications --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo build -p sun-observations --examples

@@ -479,6 +479,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sun-observations-analysis"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sun-observations",
+ "tempfile",
+]
+
+[[package]]
 name = "sun-observations-certifications"
 version = "0.1.0"
 dependencies = [
@@ -487,6 +497,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sun-observations",
+ "sun-observations-analysis",
  "tempfile",
 ]
 

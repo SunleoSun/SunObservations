@@ -3,6 +3,10 @@
 See the [production user guide](README.md#benchmarks) for generated charts and practical
 interpretation. This report retains the detailed methodology and measured evidence.
 
+The independent analysis crate has its own [measured scaling report](ANALYSIS_BENCHMARKS.md)
+for snapshots, typed decoding, joins, numeric/statistical algorithms and structured reports
+at 1k/10k/100k/1M. These are offline-consumer costs, not runtime capture hot-path costs.
+
 ## Environment and reproduction
 
 Measured on AMD Ryzen 9 5950X (16 physical cores / 32 logical CPUs), 64 GiB RAM,
