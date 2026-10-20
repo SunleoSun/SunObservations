@@ -6,6 +6,8 @@ sun-observations-certifications supplies public cross-module, downstream and OS-
 checks. Existing regression tests remain part of the release gate, especially the allocation,
 context lifecycle, retention hysteresis and compile-diagnostic checks listed below.
 
+For application usage and operational boundaries, see the [production user guide](README.md).
+
 ## Required release commands
 
 Run from the workspace root:
@@ -88,11 +90,14 @@ Cargo target failed with exit 101, then passed after restoration. No assertion r
 
 ## Acceptance evidence
 
-Validated on the final bounded implementation: default workspace tests (84 runtime,
-11 cross-module/process certifications, 2 derive tests, 5 doctests); all-features workspace
-tests (88 runtime including 23 owner certifications, 12 cross-module/process certifications,
-2 derive tests, 5 doctests). The dedicated default/all-features package gates, owner subset,
-Cargo discovery, fmt, both workspace checks and warning-denying all-targets Clippy also pass.
+Validated on the current bounded implementation and production guide: default workspace
+tests (84 runtime, 11 cross-module/process certifications, 2 derive tests, 14 doctests);
+all-features workspace tests (88 runtime including 23 owner certifications,
+12 cross-module/process certifications, 2 derive tests, 14 doctests). The benchmark-report
+integration test also passes. All seven public examples compile and execute with all
+features; the six non-Rayon examples also compile and execute with default features.
+The dedicated default/all-features package gates, owner subset, Cargo discovery, fmt,
+both workspace checks and warning-denying all-targets Clippy also pass.
 No certification is ignored. Benchmark raw output and limitations are in BATCH_BENCHMARKS.md.
 
 ## Findings and limits

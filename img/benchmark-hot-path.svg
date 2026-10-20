@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="472" viewBox="0 0 960 472" role="img" aria-labelledby="title desc">
+<title id="title">Warm observation hot path</title>
+<desc id="desc">No sink; Event payload; median of 3 x 1M macro calls. Inactive, ns/call: 7.37 ns/call; Excluded, ns/call: 7.28 ns/call; Never, ns/call: 7.36 ns/call; EveryN(100), ns/call: 9.55 ns/call; Always / no sink, ns/call: 154.45 ns/call. EveryN(100) admits 1%; Always includes payload serialization. Source: BENCHMARKS.md</desc>
+<rect width="960" height="472" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Warm observation hot path</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">No sink; Event payload; median of 3 x 1M macro calls</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">ns/call</text>
+<path d="M255.00 138V368" stroke="#dce4e9"/>
+<text x="255.00" y="388.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V368" stroke="#dce4e9"/>
+<text x="398.75" y="388.00" font-size="12" text-anchor="middle" fill="#172b3a">45.6</text>
+<path d="M542.50 138V368" stroke="#dce4e9"/>
+<text x="542.50" y="388.00" font-size="12" text-anchor="middle" fill="#172b3a">91.1</text>
+<path d="M686.25 138V368" stroke="#dce4e9"/>
+<text x="686.25" y="388.00" font-size="12" text-anchor="middle" fill="#172b3a">136.7</text>
+<path d="M830.00 138V368" stroke="#dce4e9"/>
+<text x="830.00" y="388.00" font-size="12" text-anchor="middle" fill="#172b3a">182.3</text>
+<text x="542.50" y="411.00" font-size="13" text-anchor="middle" fill="#172b3a">ns/call (lower is better)</text>
+<text x="240.00" y="164.50" font-size="14" text-anchor="end" fill="#172b3a">Inactive</text>
+<rect x="255" y="146" width="23.25" height="21" fill="#126b96"/>
+<text x="285.25" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">7.37</text>
+<text x="240.00" y="210.50" font-size="14" text-anchor="end" fill="#172b3a">Excluded</text>
+<rect x="255" y="192" width="22.97" height="21" fill="#126b96"/>
+<text x="284.97" y="208.00" font-size="13" text-anchor="start" fill="#172b3a">7.28</text>
+<text x="240.00" y="256.50" font-size="14" text-anchor="end" fill="#172b3a">Never</text>
+<rect x="255" y="238" width="23.22" height="21" fill="#126b96"/>
+<text x="285.22" y="254.00" font-size="13" text-anchor="start" fill="#172b3a">7.36</text>
+<text x="240.00" y="302.50" font-size="14" text-anchor="end" fill="#172b3a">EveryN(100)</text>
+<rect x="255" y="284" width="30.13" height="21" fill="#126b96"/>
+<text x="292.13" y="300.00" font-size="13" text-anchor="start" fill="#172b3a">9.55</text>
+<text x="240.00" y="348.50" font-size="14" text-anchor="end" fill="#172b3a">Always / no sink</text>
+<rect x="255" y="330" width="487.29" height="21" fill="#126b96"/>
+<text x="749.29" y="346.00" font-size="13" text-anchor="start" fill="#172b3a">154.45</text>
+<text x="24.00" y="445.00" font-size="13" text-anchor="start" fill="#172b3a">EveryN(100) admits 1%; Always includes payload serialization. Source: BENCHMARKS.md</text>
+</g>
+</svg>

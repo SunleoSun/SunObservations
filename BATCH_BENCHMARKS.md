@@ -1,5 +1,8 @@
 # Production JsonlSink bounded-batch measurements
 
+See the [production user guide](README.md#bounded-writer-batch-tradeoff) for the generated
+comparison chart and operational context.
+
 ## Method
 
 The production writer caps one processing iteration at **8192 FIFO messages** (therefore

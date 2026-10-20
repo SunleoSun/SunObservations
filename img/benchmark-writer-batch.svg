@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="704" viewBox="0 0 960 704" role="img" aria-labelledby="title desc">
+<title id="title">Bounded JSONL writer batch tradeoff</title>
+<desc id="desc">End-to-end aggregate ns/record; 262144 records/case; median of 10 samples. 1p Event, Before (unbounded chunk): 700.02 ns/record; 1p Event, 8192-message chunk: 707.68 ns/record; 1p Rich, Before (unbounded chunk): 1022.26 ns/record; 1p Rich, 8192-message chunk: 1116.84 ns/record; 4p Event, Before (unbounded chunk): 699.01 ns/record; 4p Event, 8192-message chunk: 654.09 ns/record; 4p Rich, Before (unbounded chunk): 1645.20 ns/record; 4p Rich, 8192-message chunk: 1501.97 ns/record; 16p Event, Before (unbounded chunk): 786.07 ns/record; 16p Event, 8192-message chunk: 724.79 ns/record; 16p Rich, Before (unbounded chunk): 1827.66 ns/record; 16p Rich, 8192-message chunk: 1600.99 ns/record. 8192 bounds the writer chunk, not the queue. Source: BATCH_BENCHMARKS.md</desc>
+<rect width="960" height="704" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Bounded JSONL writer batch tradeoff</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">End-to-end aggregate ns/record; 262144 records/case; median of 10 samples</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Before (unbounded chunk)</text>
+<rect x="545" y="114" width="12" height="12" fill="#b55112"/>
+<text x="563.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">8192-message chunk</text>
+<path d="M255.00 138V600" stroke="#dce4e9"/>
+<text x="255.00" y="620.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V600" stroke="#dce4e9"/>
+<text x="398.75" y="620.00" font-size="12" text-anchor="middle" fill="#172b3a">539.2</text>
+<path d="M542.50 138V600" stroke="#dce4e9"/>
+<text x="542.50" y="620.00" font-size="12" text-anchor="middle" fill="#172b3a">1078.3</text>
+<path d="M686.25 138V600" stroke="#dce4e9"/>
+<text x="686.25" y="620.00" font-size="12" text-anchor="middle" fill="#172b3a">1617.5</text>
+<path d="M830.00 138V600" stroke="#dce4e9"/>
+<text x="830.00" y="620.00" font-size="12" text-anchor="middle" fill="#172b3a">2156.6</text>
+<text x="542.50" y="643.00" font-size="13" text-anchor="middle" fill="#172b3a">ns/record (lower is better)</text>
+<text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">1p Event</text>
+<rect x="255" y="146" width="186.64" height="21" fill="#126b96"/>
+<text x="448.64" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">700.02</text>
+<rect x="255" y="177" width="188.68" height="21" fill="#b55112"/>
+<text x="450.68" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">707.68</text>
+<text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">1p Rich</text>
+<rect x="255" y="223" width="272.55" height="21" fill="#126b96"/>
+<text x="534.55" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">1022.26</text>
+<rect x="255" y="254" width="297.77" height="21" fill="#b55112"/>
+<text x="559.77" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">1116.84</text>
+<text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">4p Event</text>
+<rect x="255" y="300" width="186.37" height="21" fill="#126b96"/>
+<text x="448.37" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">699.01</text>
+<rect x="255" y="331" width="174.39" height="21" fill="#b55112"/>
+<text x="436.39" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">654.09</text>
+<text x="240.00" y="411.00" font-size="14" text-anchor="end" fill="#172b3a">4p Rich</text>
+<rect x="255" y="377" width="438.64" height="21" fill="#126b96"/>
+<text x="700.64" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">1645.20</text>
+<rect x="255" y="408" width="400.45" height="21" fill="#b55112"/>
+<text x="662.45" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">1501.97</text>
+<text x="240.00" y="488.00" font-size="14" text-anchor="end" fill="#172b3a">16p Event</text>
+<rect x="255" y="454" width="209.58" height="21" fill="#126b96"/>
+<text x="471.58" y="470.00" font-size="13" text-anchor="start" fill="#172b3a">786.07</text>
+<rect x="255" y="485" width="193.24" height="21" fill="#b55112"/>
+<text x="455.24" y="501.00" font-size="13" text-anchor="start" fill="#172b3a">724.79</text>
+<text x="240.00" y="565.00" font-size="14" text-anchor="end" fill="#172b3a">16p Rich</text>
+<rect x="255" y="531" width="487.29" height="21" fill="#126b96"/>
+<text x="749.29" y="547.00" font-size="13" text-anchor="start" fill="#172b3a">1827.66</text>
+<rect x="255" y="562" width="426.85" height="21" fill="#b55112"/>
+<text x="688.85" y="578.00" font-size="13" text-anchor="start" fill="#172b3a">1600.99</text>
+<text x="24.00" y="677.00" font-size="13" text-anchor="start" fill="#172b3a">8192 bounds the writer chunk, not the queue. Source: BATCH_BENCHMARKS.md</text>
+</g>
+</svg>

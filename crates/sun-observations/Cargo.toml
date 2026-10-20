@@ -55,3 +55,20 @@ path = "../../examples/scoped.rs"
 [[example]]
 name = "channels"
 path = "../../examples/channels.rs"
+
+[[example]]
+name = "jsonl"
+path = "../../examples/jsonl.rs"
+
+[[example]]
+name = "threads"
+path = "../../examples/threads.rs"
+
+[[example]]
+name = "spans"
+path = "../../examples/spans.rs"
+
+[[example]]
+name = "rayon"
+path = "../../examples/rayon.rs"
+required-features = ["rayon"]

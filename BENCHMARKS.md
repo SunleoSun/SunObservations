@@ -1,5 +1,8 @@
 # SunObservations benchmark report
 
+See the [production user guide](README.md#benchmarks) for generated charts and practical
+interpretation. This report retains the detailed methodology and measured evidence.
+
 ## Environment and reproduction
 
 Measured on AMD Ryzen 9 5950X (16 physical cores / 32 logical CPUs), 64 GiB RAM,
@@ -209,13 +212,13 @@ claim of fsync/crash durability, multiprocess path coordination or bounded backl
 
 ## Baseline and measured follow-up
 
-[baseline.csv](benchmarks/baseline.csv) was measured **before runtime edits** at repository
-HEAD 0b20d57 on the same host/toolchain. It is one 1M-call sample per case, not a statistical
-confidence estimate. Historical harness: [baseline_source.rs.txt](benchmarks/baseline_source.rs.txt).
-To reproduce it, check out that commit in a separate worktree, copy the saved source into
-crates/sun-observations/benches/runtime.rs, add the same [[bench]] name=runtime / harness=false
-manifest entry, then run cargo bench -p sun-observations --bench runtime. No current API
-compatibility shim or synchronous file sink is retained in production.
+The historical local snapshot `benchmarks/baseline.csv` was measured **before runtime
+edits** at repository HEAD 0b20d57 on the same host/toolchain. It is one 1M-call sample
+per case, not a statistical confidence estimate. That snapshot and the saved harness
+`benchmarks/baseline_source.rs.txt` are not tracked in the current repository; the table
+below preserves the results. Exact historical reproduction requires those historical
+inputs, not the current harness. No current API compatibility shim or synchronous file
+sink is retained in production.
 
 | Comparable workload | Baseline ns/call | Final median ns/call |
 | --- | ---: | ---: |
@@ -231,10 +234,10 @@ After the first architectural implementation, a focused 3-sample hot run still s
 median **1094.16 ns/call** on Always with no destination, allocating/formatting an envelope
 that no consumer could see. A simple follow-up skips that envelope only after payload
 serialization and message callbacks: the immediate follow-up measured **169.62 ns/call**.
-Raw paired runs: [pre_followup.csv](benchmarks/pre_followup.csv),
-[post_followup.csv](benchmarks/post_followup.csv). Payload errors/message side effects are
-covered by a dedicated regression test. Rejected-path code generation also improved when
-the generic admitted path shrank; that is not claimed as a separately isolated algorithmic win.
+The raw paired local snapshots were named `benchmarks/pre_followup.csv` and
+`benchmarks/post_followup.csv`; they are not tracked in the current repository. Payload
+errors/message side effects are covered by a dedicated regression test. Rejected-path
+code generation also improved when the generic admitted path shrank; that is not claimed as a separately isolated algorithmic win.
 The final run additionally includes cold-path separation and safe cache retirement outside
 TLS borrows/configuration locks; compare final numbers to the final source, not an intermediate
 binary. Saturating policy semantics are preserved by relaxed CAS, not a wrapping counter.
