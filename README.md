@@ -10,8 +10,9 @@ diagnostics and profiling. No logger, recorder or scope arguments in domain call
 - `examples/`: executable downstream-style examples.
 - `FORMAT.md`: canonical persisted JSONL contract, independent of Rust API layout.
 - Owner-adjacent `*_test.rs`: unit/integration-style tests and derive fixtures.
-- `*_certification_test.rs` and `certifications/`: **empty future placeholders**,
-  not an implemented or passing certification suite.
+- `*_certification_test.rs`: executable owner-level production contracts.
+- `certifications/`: workspace package for downstream, cross-module and isolated-process checks.
+- `CERTIFICATION.md`: contract matrix, release commands and explicit non-guarantees.
 
 Consumers need only the runtime crate plus Serde:
 
@@ -166,6 +167,11 @@ Run the complete suite with:
 cargo bench -p sun-observations --bench runtime
 ```
 
+All benchmark targets automatically save `metrics.csv` and `stderr.txt` in a unique
+`benchmarks` run directory beside the active Cargo profile directory. Temporary JSONL
+files use that same run directory and are removed after their scenario completes.
+No shell redirection is needed; results are also replayed to the console.
+
 ## Execution-local scopes and propagation
 
 `global()` is one lazily initialized process-wide `ObservationEngine`. Scope
@@ -286,9 +292,10 @@ unrepresentable intervals, and non-finite or non-(0,1) trim fractions fail const
 
 The producer constructs/serializes the typed payload to Value, captures timestamps, then
 enqueues a shared record. It performs **no file open, JSONL encoding, write, flush or
-compaction**. The worker blocks for a message, snapshots and drains the queued prefix,
-then encodes/writes batches. New arrivals cannot indefinitely starve writes or periodic
-flush. Periodic flush runs while idle and under continuous traffic, at batch boundaries;
+compaction**. The worker blocks for a message and processes a bounded FIFO chunk
+(currently at most 8192 messages), then encodes/writes that chunk. This internal working-set
+bound does not limit queue backlog or individual payload size. New arrivals cannot
+indefinitely starve writes or periodic flush. Periodic flush runs while idle and under continuous traffic, at batch boundaries;
 it is best-effort and can be delayed by a slow I/O operation or large batch.
 
 The queue is deliberately **unbounded**: disk slowdown means backlog grows in memory,
@@ -328,6 +335,8 @@ sinks or background failures that have not yet been checked.
 
 ### Line-safe file retention
 
+With retention enabled, the worker validates preexisting complete JSON object lines before
+appending; corrupt history produces a sticky error instead of being silently repaired.
 When size exceeds the configured maximum, the worker targets approximately
 `max_bytes * (1 - trim_fraction)`. For 10 MiB and 0.10 this is roughly 9 MiB. It seeks to
 an approximate oldest-byte cut, scans forward to a newline, copies the complete suffix
@@ -381,9 +390,16 @@ cargo check --workspace
 cargo check --workspace --all-features --all-targets
 cargo test --workspace
 cargo test --workspace --all-features
+cargo test -p sun-observations --all-features --lib certification
+cargo test -p sun-observations-certifications --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
 Compile-pass/fail tests run through `trybuild`; the owner harness is
 `observation_test.rs`, with checked-in diagnostic snapshots in adjacent `fixtures/`.
-Certification placeholders contain no assertions and are not part of test discovery.
+Owner certifications are compiled into the runtime test harness. The certification package
+runs global scenarios in fresh child processes (no singleton reset), validates persisted v1
+JSONL independently, and compiles/runs a renamed-dependency temporary consumer. See
+[CERTIFICATION.md](CERTIFICATION.md) for the complete matrix and release gate. Actual bounded
+writer measurements, including workload-specific regressions, are in
+[BATCH_BENCHMARKS.md](BATCH_BENCHMARKS.md).

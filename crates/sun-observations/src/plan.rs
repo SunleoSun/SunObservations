@@ -37,3 +37,7 @@ pub(crate) fn next_identity() -> u64 {
 #[cfg(test)]
 #[path = "plan_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "plan_certification_test.rs"]
+mod certification;

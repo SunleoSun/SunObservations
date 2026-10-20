@@ -47,3 +47,7 @@ pub(crate) fn prefixes(namespace: &str) -> impl Iterator<Item = &str> {
 #[cfg(test)]
 #[path = "namespace_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "namespace_certification_test.rs"]
+mod certification;

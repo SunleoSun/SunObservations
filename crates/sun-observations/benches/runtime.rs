@@ -1,4 +1,5 @@
 //! Reproducible macro workloads; no adaptive iterations. Run via cargo bench --bench runtime.
+mod support;
 use serde::Serialize;
 use std::{
     fs::File,
@@ -159,7 +160,7 @@ struct Capture {
 }
 fn capture(mode: Mode) -> Capture {
     reset();
-    let directory = tempfile::tempdir().unwrap();
+    let directory = support::tempdir().unwrap();
     let mut memories = Vec::new();
     let mut file = None;
     if matches!(mode, Mode::Memory | Mode::Both | Mode::Fanout) {
@@ -311,7 +312,7 @@ fn short_threads(threads: usize, active: bool, sample: usize) {
 fn compaction(limit: bool, sample: usize) {
     reset();
     configure(0, true, false);
-    let directory = tempfile::tempdir().unwrap();
+    let directory = support::tempdir().unwrap();
     let path = directory.path().join("retention.jsonl");
     let config = if limit {
         JsonlConfig::new()
@@ -382,6 +383,10 @@ fn compaction(limit: bool, sample: usize) {
     reset();
 }
 fn main() {
+    support::run(benchmark);
+}
+
+fn benchmark() {
     let repeats = std::env::var("SUN_OBS_BENCH_REPEATS")
         .ok()
         .map(|v| v.parse().unwrap())

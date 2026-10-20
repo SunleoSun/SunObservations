@@ -479,6 +479,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sun-observations-certifications"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rayon",
+ "serde",
+ "serde_json",
+ "sun-observations",
+ "tempfile",
+]
+
+[[package]]
 name = "sun-observations-derive"
 version = "0.1.0"
 dependencies = [

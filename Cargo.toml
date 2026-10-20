@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/sun-observations", "crates/sun-observations-derive"]
+members = ["crates/sun-observations", "crates/sun-observations-derive", "certifications"]
 resolver = "2"
 
 [workspace.package]

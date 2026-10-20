@@ -274,3 +274,7 @@ pub fn observe_if_active<T: Observation, F: FnOnce() -> T>(
 #[cfg(test)]
 #[path = "engine_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "engine_certification_test.rs"]
+mod certification;

@@ -76,3 +76,7 @@ pub fn span_if_active<T: Observation, F: FnOnce() -> T>(
 #[cfg(test)]
 #[path = "span_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "span_certification_test.rs"]
+mod certification;

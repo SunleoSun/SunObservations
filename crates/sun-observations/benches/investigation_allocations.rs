@@ -1,4 +1,5 @@
 //! Allocation counts only. Kept in a separate executable so timed benches use System directly.
+mod support;
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use std::{
@@ -81,6 +82,10 @@ fn count(name: &str, mut f: impl FnMut()) {
     );
 }
 fn main() {
+    support::run(benchmark);
+}
+
+fn benchmark() {
     let p = Event {
         index: 123456,
         value: 0.5,

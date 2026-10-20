@@ -14,3 +14,7 @@ where
 #[cfg(test)]
 #[path = "thread_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "thread_certification_test.rs"]
+mod certification;

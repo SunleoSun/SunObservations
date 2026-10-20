@@ -4,6 +4,7 @@
 //! Times include destruction unless stated otherwise. See PERFORMANCE_INVESTIGATION.md.
 // Deliberately mirror engine's to_value(&payload), including its borrow.
 #![allow(clippy::needless_borrows_for_generic_args)]
+mod support;
 use chrono::{DateTime, SecondsFormat, Utc};
 use crossbeam_channel::{unbounded, Sender};
 use serde::Serialize;
@@ -502,7 +503,7 @@ fn api(sample: usize) {
     }
     consumer.join().unwrap();
     for threads in [1, 4] {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = support::tempdir().unwrap();
         let path = dir.path().join("api.jsonl");
         let sink = Arc::new(JsonlSink::append(&path).unwrap());
         global().add_channel_sink("investigation", sink.clone());
@@ -569,7 +570,7 @@ fn service(file: bool, unique: bool, engine_refs: bool, sample: usize) {
         let shared = Arc::new(base);
         (0..RECORDS).map(|_| shared.clone()).collect()
     };
-    let dir = tempfile::tempdir().unwrap();
+    let dir = support::tempdir().unwrap();
     let path = dir.path().join("service.jsonl");
     let sink = if file {
         JsonlSink::append(&path).unwrap()
@@ -663,7 +664,7 @@ fn file_bytes(batch: usize, flush_each: bool, sample: usize) {
     line.push(b'\n');
     let bytes = line.repeat(batch);
     let n = RECORDS / batch * batch;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = support::tempdir().unwrap();
     let path = dir.path().join("bytes.jsonl");
     let mut writer = BufWriter::with_capacity(64 * 1024, File::create(&path).unwrap());
     let t = Instant::now();
@@ -708,7 +709,7 @@ fn prefilled_record<R: Serialize + Clone + Send + Sync + 'static>(
         .unwrap();
     }
     drop(tx);
-    let dir = tempfile::tempdir().unwrap();
+    let dir = support::tempdir().unwrap();
     let path = dir.path().join("prefilled.jsonl");
     let output = file.then(|| BufWriter::with_capacity(64 * 1024, File::create(&path).unwrap()));
     let elapsed = std::thread::spawn(move || {
@@ -991,7 +992,7 @@ fn writer(sample: usize) {
             file_bytes(batch, true, sample);
         }
     }
-    let dir = tempfile::tempdir().unwrap();
+    let dir = support::tempdir().unwrap();
     let mut f =
         BufWriter::with_capacity(64 * 1024, File::create(dir.path().join("empty")).unwrap());
     bench("writer.flush_empty", sample, || {
@@ -1029,6 +1030,10 @@ fn writer(sample: usize) {
     service(true, true, false, sample);
 }
 fn main() {
+    support::run(benchmark);
+}
+
+fn benchmark() {
     let repeats: usize = std::env::var("SUN_OBS_INV_REPEATS")
         .ok()
         .map(|x| x.parse().unwrap())

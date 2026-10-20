@@ -272,3 +272,7 @@ impl Drop for JsonlSink {
 #[cfg(test)]
 #[path = "jsonl_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "jsonl_certification_test.rs"]
+mod certification;

@@ -1,0 +1,37 @@
+[package]
+name = "sun-observations-certifications"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[features]
+default = []
+rayon = ["obs/rayon", "dep:rayon"]
+
+[dependencies]
+obs = { package = "sun-observations", path = "../crates/sun-observations" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+rayon = { version = "1.10", optional = true }
+
+[[test]]
+name = "concurrent_scopes_certification"
+path = "concurrent_scopes_certification_test.rs"
+[[test]]
+name = "thread_propagation_certification"
+path = "thread_propagation_certification_test.rs"
+[[test]]
+name = "rayon_propagation_certification"
+path = "rayon_propagation_certification_test.rs"
+required-features = ["rayon"]
+[[test]]
+name = "channel_fanout_certification"
+path = "channel_fanout_certification_test.rs"
+[[test]]
+name = "jsonl_roundtrip_certification"
+path = "jsonl_roundtrip_certification_test.rs"
+[[test]]
+name = "runtime_end_to_end_certification"
+path = "runtime_end_to_end_certification_test.rs"

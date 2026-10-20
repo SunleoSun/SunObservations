@@ -20,6 +20,10 @@ tempfile = "3"
 rayon = { version = "1.10", optional = true }
 
 [[bench]]
+name = "batch"
+harness = false
+
+[[bench]]
 name = "runtime"
 harness = false
 
@@ -30,6 +34,10 @@ harness = false
 [[bench]]
 name = "investigation_allocations"
 harness = false
+
+[[test]]
+name = "benchmark_reports"
+path = "benches/support/report_test.rs"
 
 [dev-dependencies]
 trybuild = "1"

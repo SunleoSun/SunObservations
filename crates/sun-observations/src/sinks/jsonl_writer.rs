@@ -19,12 +19,15 @@ enum Output {
     Writer(Box<dyn Write + Send>),
 }
 impl Output {
-    fn open(destination: Destination) -> io::Result<Self> {
+    fn open(destination: Destination, config: &JsonlConfig) -> io::Result<Self> {
         Ok(match destination {
             Destination::Writer(writer) => Self::Writer(writer),
             Destination::File(path) => {
                 let file = OpenOptions::new().create(true).append(true).open(&path)?;
                 let size = file.metadata()?.len();
+                if config.max_bytes.is_some() && size != 0 {
+                    validate_retained_history(&path)?;
+                }
                 Self::File(FileWriter {
                     path,
                     output: Some(BufWriter::with_capacity(64 * 1024, file)),
@@ -113,13 +116,40 @@ impl FileWriter {
     }
 }
 
+// Retention must not turn preexisting corruption into apparently valid history.
+// IgnoredAny validates without materializing history or imposing Value's recursion limit.
+fn validate_retained_history(path: &std::path::Path) -> io::Result<()> {
+    let mut reader = BufReader::new(File::open(path)?);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            return Ok(());
+        }
+        if line.last() != Some(&b'\n')
+            || line.ends_with(b"\r\n")
+            || !std::str::from_utf8(&line).is_ok_and(|text| {
+                text.trim_start().starts_with('{')
+                    && serde_json::from_str::<serde::de::IgnoredAny>(text).is_ok()
+            })
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "retention requires complete JSON object lines",
+            ));
+        }
+    }
+}
+
+const MAX_WRITER_BATCH_MESSAGES: usize = 8192;
+
 pub(super) fn run(
     destination: Destination,
     config: JsonlConfig,
     receiver: &Receiver<Message>,
     status: &Status,
 ) -> io::Result<()> {
-    let mut output = Output::open(destination)?;
+    let mut output = Output::open(destination, &config)?;
     let mut deadline = Instant::now() + config.interval;
     let mut bytes = Vec::with_capacity(64 * 1024);
     let mut messages = Vec::new();
@@ -139,9 +169,9 @@ pub(super) fn run(
                 return Ok(());
             }
         };
-        // Snapshot queued messages after the first blocking receive. Drain that entire prefix
-        // before writing; new arrivals cannot starve persistence or the periodic deadline.
-        let pending = receiver.len();
+        // Bound temporary records/encoding to one chunk, not the unbounded producer backlog.
+        // FIFO messages (including barriers) remain ordered across chunks.
+        let pending = receiver.len().min(MAX_WRITER_BATCH_MESSAGES - 1);
         messages.push(first);
         messages.extend((0..pending).filter_map(|_| receiver.try_recv().ok()));
         for message in messages.drain(..) {
