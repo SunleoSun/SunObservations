@@ -23,8 +23,18 @@ rayon = { version = "1.10", optional = true }
 name = "runtime"
 harness = false
 
+[[bench]]
+name = "investigation"
+harness = false
+
+[[bench]]
+name = "investigation_allocations"
+harness = false
+
 [dev-dependencies]
 trybuild = "1"
+# Benchmark-only equivalent-schema raw-payload comparison; no production representation change.
+serde_json = { workspace = true, features = ["raw_value"] }
 
 [[example]]
 name = "basic"

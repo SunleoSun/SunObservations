@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "sunmcp": {
+      "command": "C:\\Program Files\\Python313\\python.exe",
+      "args": [
+        "C:\\Drive\\MyPrograms\\SunAgent\\crates\\sunagent-mcp\\native-tools\\mcp_server.py",
+        "--root-dir",
+        "C:\\Drive\\MyPrograms\\SunObservations"
+      ],
+      "cwd": "C:\\Drive\\MyPrograms\\SunObservations",
+      "lifecycle": "eager",
+      "directTools": true,
+	    "timeout": 90000
+    }
+  }
+}
