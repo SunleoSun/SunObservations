@@ -38,52 +38,50 @@ fn typed_entries_preserve_filtered_coordinates_identity_and_snapshot_after_sourc
             c.section(format!("iteration {iteration}"), |c| {
                 c.check(
                     "membership",
-                    measured("typed entries", typed.iter().len()).compare(Equal(4)),
+                    fact("typed entries", typed.iter().len()).expect(4),
                 );
                 for (i, entry) in typed.iter().enumerate() {
                     c.section(format!("row {i}"), |c| {
                         c.check(
                             "domain row",
-                            measured("entry", entry.value.row).compare(Equal(i as u64)),
+                            fact("entry", entry.value.row).expect(i as u64),
                         );
                         c.check(
                             "dataset coordinate",
-                            measured("entry", entry.dataset_index).compare(Equal(i + 1)),
+                            fact("entry", entry.dataset_index).expect(i + 1),
                         );
                         c.check(
                             "shared canonical record",
-                            measured("entry", Arc::ptr_eq(entry.source, &sources[i]))
-                                .compare(Equal(true)),
+                            fact("entry", Arc::ptr_eq(entry.source, &sources[i])).expect(true),
                         );
                         c.check(
                             "borrowed decoded value",
-                            measured("entry", std::ptr::eq(entry.value, &typed.values()[i]))
-                                .compare(Equal(true)),
+                            fact("entry", std::ptr::eq(entry.value, &typed.values()[i]))
+                                .expect(true),
                         );
                         c.check(
                             "process",
-                            measured("entry", entry.source.proc.as_str()).compare(Equal("test")),
+                            fact("entry", entry.source.proc.as_str()).expect("test"),
                         );
                         c.check(
                             "namespace",
-                            measured("entry", entry.source.namespace.as_str())
-                                .compare(Equal(Input::NAMESPACE)),
+                            fact("entry", entry.source.namespace.as_str()).expect(Input::NAMESPACE),
                         );
                     });
                 }
                 c.check(
                     "reverse coordinate",
-                    measured(
+                    fact(
                         "last entry",
                         typed.iter().next_back().map(|v| v.dataset_index),
                     )
-                    .compare(Equal(Some(4))),
+                    .expect(Some(4)),
                 );
                 for group in typed.group_by(|v| v.row % 2).iter() {
                     for entry in group.iter() {
                         c.check(
                             "group source coordinate",
-                            measured("group", entry.index).compare(Equal(entry.value.row as usize)),
+                            fact("group", entry.index).expect(entry.value.row as usize),
                         );
                         let mut provenance = String::new();
                         let described = entry
@@ -91,15 +89,15 @@ fn typed_entries_preserve_filtered_coordinates_identity_and_snapshot_after_sourc
                             .is_some_and(|p| p.describe(entry.index, &mut provenance).is_ok());
                         c.check(
                             "group provenance available",
-                            measured("group", described).compare(Equal(true)),
+                            fact("group", described).expect(true),
                         );
                         c.check(
                             "group dataset identity",
-                            measured(
+                            fact(
                                 "group provenance",
                                 provenance.contains(&format!("dataset_index={}", entry.index + 1)),
                             )
-                            .compare(Equal(true)),
+                            .expect(true),
                         );
                     }
                 }
@@ -108,21 +106,21 @@ fn typed_entries_preserve_filtered_coordinates_identity_and_snapshot_after_sourc
     }
     c.check(
         "typed decoding",
-        measurement("snapshot", decoded).compare(criterion(
+        try_fact("snapshot", decoded).expect(criterion(
             "four original rows",
-            CheckClass::Hard,
+            CheckClass::HardViolation,
             |v: &TypedView<Input>| v.values().len() == 4,
         )),
     );
     c.check(
         "empty source",
-        measurement(
+        try_fact(
             "empty snapshot",
             ObservationDataset::from_shared(vec![]).typed::<Input>(),
         )
-        .compare(criterion(
+        .expect(criterion(
             "no entries",
-            CheckClass::Hard,
+            CheckClass::HardViolation,
             |v: &TypedView<Input>| v.iter().count() == 0,
         )),
     );
@@ -138,42 +136,39 @@ fn snapshot_membership_and_shared_payload_identity_survive_append_and_drain() {
     let mut c = certify("fixed shared snapshot survives append and drain");
     c.check(
         "canonical record shared",
-        measured("snapshot", Arc::ptr_eq(&dataset.records()[0], &source)).compare(Equal(true)),
+        fact("snapshot", Arc::ptr_eq(&dataset.records()[0], &source)).expect(true),
     );
     c.check(
         "canonical payload shared",
-        measured(
+        fact(
             "snapshot",
             std::ptr::eq(&dataset.records()[0].data, &source.data),
         )
-        .compare(Equal(true)),
+        .expect(true),
     );
     sink.write_shared(record(Input::NAMESPACE, json!({"row":2,"value":3.0})))
         .unwrap();
-    c.check(
-        "live membership",
-        measured("sink", sink.len()).compare(Equal(2)),
-    );
+    c.check("live membership", fact("sink", sink.len()).expect(2));
     c.check(
         "fixed membership",
-        measured("snapshot", dataset.records().len()).compare(Equal(1)),
+        fact("snapshot", dataset.records().len()).expect(1),
     );
     sink.drain_shared();
     c.check(
         "decoded retained payload",
-        measurement("drained snapshot", dataset.typed::<Input>()).compare(criterion(
+        try_fact("drained snapshot", dataset.typed::<Input>()).expect(criterion(
             "original returned values",
-            CheckClass::Hard,
+            CheckClass::HardViolation,
             |v: &TypedView<Input>| v.values() == [Input { row: 1, value: 2.0 }],
         )),
     );
     c.check(
         "clone shares canonical record",
-        measured(
+        fact(
             "snapshot clone",
             Arc::ptr_eq(&dataset.clone().records()[0], &source),
         )
-        .compare(Equal(true)),
+        .expect(true),
     );
     c.assert_certify();
 }
@@ -287,7 +282,7 @@ fn envelope_selectors_preserve_order_identity_and_segment_boundaries() {
     for (name, query, expected) in cases {
         c.check(
             name,
-            measured("selected dataset coordinates", select(query)).compare(Equal(expected)),
+            fact("selected dataset coordinates", select(query)).expect(expected),
         );
     }
     let q = EnvelopeQuery {
@@ -301,11 +296,11 @@ fn envelope_selectors_preserve_order_identity_and_segment_boundaries() {
     };
     c.check(
         "all selectors intersect",
-        measured("selected dataset coordinates", select(q)).compare(Equal(vec![0])),
+        fact("selected dataset coordinates", select(q)).expect(vec![0]),
     );
     c.check(
         "selection shares canonical record",
-        measured(
+        fact(
             "query",
             dataset
                 .query(q)
@@ -313,7 +308,7 @@ fn envelope_selectors_preserve_order_identity_and_segment_boundaries() {
                 .next()
                 .is_some_and(|(_, r)| Arc::ptr_eq(r, &a)),
         )
-        .compare(Equal(true)),
+        .expect(true),
     );
     for (name, query) in [
         (
@@ -354,7 +349,7 @@ fn envelope_selectors_preserve_order_identity_and_segment_boundaries() {
     ] {
         c.check(
             name,
-            measured("selected dataset coordinates", select(query)).compare(Equal(vec![])),
+            fact("selected dataset coordinates", select(query)).expect(vec![]),
         );
     }
     c.assert_certify();
@@ -379,31 +374,30 @@ fn strict_decode_reports_original_source_and_skips_only_lifecycle_ends() {
         c.section(format!("invalid schema {case}"), |c| {
             c.check(
                 "rejected",
-                measured("typed decoding", decoded.is_err()).compare(Equal(true)),
+                fact("typed decoding", decoded.is_err()).expect(true),
             );
             if let Err(error) = decoded {
                 c.check(
                     "original dataset coordinate",
-                    measured("decode error", error.source.dataset_index).compare(Equal(1)),
+                    fact("decode error", error.source.dataset_index).expect(1),
                 );
                 c.check(
                     "namespace",
-                    measured("decode error", error.source.namespace.as_str())
-                        .compare(Equal(Input::NAMESPACE)),
+                    fact("decode error", error.source.namespace.as_str()).expect(Input::NAMESPACE),
                 );
                 c.check(
                     "process",
-                    measured("decode error", error.source.proc.as_str()).compare(Equal("test")),
+                    fact("decode error", error.source.proc.as_str()).expect("test"),
                 );
                 c.check(
                     "diagnostic present",
-                    measured("decode error", !error.message.is_empty()).compare(Equal(true)),
+                    fact("decode error", !error.message.is_empty()).expect(true),
                 );
                 let roundtrip =
                     serde_json::from_value::<DecodeError>(serde_json::to_value(&error).unwrap());
                 c.check(
                     "diagnostic serialization",
-                    measurement("decode error", roundtrip).compare(Equal(error)),
+                    try_fact("decode error", roundtrip).expect(error),
                 );
             }
         });
@@ -418,24 +412,24 @@ fn strict_decode_reports_original_source_and_skips_only_lifecycle_ends() {
     if let Ok(view) = &decoded {
         c.check(
             "only point decoded",
-            measured("typed view", view.values().len()).compare(Equal(1)),
+            fact("typed view", view.values().len()).expect(1),
         );
         c.check(
             "point coordinates and identity",
-            measured(
+            fact(
                 "typed view",
                 view.sources()
                     .first()
                     .is_some_and(|(index, r)| *index == 1 && Arc::ptr_eq(r, &dataset.records()[1])),
             )
-            .compare(Equal(true)),
+            .expect(true),
         );
     }
     c.check(
         "end payload excluded",
-        measurement("lifecycle decoding", decoded).compare(criterion(
+        try_fact("lifecycle decoding", decoded).expect(criterion(
             "one canonical point",
-            CheckClass::Hard,
+            CheckClass::HardViolation,
             |v: &TypedView<Input>| v.values() == [Input { row: 7, value: 8.0 }],
         )),
     );
@@ -472,36 +466,46 @@ fn prepared_view_analyses_do_not_repeat_deserialization() {
     for _ in 0..3 {
         c.check(
             "iteration",
-            measured(
+            fact(
                 "typed entries",
                 view.iter().map(|e| e.value.0.row).sum::<u64>(),
             )
-            .compare(Equal(10)),
+            .expect(10),
         )
         .check(
             "groups",
-            measured("grouped", grouped.summaries().groups.len()).compare(Equal(2)),
+            fact("grouped", grouped.summaries().groups.len()).expect(2),
         )
-        .check("coverage", pair.coverage().compare(AllValid))
+        .check("comparison_fact", pair.comparison_fact().expect_valid())
         .check(
             "relation",
             values
-                .relation()
-                .compare(RelationExpectation::positive(0.99).unwrap()),
+                .correlation()
+                .expect(CorrelationExpectation::positive(0.99).unwrap()),
+        )
+        .check(
+            "fit reuse",
+            values.linear_fit().slope().expect(close_to(1.)),
+        )
+        .check(
+            "difference reuse",
+            values
+                .difference()
+                .expect(DifferenceExpectation::default().max_absolute(0.).unwrap()),
         )
         .check(
             "numeric count",
-            numeric.summary().compare(criterion(
+            numeric.summary().expect(criterion(
                 "all five rows",
-                CheckClass::Hard,
+                CheckClass::HardViolation,
                 |s: &Summary| s.count == 5,
             )),
         )
         .check(
             "robust",
-            numeric.robust_summary().compare(criterion(
+            numeric.robust_summary().expect(criterion(
                 "median two",
-                CheckClass::Hard,
+                CheckClass::HardViolation,
                 |s: &RobustSummary| s.median == 2.,
             )),
         );
@@ -517,12 +521,12 @@ fn prepared_view_analyses_do_not_repeat_deserialization() {
                         measure: LagMeasure::Pearson,
                     },
                 )
-                .compare(LagExpectation { best_lag: 0 }),
+                .expect(LagExpectation { best_lag: 0 }),
         );
     }
     c.check(
         "decode exactly once",
-        measured("decoder calls", DECODES.load(Ordering::SeqCst)).compare(Equal(5)),
+        fact("decoder calls", DECODES.load(Ordering::SeqCst)).expect(5),
     )
     .assert_certify();
 }

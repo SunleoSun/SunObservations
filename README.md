@@ -7,7 +7,7 @@ SunObservations is a cohesive **typed structured logging + runtime diagnostics +
 | Crate | Semantic owner |
 | --- | --- |
 | `sun-observations` | Typed production evidence, selection, policies, scopes, routing, sinks and profiling spans |
-| `sun-observations-data-source` | Fixed Observation snapshots, envelope queries, decode-once typed views and provenance |
+| `sun-observations-data-source` | Scoped capture, completeness prerequisites, fixed snapshots, typed views and provenance |
 | `sun-certifications` | Generic sources, preparation, alignment, analysis, expectations and hierarchical proofs; no runtime dependency |
 
 ```text
@@ -26,9 +26,15 @@ Use canonical returned values and persisted artifacts when they already expose t
 
 ## Benchmarks
 
+### Scoped capture and bounded history
+
+[Current capture/retention and semantic-view measurements](docs/CAPTURE_BENCHMARKS.md) include
+1k/10k/100k/1M emission, finalization, compaction, container controls and prepare-once reuse.
+Historical datasets below remain separate; no timings are correctness thresholds.
+
 ### Semantic certification framework
 
-Release medians in milliseconds, three samples per scale. The final harness measures 29 categories from 1k through 1M records; raw samples and the full run are preserved under `scripts/`. Timings are reference-machine evidence, not correctness thresholds.
+Release medians in milliseconds, three samples per scale. The earlier release dataset measures 29 categories from 1k through 1M records; raw samples and the full run are preserved under `scripts/`. Timings are reference-machine evidence, not correctness thresholds.
 
 | Operation | 1k | 10k | 100k | 1M |
 | --- | ---: | ---: | ---: | ---: |
@@ -153,28 +159,34 @@ collect a new machine-specific dataset instead.
 
 Use **sun-certifications** directly for ordinary returned structs, inputs/outputs,
 collections, loaded artifacts, reference oracles and metamorphic scenarios. Use
-**sun-observations-data-source** only for fixed Observation snapshots, envelope queries,
+**sun-observations-data-source** for scoped production capture, fixed snapshots, envelope queries,
 strict one-time typed decoding and shared source provenance. All generic integrity,
 join/alignment, grouping, statistics, relations, robust anomalies and lag behavior is
 owned by sun-certifications—not duplicated in the adapter or runtime.
 
 ```rust
-use sun_certifications::{certify, source_slice, CountRule, Equal};
+use sun_certifications::certify;
 let returned_rows = vec![1u64, 2, 3];
-let rows = source_slice("canonical output", &returned_rows);
-certify("row contract")
-    .check("count", rows.count().compare(CountRule::Exact(3)))
-    .check("forbidden rows", rows.matching_count(|r| *r > 3).compare(Equal(0)))
+let mut c = certify("row contract");
+let rows = c.collection("canonical output", &returned_rows);
+c
+    .check("count", rows.count().expect(3usize))
+    .check("forbidden rows", rows.matching_count(|r| *r > 3).expect(0))
     .assert_certify();
 ```
 
 For two sources, prepare explicit typed domain correspondence once:
 `a.compare_with(&b).on(|v| (v.fold,v.target,v.row), |v| (v.fold,v.target,v.row))`.
-Reuse that PreparedComparison for coverage, equality, custom predicates and multiple
+Reuse that PreparedComparison for comparison_fact, equality, custom predicates and multiple
 cached numeric field pairs (difference, Pearson/Spearman, covariance/fit/residuals,
 top disagreements); shifted lag searches project once per search. Missing/duplicate
-keys never silently form ambiguous pairs. Nested semantic sections collect HARD,
-STATISTICAL and ERROR results together; one final assertion renders bounded diagnostics.
+keys never silently form ambiguous pairs. Use pair.comparison_fact().expect_valid() for structural validity,
+numeric.correlation() for Pearson/Spearman, linear_fit() for slope/intercept/R²/residuals and
+difference() for direct errors. fact(name,value).expect(expected) accepts plain equality or
+a specialized expectation; close_to(expected).absolute(tolerance).relative(tolerance) handles
+finite approximate equality. check_fact_expect(name,value,expected) is the compact equivalent.
+Nested semantic sections collect HardViolation, StatisticalViolation and EvaluationError;
+Pass alone succeeds, and one final assert_certify renders bounded diagnostics.
 
 The executable [mixed evidence workflow](crates/sun-observations-data-source/examples/skill_workflows.rs)
 combines ordinary input, production prediction evidence and ordinary output. The
@@ -279,7 +291,7 @@ A Scope is not a logger category; a Channel name is not a namespace or persisted
 `global()` returns one lazily initialized process-wide `ObservationEngine`. Public
 macros always use it. Independent `ObservationEngine::new()` instances have their own
 Selection, routing, process identity, and clocks. Use their closure methods for
-isolated embedding or tests:
+explicit engine-isolation/routing/generation certifications, not ordinary production APIs:
 
 ```rust
 use serde::Serialize;
@@ -697,7 +709,13 @@ there is no mutable `channel().add_sink()` handle.
 
 Use `MemorySink` for tests, certifications, diagnostics, and in-process consumers.
 It synchronously captures shared records and is safe to share between producers.
-It is not a bounded ring buffer: records accumulate until drained or dropped.
+It is bounded: default max_items=1,000,000 and compact_fraction=0.10. At capacity it
+discards ceil(max_items*compact_fraction) oldest records before appending, preserving retained order.
+VecDeque avoids shifting the retained million-record tail. Runtime eviction is legal; ordinary
+certifications use capture_observations and run.certify so eviction cannot silently prove a subset.
+MemorySink::with_config(MemorySinkConfig::new(max_items,compact_fraction)?) configures retention;
+capacity must be positive, fraction finite in (0,1]. config() returns the validated limits.
+stats() returns MemoryStats{retained,evicted,compactions}; eviction/compaction counters survive drains.
 
 | Method | Result |
 | --- | --- |
@@ -828,8 +846,8 @@ or destructor ordering as the shutdown protocol.
 
 ~~~rust,no_run
 use std::sync::Arc;
-use sun_observations::{ConsoleSink, JsonlSink, ObservationEngine, Selection};
-let engine = ObservationEngine::new();
+use sun_observations::{global, ConsoleSink, JsonlSink, Selection};
+let engine = global();
 engine.set_selection(Selection::new().activate_namespace("encoder"));
 engine.register_namespace_channel("encoder", "output")?;
 engine.add_channel_sink("output", Arc::new(ConsoleSink::stdout()));
@@ -1129,33 +1147,44 @@ configurations rather than inherited diagnostic sessions.
 
 ### Test/certification capture
 
-Use an isolated engine, targeted Selection, and `MemorySink` to make capture ownership
-explicit without changing the global engine:
+Use scoped capture from sun-observations-data-source around the **real production call**.
+The following cross-crate workflow is executable in the linked examples and canonical skills:
 
-```rust
-use serde::Serialize;
-use std::sync::Arc;
-use sun_observations::{
-    start_scope, MemorySink, Observation, ObservationEngine, ScopeConfig,
-};
+```rust,ignore
+use serde::{Deserialize, Serialize};
+use sun_observations::{observe, Observation, ObservationError};
+use sun_observations_data_source::{capture_observations, CaptureConfig};
 
-#[derive(Serialize, Observation)]
-#[observation(namespace = "jobs::completed", tags("certification"))]
+#[derive(Serialize, Deserialize, Observation)]
+#[observation(namespace="jobs::completed", tags("evidence"))]
 struct Completed { count: usize }
-
-let engine = ObservationEngine::new();
-let memory = Arc::new(MemorySink::new());
-engine.add_channel_sink("capture", memory.clone());
-engine.register_namespace_channel("jobs", "capture")?;
-let _scope = start_scope(ScopeConfig::new("test-job").activate_tags(["certification"]));
-engine.observe_if_active(|| Completed { count: 10 })?;
-assert_eq!(memory.shared_records()[0].data["count"], 10);
-# Ok::<(), Box<dyn std::error::Error>>(())
+fn execute(count: usize) -> Result<usize, ObservationError> {
+    observe!(Completed { count })?;
+    Ok(count)
+}
+let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"]), || execute(10));
+let completed = run.typed::<Completed>()?;
+let mut c = run.certify("job contract");
+c.check_fact_expect("canonical result", *run.result().as_ref().unwrap(), 10usize);
+c.check("boundary", completed.source("completion").select(|v|v.count).expect(10usize));
+c.assert_certify();
 ```
 
-Use a dedicated JSONL file plus a checked barrier when the persisted artifact itself
-is under test. A local engine still uses the installed Context; use
-`Context::default().run(...)` when isolation from an existing caller Scope is required.
+Capture installs private storage and canonical Selection in the existing propagated context,
+without changing shared global configuration. Parallel runs are isolated; nested captures are
+exclusive; child scopes inherit the attachment. Context/thread/Rayon propagation carries capture.
+RAII cleanup restores the predecessor on return, application errors and panic unwind, independently
+of assert_certify. Join workers and finish spans inside the closure: escaped contexts make proof
+incomplete. result() preserves application Result as data; typed() decodes a reusable TypedView;
+dataset() exposes the finalized snapshot; status() exposes retention/emission/unfinished health.
+run.certify automatically includes an EvaluationError prerequisite for eviction, ignored emission
+errors or unfinished contexts; healthy capture adds no technical noise. CaptureConfig offers
+activate_all, singular/plural namespace/tag activation and exclusions, selection(Selection), and
+retention(MemorySinkConfig). It uses canonical runtime selector semantics, not another selector engine.
+
+Explicit engine/channel/sink APIs remain appropriate when runtime routing or persisted delivery
+itself is certified. Use a dedicated JSONL file and checked barrier for persisted effects.
+A local engine uses the installed scope; Context::default().run(...) isolates caller context.
 
 ## Performance Guidelines
 

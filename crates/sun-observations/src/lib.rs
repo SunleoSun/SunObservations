@@ -1,6 +1,7 @@
 #![doc = include_str!("../../../README.md")]
 extern crate self as sun_observations;
 
+pub mod capture;
 pub mod channel;
 pub mod context;
 pub mod engine;
@@ -31,7 +32,9 @@ pub use record::{ObservationRecord, Phase};
 pub use scope::{start_scope, ScopeConfig};
 pub use selection::Selection;
 pub use sink::{ObservationDelivery, Sink};
-pub use sinks::{ConsoleSink, JsonlConfig, JsonlSink, JsonlStats, MemorySink};
+pub use sinks::{
+    ConsoleSink, JsonlConfig, JsonlSink, JsonlStats, MemorySink, MemorySinkConfig, MemoryStats,
+};
 pub use span::{span_if_active, SpanGuard};
 pub use sun_observations_derive::Observation;
 

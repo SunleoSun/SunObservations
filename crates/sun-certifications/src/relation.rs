@@ -285,20 +285,12 @@ pub struct RelationMetrics {
 pub fn numeric_relation<I: Iterator<Item = (f64, f64)> + Clone>(
     pairs: I,
 ) -> Result<RelationMetrics, NumericError> {
-    let linear = linear_metrics(pairs.clone())?;
-    let spearman = spearman(pairs.clone())?;
-    let difference = difference_summary(pairs.clone())?;
-    let residual = match (linear.slope, linear.intercept) {
-        (Metric::Defined(s), Metric::Defined(b)) => {
-            Some(difference_summary(pairs.map(|(x, y)| (s * x + b, y)))?)
-        }
-        _ => None,
-    };
+    let fit = crate::linear_fit(pairs.clone())?;
     Ok(RelationMetrics {
-        linear,
-        spearman,
-        difference,
-        residual,
+        linear: fit.linear,
+        residual: fit.residual,
+        spearman: spearman(pairs.clone())?,
+        difference: difference_summary(pairs)?,
     })
 }
 /// Complete alignment, numerical measurements, and source-keyed disagreements.
@@ -394,13 +386,8 @@ pub enum RelationMeasure {
     ResidualMeanAbsolute,
     ResidualMaxAbsolute,
 }
-/// Inclusive optional bounds; undefined observed values always fail.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct RelationConstraint {
-    pub measure: RelationMeasure,
-    pub min: Option<f64>,
-    pub max: Option<f64>,
-}
+/// Inclusive bounds on composite relation measures; undefined evidence prevents evaluation.
+pub type RelationConstraint = crate::MetricConstraint<RelationMeasure>;
 /// Scenario-owned expectations, not properties of production evidence types.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct RelationExpectation {
@@ -413,9 +400,13 @@ pub struct RelationFailure<K> {
     pub expected: RelationExpectation,
     pub violated: Vec<RelationConstraint>,
     pub observed: RelationReport<K>,
+    pub analysis_error: Option<crate::AnalysisError>,
 }
 impl<K: fmt::Debug> fmt::Display for RelationFailure<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(error) = &self.analysis_error {
+            return write!(f, "relation evaluation: {}", error.message);
+        }
         write!(
             f,
             "{} relation constraints failed for {} pairs",
@@ -450,53 +441,36 @@ impl RelationExpectation {
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        for v in [min, max].into_iter().flatten() {
-            if !v.is_finite() {
-                return Err(NumericError::InvalidParameter {
-                    name: "expectation bound".into(),
-                    value: v.into(),
-                });
-            }
-        }
-        if let (Some(a), Some(b)) = (min, max) {
-            if a > b {
-                return Err(NumericError::InvalidParameter {
-                    name: "reversed expectation bounds".into(),
-                    value: a.into(),
-                });
-            }
-        }
+        crate::numerical::validate_bounds(min, max)?;
         self.constraints
             .push(RelationConstraint { measure, min, max });
         Ok(self)
     }
-    pub(crate) fn violations(&self, observed: &RelationMetrics) -> Vec<RelationConstraint> {
-        self.constraints
-            .iter()
-            .filter(|c| {
-                let value = measure(observed, c.measure);
-                value.is_none_or(|v| {
-                    !v.is_finite()
-                        || c.min.is_some_and(|m| !m.is_finite() || v < m)
-                        || c.max.is_some_and(|m| !m.is_finite() || v > m)
-                })
-            })
-            .cloned()
-            .collect()
+    pub(crate) fn violations(
+        &self,
+        observed: &RelationMetrics,
+    ) -> Result<Vec<RelationConstraint>, crate::AnalysisError> {
+        crate::numerical::assess(&self.constraints, |m| measure(observed, *m))
     }
     pub fn evaluate<K>(
         &self,
         observed: RelationReport<K>,
     ) -> Result<RelationReport<K>, Box<RelationFailure<K>>> {
-        let violated = self.violations(&observed.observed);
-        if violated.is_empty() {
-            Ok(observed)
-        } else {
-            Err(Box::new(RelationFailure {
-                expected: self.clone(),
-                violated,
-                observed,
-            }))
+        let assessment = crate::Expectation::assess(self, &observed);
+        match assessment {
+            Ok(violated) if violated.is_empty() => Ok(observed),
+            result => {
+                let (violated, analysis_error) = match result {
+                    Ok(v) => (v, None),
+                    Err(e) => (Vec::new(), Some(e)),
+                };
+                Err(Box::new(RelationFailure {
+                    expected: self.clone(),
+                    violated,
+                    observed,
+                    analysis_error,
+                }))
+            }
         }
     }
 }

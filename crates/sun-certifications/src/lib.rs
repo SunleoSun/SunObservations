@@ -2,6 +2,10 @@
 mod anomaly;
 mod certification;
 mod criteria;
+mod expectations;
+mod numerical;
+pub use expectations::*;
+pub use numerical::*;
 mod grouping;
 mod integrity;
 mod join;
@@ -19,6 +23,8 @@ pub use lag::*;
 pub use relation::*;
 pub use source::*;
 pub use stats::*;
+#[cfg(test)]
+mod ergonomics_certification;
 #[cfg(test)]
 #[path = "framework_certification.rs"]
 mod framework_certification;

@@ -6,16 +6,16 @@ fn public_overlapping_channels_preserve_exact_multiplicity_and_envelope() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "fanout");
     let evidence = source_slice("fanout records", &records);
     certify("overlapping channels preserve exact multiplicity and envelope")
-        .check("record count", evidence.count().compare(Equal(100)))
+        .check("record count", evidence.count().expect(100))
         .check(
             "namespace",
             evidence
                 .matching_count(|r| r["namespace"] != "cert::point")
-                .compare(Equal(0)),
+                .expect(0),
         )
         .check(
             "sequence identity",
-            measured(
+            fact(
                 "fanout records",
                 records
                     .iter()
@@ -25,13 +25,13 @@ fn public_overlapping_channels_preserve_exact_multiplicity_and_envelope() {
                     })
                     .count(),
             )
-            .compare(Equal(0)),
+            .expect(0),
         )
         .check(
             "channel is not persisted",
             evidence
                 .matching_count(|r| r.get("channel").is_some())
-                .compare(Equal(0)),
+                .expect(0),
         )
         .assert_certify();
 }

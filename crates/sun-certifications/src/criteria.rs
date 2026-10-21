@@ -5,30 +5,30 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckClass {
     Pass,
-    Hard,
-    Statistical,
-    Error,
+    HardViolation,
+    StatisticalViolation,
+    EvaluationError,
 }
-/// A preparation/measurement error blocking this proof, without blocking independent proofs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A preparation/analysis error blocking this proof, without blocking independent proofs.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AnalysisError {
     pub message: String,
 }
-/// Full typed measured evidence, kept separate from acceptance.
+/// Full typed observed evidence, kept separate from acceptance.
 #[derive(Debug)]
 pub struct Measurement<T> {
     pub source: String,
     pub observed: Result<T, AnalysisError>,
     pub details: String,
 }
-pub fn measured<T>(source: impl Into<String>, observed: T) -> Measurement<T> {
+pub fn fact<T>(source: impl Into<String>, observed: T) -> Measurement<T> {
     Measurement {
         source: source.into(),
         observed: Ok(observed),
         details: String::new(),
     }
 }
-pub fn measurement<T, E: fmt::Display>(
+pub fn try_fact<T, E: fmt::Display>(
     source: impl Into<String>,
     observed: Result<T, E>,
 ) -> Measurement<T> {
@@ -45,7 +45,14 @@ impl<T> Measurement<T> {
         self.details = details.into();
         self
     }
-    pub fn compare<E: Expectation<T>>(self, expected: E) -> CompareResult<T, E::Violation> {
+    pub fn expect_valid(self) -> CompareResult<T, <AllValid as Expectation<T>>::Violation>
+    where
+        AllValid: Expectation<T>,
+    {
+        self.expect(AllValid)
+    }
+
+    pub fn expect<E: Expectation<T>>(self, expected: E) -> CompareResult<T, E::Violation> {
         let mut violations = Vec::new();
         let observed = self.observed;
         let mut analysis_error = None;
@@ -56,8 +63,11 @@ impl<T> Measurement<T> {
                     violations = v;
                     if !violations.is_empty() {
                         class = expected.class();
-                        if !matches!(class, CheckClass::Hard | CheckClass::Statistical) {
-                            class = CheckClass::Error;
+                        if !matches!(
+                            class,
+                            CheckClass::HardViolation | CheckClass::StatisticalViolation
+                        ) {
+                            class = CheckClass::EvaluationError;
                             analysis_error = Some(AnalysisError {
                                 message: "violated expectation must be hard or statistical".into(),
                             });
@@ -66,11 +76,11 @@ impl<T> Measurement<T> {
                 }
                 Err(e) => {
                     analysis_error = Some(e);
-                    class = CheckClass::Error;
+                    class = CheckClass::EvaluationError;
                 }
             }
         } else {
-            class = CheckClass::Error;
+            class = CheckClass::EvaluationError;
         }
         CompareResult {
             source: self.source,
@@ -89,7 +99,7 @@ pub trait Expectation<T> {
     fn assess(&self, observed: &T) -> Result<Vec<Self::Violation>, AnalysisError>;
     fn describe(&self) -> String;
     fn class(&self) -> CheckClass {
-        CheckClass::Hard
+        CheckClass::HardViolation
     }
 }
 /// Directly inspectable result; aggregation consumes it without copying its report.
@@ -210,7 +220,10 @@ pub fn criterion<F>(expected: impl Into<String>, class: CheckClass, predicate: F
 impl<T, F: Fn(&T) -> bool> Expectation<T> for Predicate<F> {
     type Violation = Violation;
     fn assess(&self, v: &T) -> Result<Vec<Violation>, AnalysisError> {
-        if !matches!(self.class, CheckClass::Hard | CheckClass::Statistical) {
+        if !matches!(
+            self.class,
+            CheckClass::HardViolation | CheckClass::StatisticalViolation
+        ) {
             return Err(AnalysisError {
                 message: "criterion must be hard or statistical".into(),
             });
@@ -259,12 +272,12 @@ impl<K> Expectation<&Alignment<K>> for AllValid {
             vec![]
         } else {
             vec![Violation {
-                expected: "exact unique key coverage".into(),
+                expected: "exact unique key correspondence".into(),
             }]
         })
     }
     fn describe(&self) -> String {
-        "exact unique key coverage".into()
+        "exact unique key correspondence".into()
     }
 }
 impl<K> Expectation<PairCheck<K>> for AllValid {
@@ -308,13 +321,13 @@ impl Expectation<f64> for NumericRule {
 impl Expectation<RelationMetrics> for RelationExpectation {
     type Violation = RelationConstraint;
     fn assess(&self, v: &RelationMetrics) -> Result<Vec<RelationConstraint>, AnalysisError> {
-        Ok(self.violations(v))
+        self.violations(v)
     }
     fn describe(&self) -> String {
         bounded_debug(&self.constraints, 1024)
     }
     fn class(&self) -> CheckClass {
-        CheckClass::Statistical
+        CheckClass::StatisticalViolation
     }
 }
 impl<K> Expectation<RelationReport<K>> for RelationExpectation {
@@ -331,7 +344,7 @@ impl<K> Expectation<RelationReport<K>> for RelationExpectation {
         bounded_debug(&self.constraints, 1024)
     }
     fn class(&self) -> CheckClass {
-        CheckClass::Statistical
+        CheckClass::StatisticalViolation
     }
 }
 impl Expectation<LagReport> for LagExpectation {
@@ -343,7 +356,7 @@ impl Expectation<LagReport> for LagExpectation {
         format!("best lag = {}, no interior gaps", self.best_lag)
     }
     fn class(&self) -> CheckClass {
-        CheckClass::Statistical
+        CheckClass::StatisticalViolation
     }
 }
 fn anomaly_violations(observed: usize, maximum: usize) -> Result<Vec<Violation>, AnalysisError> {
@@ -365,7 +378,7 @@ impl Expectation<OutlierReport> for AtMostAnomalies {
         format!("outliers <= {}", self.0)
     }
     fn class(&self) -> CheckClass {
-        CheckClass::Statistical
+        CheckClass::StatisticalViolation
     }
 }
 impl Expectation<JumpReport> for AtMostAnomalies {
@@ -377,7 +390,7 @@ impl Expectation<JumpReport> for AtMostAnomalies {
         format!("jumps <= {}", self.0)
     }
     fn class(&self) -> CheckClass {
-        CheckClass::Statistical
+        CheckClass::StatisticalViolation
     }
 }
 /// Per-group acceptance prevents global statistics from hiding broken subgroups.
@@ -428,6 +441,6 @@ impl<K: fmt::Debug> Expectation<GroupedSummaryReport<K>> for GroupExpectation {
         )
     }
     fn class(&self) -> CheckClass {
-        CheckClass::Statistical
+        CheckClass::StatisticalViolation
     }
 }

@@ -102,9 +102,9 @@ impl fmt::Display for CertificationReport {
         )?;
         for failure in &self.failures {
             let class = match failure.class {
-                CheckClass::Hard => "HARD",
-                CheckClass::Statistical => "STATISTICAL",
-                CheckClass::Error => "ERROR",
+                CheckClass::HardViolation => "HardViolation",
+                CheckClass::StatisticalViolation => "StatisticalViolation",
+                CheckClass::EvaluationError => "EvaluationError",
                 CheckClass::Pass => "PASS",
             };
             writeln!(
@@ -162,6 +162,15 @@ impl Certification {
     ) -> PreparedSource<'a, T> {
         source_slice(name, values)
     }
+    pub fn check_fact_expect<T: fmt::Debug, E: crate::Expectation<T>>(
+        &mut self,
+        name: impl Into<String>,
+        observed: T,
+        expected: E,
+    ) -> &mut Self {
+        let name = name.into();
+        self.check(name.clone(), crate::fact(name, observed).expect(expected))
+    }
     pub fn check<T: fmt::Debug, V: fmt::Debug>(
         &mut self,
         name: impl Into<String>,
@@ -196,13 +205,7 @@ impl Certification {
         }
         self
     }
-    pub fn comparison<T: fmt::Debug, V: fmt::Debug>(
-        &mut self,
-        name: impl Into<String>,
-        result: CompareResult<T, V>,
-    ) -> &mut Self {
-        self.check(name, result)
-    }
+
     pub fn section(
         &mut self,
         name: impl Into<String>,

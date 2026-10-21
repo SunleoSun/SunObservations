@@ -51,6 +51,15 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Channel",
                 "Custom Sink",
                 "MemorySink",
+                "MemorySinkConfig",
+                "MemoryStats",
+                "CaptureConfig",
+                "capture_observations",
+                "CapturedRun",
+                "run.certify",
+                "exclusive",
+                "unfinished_contexts",
+                "compact_fraction",
                 "JsonlSink",
                 "JsonlConfig",
                 "ConsoleSink",
@@ -91,6 +100,16 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Criterion",
                 "AllValid",
                 "RelationExpectation",
+                "CorrelationExpectation",
+                "LinearFitExpectation",
+                "DifferenceExpectation",
+                "check_fact_expect",
+                "comparison_fact",
+                "expect_valid",
+                "close_to",
+                "HardViolation",
+                "StatisticalViolation",
+                "EvaluationError",
                 "GroupExpectation",
                 "AtMostAnomalies",
                 "LagExpectation",
@@ -119,52 +138,56 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 .lines()
                 .any(|l| l.starts_with("description: ") && l.len() > 20);
         c.section(name, |c| {
-            c.check(
-                "manifest",
-                measured("front matter", valid).compare(Equal(true)),
-            );
+            c.check("manifest", fact("front matter", valid).expect(true));
             for marker in markers {
                 c.check(
                     marker,
-                    measured(
+                    fact(
                         "skill category",
                         text.to_lowercase().contains(&marker.to_lowercase()),
                     )
-                    .compare(Equal(true)),
+                    .expect(true),
+                );
+            }
+            for obsolete in ["measured(", ".compare(", ".coverage(", "fn execute(engine:"] {
+                c.check_fact_expect(
+                    format!("no obsolete API: {obsolete}"),
+                    text.contains(obsolete),
+                    false,
                 );
             }
             let headings: Vec<_> = text.lines().filter(|l| l.starts_with("## ")).collect();
             let unique: BTreeSet<_> = headings.iter().collect();
             c.check(
                 "no duplicate major sections",
-                measured("headings", headings.len()).compare(Equal(unique.len())),
+                fact("headings", headings.len()).expect(unique.len()),
             )
             .check(
                 "no nulls",
-                measured("content", text.contains(char::from(0))).compare(Equal(false)),
+                fact("content", text.contains(char::from(0))).expect(false),
             )
             .check(
                 "no obsolete crate",
-                measured(
+                fact(
                     "content",
                     text.contains(&["sun", "observations", "analysis"].join("-")),
                 )
-                .compare(Equal(false)),
+                .expect(false),
             )
             .check(
                 "no required external Markdown reading",
-                measured("content", text.contains("required reading")).compare(Equal(false)),
+                fact("content", text.contains("required reading")).expect(false),
             );
         });
     }
     c.check(
         "no obsolete root skill",
-        measured("location", root().join("SKILL.md").exists()).compare(Equal(false)),
+        fact("location", root().join("SKILL.md").exists()).expect(false),
     )
     .assert_certify();
 }
 #[test]
-fn every_canonical_skill_rust_block_compiles_and_scalar_capture_workflows_execute() {
+fn canonical_skill_rust_blocks_and_readme_capture_compile_and_execute() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     let mut source = String::from("#![allow(dead_code,unused_imports)]\n");
@@ -178,19 +201,19 @@ fn every_canonical_skill_rust_block_compiles_and_scalar_capture_workflows_execut
             ));
             if block.contains("fn capture()") {
                 source.push_str(
-                    "#[test] fn execute(){capture().unwrap();}
+                    "#[test] fn run_documented_workflow(){capture().unwrap();}
 ",
                 );
             }
             if block.contains("fn ordinary()") {
                 source.push_str(
-                    "#[test] fn execute(){ordinary();}
+                    "#[test] fn run_documented_workflow(){ordinary();}
 ",
                 );
             }
             if block.contains("fn inspect()") {
                 source.push_str(
-                    "#[test] fn execute(){inspect().unwrap();}
+                    "#[test] fn run_documented_workflow(){inspect().unwrap();}
 ",
                 );
             }
@@ -200,6 +223,17 @@ fn every_canonical_skill_rust_block_compiles_and_scalar_capture_workflows_execut
             );
             index += 1;
         }
+    }
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let capture_blocks: Vec<_> = readme
+        .split("```rust,ignore\n")
+        .skip(1)
+        .map(|block| block.split("```").next().unwrap())
+        .collect();
+    for (index, block) in capture_blocks.iter().enumerate() {
+        source.push_str(&format!(
+            "#[test] fn readme_capture_{index}() -> Result<(), Box<dyn std::error::Error>> {{\n{block}\nOk(())\n}}\n"
+        ));
     }
     let path = |name: &str| {
         root()
@@ -233,12 +267,21 @@ serde_json="1"
         .arg(dir.path().join("target"))
         .output()
         .unwrap();
-    certify("skill API compiles as documented")
+    certify("skill and README APIs compile as documented")
+        .limits(DiagnosticLimits {
+            failures: 1,
+            characters_per_failure: 16_384,
+        })
+        .check_fact_expect(
+            "README capture workflow present",
+            capture_blocks.len(),
+            1usize,
+        )
         .check(
             "all Rust blocks",
-            measured("downstream compile/run", output.status.success())
+            fact("downstream compile/run", output.status.success())
                 .details(String::from_utf8_lossy(&output.stderr))
-                .compare(Equal(true)),
+                .expect(true),
         )
         .assert_certify();
 }
@@ -255,7 +298,7 @@ fn mixed_evidence_workflow_proves_internal_transfer_and_negative_forbidden_absen
         .collect();
     let mut c = certify("persisted mixed evidence workflow");
     let data = source_slice("artifact", &records);
-    c.check("canonical count", data.count().compare(Equal(64)))
+    c.check("canonical count", data.count().expect(64))
         .check(
             "no transient persistence",
             data.matching_count(|r| {
@@ -263,17 +306,61 @@ fn mixed_evidence_workflow_proves_internal_transfer_and_negative_forbidden_absen
                     || r.get("tags").is_some()
                     || r.get("channel").is_some()
             })
-            .compare(Equal(0)),
+            .expect(0),
         )
         .check(
             "production namespace",
             data.matching_count(|r| r["namespace"] != "pipeline::prediction")
-                .compare(Equal(0)),
+                .expect(0),
         )
         .assert_certify();
 }
 #[test]
-fn current_benchmark_medians_preserve_every_raw_scale_and_sample() {
+fn scoped_capture_benchmark_medians_preserve_every_raw_scale_and_sample() {
+    let raw = fs::read_to_string(root().join("scripts/capture_metrics.csv")).unwrap();
+    let docs = fs::read_to_string(root().join("docs/CAPTURE_BENCHMARKS.md")).unwrap();
+    let mut samples: BTreeMap<(&str, usize), Vec<(usize, f64)>> = BTreeMap::new();
+    for line in raw.lines().skip(1) {
+        let p: Vec<_> = line.split(',').collect();
+        samples
+            .entry((p[0], p[1].parse().unwrap()))
+            .or_default()
+            .push((p[2].parse().unwrap(), p[3].parse().unwrap()));
+    }
+    let mut c = certify("capture benchmark evidence integrity");
+    c.check_fact_expect("complete matrix", samples.len(), 13 * 4);
+    for ((name, n), mut values) in samples {
+        c.check_fact_expect(
+            "all samples",
+            values.iter().map(|v| v.0).collect::<Vec<_>>(),
+            vec![0usize, 1, 2],
+        );
+        values.sort_by(|a, b| a.1.total_cmp(&b.1));
+        let column = [1000, 10000, 100000, 1000000]
+            .iter()
+            .position(|v| *v == n)
+            .unwrap();
+        let line = docs
+            .lines()
+            .find(|v| v.starts_with(&format!("| {name} |")))
+            .unwrap();
+        let reported: f64 = line
+            .split('|')
+            .nth(column + 2)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        c.check_fact_expect(
+            format!("{name} {n}"),
+            reported,
+            close_to(values[1].1).absolute(0.0000005).relative(0.),
+        );
+    }
+    c.assert_certify();
+}
+#[test]
+fn historical_benchmark_medians_preserve_every_raw_scale_and_sample() {
     let raw = fs::read_to_string(root().join("scripts/certification_metrics.csv")).unwrap();
     let docs = fs::read_to_string(root().join("docs/CERTIFICATION_BENCHMARKS.md")).unwrap();
     let mut samples: BTreeMap<(&str, usize), Vec<(usize, f64)>> = BTreeMap::new();
@@ -287,13 +374,12 @@ fn current_benchmark_medians_preserve_every_raw_scale_and_sample() {
     let mut c = certify("benchmark evidence integrity");
     c.check(
         "complete matrix",
-        measured("samples", samples.len()).compare(Equal(29 * 4)),
+        fact("samples", samples.len()).expect(29 * 4),
     );
     for ((name, n), mut values) in samples {
         c.check(
             "three raw samples",
-            measured(name, values.iter().map(|v| v.0).collect::<Vec<_>>())
-                .compare(Equal(vec![0, 1, 2])),
+            fact(name, values.iter().map(|v| v.0).collect::<Vec<_>>()).expect(vec![0, 1, 2]),
         );
         values.sort_by(|a, b| a.1.total_cmp(&b.1));
         let index = [1000, 10000, 100000, 1000000]
@@ -313,7 +399,7 @@ fn current_benchmark_medians_preserve_every_raw_scale_and_sample() {
             .unwrap();
         c.check(
             format!("{name} {n}"),
-            measured("median", reported).compare(Criterion::Range {
+            fact("median", reported).expect(Criterion::Range {
                 min: values[1].1 - 0.0000005,
                 max: values[1].1 + 0.0000005,
             }),
@@ -350,8 +436,7 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
             let path = target.split('#').next().unwrap();
             c.check(
                 format!("{} -> {target}", file.display()),
-                measured("local link", file.parent().unwrap().join(path).exists())
-                    .compare(Equal(true)),
+                fact("local link", file.parent().unwrap().join(path).exists()).expect(true),
             );
         }
     }
@@ -363,7 +448,7 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
         .collect();
     c.check(
         "overview then benchmarks",
-        measured("README", headings).compare(Equal(vec!["## Overview", "## Benchmarks"])),
+        fact("README", headings).expect(vec!["## Overview", "## Benchmarks"]),
     )
     .assert_certify();
 }

@@ -60,16 +60,16 @@ impl<'a, T> PreparedSource<'a, T> {
         (0..self.values.len()).map(|i| self.entry(i))
     }
     pub fn count(&self) -> Measurement<usize> {
-        measured(self.name(), self.values.len())
+        fact(self.name(), self.values.len())
     }
     pub fn select<V>(&self, project: impl FnOnce(&T) -> V) -> Measurement<V> {
         if self.values.len() != 1 {
-            return measurement(
+            return try_fact(
                 self.name(),
                 Err::<V, _>("selection requires exactly one value"),
             );
         }
-        measured(self.name(), project(&self.values[0]))
+        fact(self.name(), project(&self.values[0]))
     }
     pub fn project<V>(&self, project: impl Fn(&T) -> V) -> PreparedValues<V> {
         PreparedValues {
@@ -83,7 +83,7 @@ impl<'a, T> PreparedSource<'a, T> {
         }
     }
     pub fn unique<K: Ord + Clone>(&self, key: impl Fn(&T) -> K) -> Measurement<IntegrityReport<K>> {
-        measured(self.name(), check_unique(self.values, key))
+        fact(self.name(), check_unique(self.values, key))
     }
     pub fn contiguous(
         &self,
@@ -91,10 +91,10 @@ impl<'a, T> PreparedSource<'a, T> {
         start: u64,
         end: u64,
     ) -> Measurement<IntegrityReport<u64>> {
-        measured(self.name(), check_contiguous(self.values, key, start, end))
+        fact(self.name(), check_contiguous(self.values, key, start, end))
     }
     pub fn matching_count(&self, predicate: impl Fn(&T) -> bool) -> Measurement<usize> {
-        measured(
+        fact(
             self.name(),
             self.values.iter().filter(|v| predicate(v)).count(),
         )
@@ -134,7 +134,7 @@ impl<'a, T> PreparedSource<'a, T> {
                 )
             })
             .unwrap_or_default();
-        measurement(format!("{} -> {}", self.name(), right.name()), result).details(details)
+        try_fact(format!("{} -> {}", self.name(), right.name()), result).details(details)
     }
 }
 /// Reusable sorted key projection for correspondence with several sources.
@@ -188,22 +188,22 @@ impl PreparedNumeric {
         NumericSeries::new(self.values().iter().copied())
     }
     pub fn summary(&self) -> Measurement<Summary> {
-        measurement(&*self.data.name, self.series().summary())
+        try_fact(&*self.data.name, self.series().summary())
     }
     pub fn robust_summary(&self) -> Measurement<RobustSummary> {
-        measurement(&*self.data.name, self.series().robust_summary())
+        try_fact(&*self.data.name, self.series().robust_summary())
     }
     pub fn quantile(&self, q: f64) -> Measurement<f64> {
-        measurement(&*self.data.name, self.series().quantile(q))
+        try_fact(&*self.data.name, self.series().quantile(q))
     }
     pub fn check(&self, rule: NumericRule) -> Measurement<IntegrityReport> {
-        measurement(&*self.data.name, self.series().check(rule))
+        try_fact(&*self.data.name, self.series().check(rule))
     }
     pub fn outliers(&self, config: OutlierConfig) -> Measurement<OutlierReport> {
-        measurement(&*self.data.name, self.series().outliers(config))
+        try_fact(&*self.data.name, self.series().outliers(config))
     }
     pub fn jumps(&self, config: JumpConfig) -> Measurement<JumpReport> {
-        measurement(&*self.data.name, self.series().jumps(config))
+        try_fact(&*self.data.name, self.series().jumps(config))
     }
 }
 /// Two sources awaiting explicit domain identity; order is never correspondence.
@@ -278,9 +278,9 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             )
         })
     }
-    pub fn coverage(&self) -> Measurement<&Alignment<K>> {
+    pub fn comparison_fact(&self) -> Measurement<&Alignment<K>> {
         let a = self.alignment();
-        measured(self.name(),a).details(format!("left={} right={} matched={} missing left={} missing right={} duplicate left={} duplicate right={} examples: missing_left={} missing_right={} duplicates_left={} duplicates_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len(),bounded_debug(&a.missing_left,256),bounded_debug(&a.missing_right,256),bounded_debug(&a.duplicate_left,256),bounded_debug(&a.duplicate_right,256)))
+        fact(self.name(),a).details(format!("left={} right={} matched={} missing left={} missing right={} duplicate left={} duplicate right={} examples: missing_left={} missing_right={} duplicates_left={} duplicates_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len(),bounded_debug(&a.missing_left,256),bounded_debug(&a.missing_right,256),bounded_debug(&a.duplicate_left,256),bounded_debug(&a.duplicate_right,256)))
     }
     pub fn check_pairs(
         &self,
@@ -288,9 +288,9 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
         top: usize,
     ) -> Measurement<PairCheck<K>> {
         if !self.alignment().is_complete() {
-            return measurement(
+            return try_fact(
                 self.name(),
-                Err::<PairCheck<K>, _>("incomplete alignment; inspect coverage"),
+                Err::<PairCheck<K>, _>("incomplete alignment; inspect comparison_fact"),
             );
         }
         let mut report = PairCheck {
@@ -333,7 +333,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
                 report.matched, report.failures
             )
         };
-        measured(self.name(), report).details(details)
+        fact(self.name(), report).details(details)
     }
     pub fn equal<V: PartialEq>(
         &self,
@@ -357,6 +357,10 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             name: self.name(),
             alignment: self.alignment(),
             values,
+            linear_cache: std::sync::OnceLock::new(),
+            rank_cache: std::sync::OnceLock::new(),
+            difference_cache: std::sync::OnceLock::new(),
+            fit_cache: std::sync::OnceLock::new(),
         }
     }
     pub fn lag(
@@ -368,11 +372,20 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
         self.left.lag_relation_by(&self.right, left, right, config)
     }
 }
+#[cfg(test)]
+#[path = "source_certification.rs"]
+mod certification;
+
 /// Numeric field pair cached in aligned-key order; no new join or field projection per metric.
+/// Compact analysis results (including errors) are initialized once; sorting scratch is not retained.
 pub struct PreparedNumericComparison<'a, K> {
     name: String,
     alignment: &'a Alignment<K>,
     values: Vec<(f64, f64)>,
+    linear_cache: std::sync::OnceLock<Result<LinearMetrics, NumericError>>,
+    rank_cache: std::sync::OnceLock<Result<Metric, NumericError>>,
+    difference_cache: std::sync::OnceLock<Result<DifferenceSummary, NumericError>>,
+    fit_cache: std::sync::OnceLock<Result<LinearFitMetrics, NumericError>>,
 }
 impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
     pub fn values(&self) -> &[(f64, f64)] {
@@ -380,27 +393,71 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
     }
     fn analyze<T>(&self, op: impl FnOnce() -> Result<T, NumericError>) -> Measurement<T> {
         if !self.alignment.is_complete() {
-            return measurement(
+            return try_fact(
                 &self.name,
-                Err::<T, _>("incomplete alignment; inspect coverage"),
+                Err::<T, _>("incomplete alignment; inspect comparison_fact"),
             );
         }
-        measurement(&self.name, op())
+        try_fact(&self.name, op())
+    }
+    fn cached_linear(&self) -> Result<LinearMetrics, NumericError> {
+        self.linear_cache
+            .get_or_init(|| linear_metrics(self.values.iter().copied()))
+            .clone()
+    }
+    fn cached_rank(&self) -> Result<Metric, NumericError> {
+        self.rank_cache
+            .get_or_init(|| spearman(self.values.iter().copied()))
+            .clone()
+    }
+    fn cached_difference(&self) -> Result<DifferenceSummary, NumericError> {
+        self.difference_cache
+            .get_or_init(|| difference_summary(self.values.iter().copied()))
+            .clone()
+    }
+    fn cached_fit(&self) -> Result<LinearFitMetrics, NumericError> {
+        self.fit_cache
+            .get_or_init(|| {
+                crate::numerical::fit_with_linear(
+                    self.cached_linear()?,
+                    self.values.iter().copied(),
+                )
+            })
+            .clone()
+    }
+    pub fn correlation(&self) -> Measurement<CorrelationMetrics> {
+        self.analyze(|| {
+            Ok(CorrelationMetrics {
+                pearson: self.cached_linear()?.pearson,
+                spearman: self.cached_rank()?,
+            })
+        })
+    }
+    pub fn linear_fit(&self) -> Measurement<LinearFitMetrics> {
+        self.analyze(|| self.cached_fit())
     }
     pub fn relation(&self) -> Measurement<RelationMetrics> {
-        self.analyze(|| numeric_relation(self.values.iter().copied()))
+        self.analyze(|| {
+            let fit = self.cached_fit()?;
+            Ok(RelationMetrics {
+                linear: fit.linear,
+                residual: fit.residual,
+                spearman: self.cached_rank()?,
+                difference: self.cached_difference()?,
+            })
+        })
     }
     pub fn difference(&self) -> Measurement<DifferenceSummary> {
-        self.analyze(|| difference_summary(self.values.iter().copied()))
+        self.analyze(|| self.cached_difference())
     }
     pub fn linear(&self) -> Measurement<LinearMetrics> {
-        self.analyze(|| linear_metrics(self.values.iter().copied()))
+        self.analyze(|| self.cached_linear())
     }
     pub fn pearson(&self) -> Measurement<Metric> {
-        self.analyze(|| pearson(self.values.iter().copied()))
+        self.analyze(|| Ok(self.cached_linear()?.pearson))
     }
     pub fn spearman(&self) -> Measurement<Metric> {
-        self.analyze(|| spearman(self.values.iter().copied()))
+        self.analyze(|| self.cached_rank())
     }
     pub fn largest(&self, top: usize) -> Measurement<Vec<PairEvidence<K>>> {
         self.analyze(|| {

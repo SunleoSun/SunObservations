@@ -2,6 +2,8 @@
 
 The final release harness measures ordinary and Observation-backed sources, reusable alignment, generic analysis, criteria and bounded aggregation at **1k, 10k, 100k and 1M records**. Every cell is the median of three raw samples, in milliseconds. These are measurements, not acceptance thresholds.
 
+These samples predate scoped capture and numeric-result caching. See [current capture and semantic-view measurements](CAPTURE_BENCHMARKS.md) for the final API; this historical dataset is preserved, not relabeled as a new run.
+
 ## Environment and reproduction
 
 Reference host: AMD Ryzen 9 5950X, 64 GiB RAM, Windows 11/NTFS, MSVC target, Rust/Cargo 1.96.0, optimized release profile. The host was neither pinned nor isolated. Source fixtures are deterministic; timed boundaries are explicit in the harness. Decode is measured separately from subsequent typed-view operations; numeric-pair analyses reuse cached alignment. Fixture construction is outside the timed boundary unless it is the named preparation operation.

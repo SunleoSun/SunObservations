@@ -8,7 +8,7 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
     let mut c = proof("runtime production contract");
     c.check(
         "total delivery",
-        measured("persisted artifact", records.len()).compare(Equal(4 * (points + 73 + 160 + 16))),
+        fact("persisted artifact", records.len()).expect(4 * (points + 73 + 160 + 16)),
     );
     pair(&records, 32);
     let mut unique = BTreeSet::new();
@@ -21,7 +21,7 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
         c.section(format!("execution {parent}"), |c| {
             c.check(
                 "scope count",
-                measured("scope", own.len()).compare(Equal(points + 73 + 160 + 16)),
+                fact("scope", own.len()).expect(points + 73 + 160 + 16),
             );
             let valid = own.iter().filter(|r| r["phase"] != "end").all(|r| {
                 r["data"]["parent"] == parent
@@ -40,7 +40,7 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
             });
             c.check(
                 "propagated payload and admission bounds",
-                measured("records", valid).compare(Equal(true)),
+                fact("records", valid).expect(true),
             );
             for r in own.iter().filter(|r| r["phase"] != "end") {
                 if !unique.insert((r["namespace"].to_string(), r["data"].to_string())) {
@@ -55,11 +55,11 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
             ] {
                 c.check(
                     namespace,
-                    measured(
+                    fact(
                         "namespace count",
                         own.iter().filter(|r| r["namespace"] == namespace).count(),
                     )
-                    .compare(Equal(n)),
+                    .expect(n),
                 );
             }
             let mut expected = BTreeSet::new();
@@ -84,20 +84,20 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
                 })
                 .collect();
             c.check(
-                "exact domain coverage",
-                measured("child and sequence", actual).compare(Equal(expected)),
+                "exact domain correspondence",
+                fact("child and sequence", actual).expect(expected),
             );
         });
     }
     c.check(
         "no duplicate points",
-        measured("delivery", duplicate_count).compare(Equal(0)),
+        fact("delivery", duplicate_count).expect(0),
     )
     .check(
         "forbidden namespace absent",
         source_slice("artifact", &records)
             .matching_count(|r| r["namespace"] == "cert::blocked")
-            .compare(Equal(0)),
+            .expect(0),
     )
     .assert_certify();
 }

@@ -1,58 +1,67 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use sun_certifications::{RelationExpectation, RelationMeasure};
-use sun_observations::{MemorySink, Observation, ObservationEngine, Selection};
-use sun_observations_data_source::ObservationDataset;
+use sun_certifications::*;
+use sun_observations::{observe, Observation, ObservationError};
+use sun_observations_data_source::{capture_observations, CaptureConfig};
 
 #[derive(Serialize, Deserialize, Observation)]
-#[observation(namespace = "module::input")]
-struct ModuleInput {
+#[observation(namespace = "module::prediction", tags("evidence"))]
+struct Prediction {
     row: u64,
     value: f64,
 }
-#[derive(Serialize, Deserialize, Observation)]
-#[observation(namespace = "module::output")]
-struct ModuleOutput {
+struct Request {
+    count: usize,
+}
+struct Output {
     row: u64,
     value: f64,
 }
-
+fn execute(request: &Request) -> Result<Vec<Output>, ObservationError> {
+    let mut output = Vec::new();
+    for row in 0..request.count as u64 {
+        let value = row as f64;
+        observe!(Prediction { row, value })?;
+        output.push(Output {
+            row,
+            value: 2. * value + 3.,
+        });
+    }
+    output.reverse();
+    Ok(output)
+}
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let engine = ObservationEngine::new();
-    let memory = Arc::new(MemorySink::new());
-    engine.add_channel_sink("evidence", memory.clone());
-    engine.register_namespace_channel("module", "evidence")?;
-    engine.set_selection(Selection::new().activate_namespace("module"));
-    for row in 0..8 {
-        engine.observe_if_active(|| ModuleInput {
-            row,
-            value: row as f64,
-        })?;
-    }
-    for row in (0..8).rev() {
-        engine.observe_if_active(|| ModuleOutput {
-            row,
-            value: 2. * row as f64 + 3.,
-        })?;
-    }
-    engine.flush_channels()?;
-    let dataset = ObservationDataset::from_memory(&memory);
-    let inputs = dataset.typed::<ModuleInput>()?;
-    let outputs = dataset.typed::<ModuleOutput>()?;
-    let a = inputs.source("producer boundary");
-    let b = outputs.source("consumer result");
+    let request = Request { count: 8 };
+    let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"]), || {
+        execute(&request)
+    });
+    let output = run.result().as_ref().unwrap();
+    let predictions = run.typed::<Prediction>()?;
+    let mut c = run.certify("module semantic transfer");
+    let a = predictions.source("producer boundary");
+    let b = c.collection("canonical output", output);
     let pair = a.compare_with(&b).on(|v| v.row, |v| v.row);
     let values = pair.numeric(|v| v.value, |v| v.value);
-    let expected = RelationExpectation::positive(0.99)?
-        .bound(RelationMeasure::Slope, Some(1.99), Some(2.01))?
-        .bound(RelationMeasure::Intercept, Some(2.99), Some(3.01))?
-        .bound(RelationMeasure::ResidualMaxAbsolute, None, Some(1e-10))?;
-    sun_certifications::certify("module semantic transfer")
-        .check(
-            "coverage",
-            pair.coverage().compare(sun_certifications::AllValid),
-        )
-        .check("affine output", values.relation().compare(expected))
-        .assert_certify();
+    c.check_fact_expect("result count", output.len(), request.count);
+    c.section("prediction -> result", |c| {
+        c.check("comparison", pair.comparison_fact().expect_valid());
+        c.check(
+            "correlation",
+            values
+                .correlation()
+                .expect(CorrelationExpectation::positive(0.99).unwrap()),
+        );
+        c.check("slope", values.linear_fit().slope().expect(close_to(2.)));
+        c.check(
+            "affine output",
+            values.linear_fit().expect(
+                LinearFitExpectation::default()
+                    .intercept(2.99, 3.01)
+                    .unwrap()
+                    .residual_max_absolute(1e-10)
+                    .unwrap(),
+            ),
+        );
+    });
+    c.assert_certify();
     Ok(())
 }

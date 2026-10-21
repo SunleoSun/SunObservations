@@ -134,10 +134,18 @@ impl ObservationEngine {
         }
         let global = &config.selection;
         let local = &scope.config.selection;
-        let active = (global.activates(T::NAMESPACE, T::TAGS)
-            || local.activates(T::NAMESPACE, T::TAGS))
-            && !global.excludes(T::NAMESPACE, T::TAGS)
-            && !local.excludes(T::NAMESPACE, T::TAGS);
+        let capture = scope
+            .capture
+            .as_ref()
+            .filter(|capture| capture.engine == self.id);
+        let active = if let Some(capture) = capture {
+            capture.selection.admits(T::NAMESPACE, T::TAGS)
+                && !local.excludes(T::NAMESPACE, T::TAGS)
+        } else {
+            (global.activates(T::NAMESPACE, T::TAGS) || local.activates(T::NAMESPACE, T::TAGS))
+                && !global.excludes(T::NAMESPACE, T::TAGS)
+                && !local.excludes(T::NAMESPACE, T::TAGS)
+        };
         let policy = scope
             .config
             .policies
@@ -150,7 +158,9 @@ impl ObservationEngine {
             None
         };
         let mut needs_render_text = false;
-        let sinks: Vec<_> = if active {
+        let sinks: Vec<Arc<dyn Sink>> = if let Some(capture) = capture.filter(|_| active) {
+            vec![capture.clone()]
+        } else if active {
             config
                 .routing
                 .matching(T::NAMESPACE)
@@ -165,6 +175,7 @@ impl ObservationEngine {
         };
         let plan = Arc::new(ResolvedPlan {
             generation,
+            capture: capture.cloned(),
             active: active && policy != Policy::Never,
             policy,
             counter,
@@ -177,6 +188,17 @@ impl ObservationEngine {
         drop(cache);
         drop(retired);
         plan
+    }
+    fn serialize<T: Observation>(
+        plan: &ResolvedPlan,
+        payload: &T,
+    ) -> Result<Value, ObservationError> {
+        serde_json::to_value(payload).map_err(|error| {
+            if let Some(capture) = &plan.capture {
+                capture.emission_failed();
+            }
+            ObservationError::Serialize(error)
+        })
     }
     pub(crate) fn record(
         &self,
@@ -229,7 +251,7 @@ impl ObservationEngine {
             return Ok(false);
         }
         let payload = build();
-        let data = serde_json::to_value(&payload).map_err(ObservationError::Serialize)?;
+        let data = Self::serialize(&plan, &payload)?;
         let message = payload.message();
         // No consumer can observe envelope allocation/formatting, but payload serialization
         // and message callbacks still run (including their errors/side effects).
@@ -255,7 +277,7 @@ impl ObservationEngine {
             return Ok(SpanGuard::inactive(self));
         }
         let payload = build();
-        let data = serde_json::to_value(&payload).map_err(ObservationError::Serialize)?;
+        let data = Self::serialize(&plan, &payload)?;
         let mut record = self.record(&plan, T::NAMESPACE, T::LEVEL, data);
         record.message = payload.message().map(str::to_owned);
         record.phase = Some(Phase::Start);

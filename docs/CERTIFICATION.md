@@ -8,6 +8,35 @@ context lifecycle, retention hysteresis and compile-diagnostic checks listed bel
 
 For application usage and operational boundaries, see the [production user guide](../README.md).
 
+## Compact capture and acceptance contracts
+
+| Contract | Executable owner |
+| --- | --- |
+| Global typed lazy emission, canonical selector/exclusion/policy/routing | crates/sun-observations/src/macros_test.rs and engine/channel/plan certifications |
+| Scoped success/error/unwind, exclusive nesting, parallel/thread isolation, ignored serialization failures, escaped contexts/spans and automatic eviction prerequisites | crates/sun-observations-data-source/src/capture_certification.rs |
+| Rayon propagated capture isolation | certifications/rayon_propagation_certification_test.rs |
+| Bounded oldest-batch retention, order, exact stats, concurrent writes, drain/snapshot identity | crates/sun-observations/src/sinks/memory_certification.rs |
+| Equality shorthand, close_to, check_fact_expect parity, factories, all failure classes, correlation/fit/difference and typed correspondence | crates/sun-certifications/src/ergonomics_certification.rs |
+| One preparation/decode, stable compact numeric caches, bounded million-record diagnostics, dropped success reports | source_certification.rs, framework_certification.rs and dataset_certification.rs in their owning crates |
+| Skill markers/stale API rejection, downstream compilation/execution, raw benchmark matrices | certifications/documentation_certification_test.rs |
+
+### Intentional low-level usages
+
+Explicit engines, sinks, routes, selectors and closure emission remain in runtime owner tests,
+OS-process persistence/routing fixtures and runtime benchmarks: their subject is delivery,
+configuration, isolation, cache generation, flushing or fan-out. The analysis snapshot/drain
+fixture intentionally retains a MemorySink to prove frozen provenance after drain; ordinary
+analysis captures and production examples use scoped capture. The new capture benchmark's
+explicit engine is the configured-delivery control. README's isolated-engine example is
+explicitly advanced. Runtime examples configure global delivery once and emit typed macros.
+
+The sole local close helper is in generic numerical bootstrap test_support: independent
+floating-point oracle tests deliberately avoid certifying their own math with itself.
+Equal<T> remains in generic framework bootstrap tests to exercise the advanced expectation.
+Obsolete API spellings occur only as rejection strings in documentation certifications;
+there is no compatibility implementation or ordinary consumer left. Historical benchmark
+prose/data remains historical rather than being relabeled as a new API run.
+
 ## Required release commands
 
 Run from the workspace root:
@@ -98,7 +127,7 @@ while its own bootstrap/reference tests use direct Rust assertions without circu
 | Real production capture, wrong-direction/scale controls, negative ambiguity, 100k/1M-record traces, group sums and lag after drain | certifications/analysis_certification_test.rs |
 | Ordinary input + production internal evidence + ordinary output, hierarchical transfer, reference formula, rejection category and forbidden downstream absence | examples/skill_workflows.rs under sun-observations-data-source; certifications/documentation_certification_test.rs |
 | Canonical two skill manifests/features/no duplicate sections; every Rust block compiled downstream; scalar/capture/direct workflows run; Markdown links/README architecture and every benchmark median checked | certifications/documentation_certification_test.rs |
-| End-to-end runtime delivery/scope/admission/domain coverage/forbidden namespace under one proof | certifications/runtime_end_to_end_certification_test.rs |
+| End-to-end runtime delivery/scope/admission/domain correspondence/forbidden namespace under one proof | certifications/runtime_end_to_end_certification_test.rs |
 
 The generic crate currently has 54 bootstrap/semantic/reference tests; the adapter has
 nine collect-all snapshot/decode/grouping certifications; public analysis integration has five certifications and

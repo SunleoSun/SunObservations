@@ -21,41 +21,54 @@ Runtime emission needs sun-observations plus Serde derive support. Observation-b
 
 ```rust
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use sun_observations::*;
 use sun_observations_data_source::*;
-use sun_certifications::{certify, AllValid, CountRule, Equal};
+use sun_certifications::*;
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "pipeline::prediction", level = INFO, tags("evidence"))]
 struct Prediction { row: u64, signal: f64 }
-
-fn capture() -> Result<(), Box<dyn std::error::Error>> {
-    let engine = ObservationEngine::new();
-    let memory = Arc::new(MemorySink::new());
-    engine.add_channel_sink("capture", memory.clone());
-    engine.register_namespace_channel("pipeline", "capture")?;
-    engine.set_selection(Selection::new().activate_tags(["evidence"]));
-    let _scope = start_scope(ScopeConfig::new("unique-execution"));
-    for row in 0..8 {
-        engine.observe_if_active(|| Prediction { row, signal: row as f64 })?;
+fn execute(count: u64) -> Result<Vec<u64>, ObservationError> {
+    let mut output = Vec::new();
+    for row in 0..count {
+        observe!(Prediction { row, signal: row as f64 })?;
+        output.push(row);
     }
-    engine.flush_channels()?;
-    let dataset = ObservationDataset::from_memory(&memory);
-    let selected = dataset.query(EnvelopeQuery {
-        proc: Some(engine.process_id()), scope: Some(Some("unique-execution")),
-        phase: Some(None), ..Default::default()
-    });
-    let typed = selected.typed::<Prediction>()?;
+    Ok(output)
+}
+fn capture() -> Result<(), Box<dyn std::error::Error>> {
+    let run = capture_observations(
+        CaptureConfig::new().activate_tags(["evidence"])
+            .exclude_namespace("pipeline::verbose"),
+        || execute(8),
+    );
+    let output = run.result().as_ref().unwrap();
+    let typed = run.typed::<Prediction>()?;
     let evidence = typed.source("encoder predictions");
-    certify("prediction boundary")
-        .check("count", evidence.count().compare(CountRule::Exact(8)))
-        .check("identity", evidence.unique(|v| v.row).compare(AllValid))
-        .check("forbidden future rows", evidence.matching_count(|v| v.row >= 8).compare(Equal(0)))
-        .assert_certify();
+    let mut c = run.certify("prediction boundary");
+    let result = c.collection("canonical output", output);
+    c.check_fact_expect("result count", output.len(), 8usize);
+    c.check("count", evidence.count().expect(8usize));
+    c.check("identity", evidence.unique(|v| v.row).expect_valid());
+    c.check("forbidden future rows", evidence.matching_count(|v| v.row >= 8).expect(0usize));
+    c.check("output identity", result.unique(|v| *v).expect_valid());
+    c.assert_certify();
     Ok(())
 }
 ```
+
+Production functions use the process-global lazy `global()` engine through typed `observe!` / `observe_span!`, not injected engine parameters. Configure global delivery at application startup. Explicit `ObservationEngine::new()` is appropriate for independent runtime/routing/generation/cache isolation certifications, not ordinary production helpers.
+
+## Scoped capture and completeness
+
+- `CaptureConfig::new()/default()` starts disabled. `selection(Selection)` supplies canonical runtime semantics; `activate_all()`, `activate_namespace(x)/activate_namespaces(iter)`, `activate_tag(x)/activate_tags(iter)`, `exclude_namespace(x)/exclude_namespaces(iter)` and `exclude_tag(x)/exclude_tags(iter)` build the same Selection. Exclusions veto activation; namespace roots include descendants, not spelling prefixes.
+- `capture_observations(config, FnOnce() -> T) -> CapturedRun<T>` attaches private synchronous storage to the existing context. It never changes global routes/selection. Capture selection replaces global admission/delivery for the global engine in this context; scope policy and local exclusions still apply. Independent local engines retain their ordinary runtime behavior.
+- Parallel captures never share storage. Nested captures are **exclusive**: inner evidence is absent from the outer run. Child scopes inherit attachment; Context/thread/Rayon propagation carries it. Ordinary threads and async tasks do not inherit automatically. Each capture is a fresh scope/policy lifecycle. Join workers and finish spans inside the closure.
+- Context guards restore the predecessor on normal return, Result/?, or panic unwind, independently of certification/assertion. Panics propagate. Escaped Contexts, workers or spans make completeness unprovable even if no late emission has occurred.
+- `CapturedRun::result() -> &T` preserves any application Result as data; `dataset() -> &ObservationDataset` exposes the finalized fixed snapshot; `typed::<O>() -> Result<TypedView<O>,DecodeError>` decodes matching evidence. Keep the TypedView alive and reuse its prepared source; calling typed again decodes again.
+- `status() -> CaptureStatus` exposes `retention:MemoryStats`, `emission_errors:u64` and `unfinished_contexts:bool`; `is_complete()` requires no eviction, emission failures or escaped context owners. Ignored serialization failures are counted against the frozen admission context, even if serialization changes the installed context.
+- `run.certify(name) -> sun_certifications::Certification` automatically adds an EvaluationError prerequisite for incomplete capture. Healthy capture adds no noisy check. Always use this root for Observation-backed proofs; a standalone certify over a retained subset cannot establish capture completeness. Capture integration lives only in the data-source crate.
+- `retention(MemorySinkConfig)` configures capture capacity. Default finite history holds up to 1,000,000 records; size for points **and both span halves**. Eviction is legal for runtime history, never silent successful certification. No channel, sink, route or flush is required for ordinary capture.
 
 ## Declaration and meaning
 
@@ -104,7 +117,7 @@ Hold `let _guard = start_scope(ScopeConfig::new("execution-id").activate_namespa
 | `Policy::{Always,Never,FirstN(u64),EveryN(u64),MaxPerScope(u64)}` | Per-concrete-type/current-scope admission counter shared by propagated workers. EveryN admits n,2n,…; zero rejects. Always is default. FirstN/MaxPerScope bound admitted attempts, not successful persistence. |
 | `Context::capture()` | Captures current scope/context. `context.run(|| work()) -> R` or hold `context.enter() -> ContextGuard`; guard restores prior context on Drop. `scope_name() -> Option<&str>`. |
 | `context::thread::spawn(move || work()) -> JoinHandle<R>` | Captures caller context; closure/result Send+'static. Ordinary threads do not propagate. Join and handle child failures. No automatic async-task propagation. |
-| `context::rayon::ContextThreadPool::new(threads:usize) -> Result<Self,ThreadPoolBuildError>` | Enable runtime `rayon` feature. Construct in desired scope; 0 uses Rayon default. `install(FnOnce + Send) -> R`, R:Send, uses construction-bound context including nested work. |
+| `context::rayon::ContextThreadPool::new(threads:usize) -> Result<Self,ThreadPoolBuildError>` | Enable runtime `rayon` feature. Construct in desired scope; 0 uses Rayon default. `install(FnOnce + Send) -> R`, R:Send, uses construction-bound context including nested work. Dropping the pool outside its workers terminates/joins workers and releases context before returning; a last owner dropped inside its own detached job cannot join itself, so capture remains incomplete until that escaped work finishes. |
 
 Guards are execution/thread-local lifecycle objects; do not drop a parent while assuming ordinary unrelated worker threads inherit it. Keep/join propagated work intentionally.
 
@@ -114,7 +127,9 @@ Guards are execution/thread-local lifecycle objects; do not drop a parent while 
 
 | Sink/API | Complete construction/access surface and behavior |
 | --- | --- |
-| `MemorySink::new()/default()` | Synchronous immutable shared capture. `len()/is_empty()`; `shared_records()/drain_shared() -> Vec<Arc<ObservationRecord>>` preserve identity; `records()/drain() -> Vec<ObservationRecord>` clone payloads. Drain removes sink membership, not existing snapshots. |
+| `MemorySink::new()/default()/with_config(MemorySinkConfig)` | Synchronous bounded history in delivery order using VecDeque; default max_items=1,000,000 and compact_fraction=0.10. `len()/is_empty()`; `shared_records()/drain_shared() -> Vec<Arc<ObservationRecord>>` preserve identity; `records()/drain() -> Vec<ObservationRecord>` provide owned records. Drain removes membership, not snapshots or lifetime statistics. |
+| `MemorySinkConfig::new(max_items:usize,compact_fraction:f64) -> io::Result<Self>` | Positive capacity; finite fraction in (0,1]. `default()`, `max_items()`, `compact_fraction()`; `sink.config()` returns the validated config. At capacity, evict ceil(capacity*fraction) oldest records before appending. Never exceeds capacity after a write. |
+| `MemorySink::stats() -> MemoryStats` | Exact retained:usize, evicted:u64 and compactions:u64; all writes/compactions synchronized. Eviction counts survive drain. Runtime history may evict; CapturedRun proof automatically fails if capture evicts. |
 | `JsonlSink::append(path:AsRef<Path>) -> io::Result<Self>` | Append file; parent must exist. `with_config(path, JsonlConfig)` validates configuration. File opening is lazy at writer start; flush exposes asynchronous opening/writing failures. |
 | `JsonlConfig::new()/default()` | `flush_ms(u64)` default 1000; `file_size_mb(u64)` uses MiB, or `max_file_size_bytes(u64)` (default unlimited); `trim_fraction(f64)` default 0.10. Intervals/limits positive; trim finite strictly (0,1). Invalid construction returns InvalidInput. Whole-line retention can remove one span half. |
 | `JsonlSink::new(writer:Write+Send+'static)` | Owned writer; no file retention. `writer_with_config(writer,config) -> io::Result<Self>` validates settings; any configured file-retention limit is rejected with InvalidInput for an arbitrary writer. |

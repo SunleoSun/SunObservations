@@ -5,6 +5,31 @@ semantic certification workspace. This adapter depends on sun-observations and
 sun-certifications. The generic framework never depends on the runtime or adapter.
 Persisted FORMAT v1 is unchanged; human rendering is never analysis data.
 
+## Scoped real-production capture
+
+Use capture_observations(CaptureConfig::new().activate_tags(["evidence"]), || production_call()).
+Production emits typed observe!/observe_span! through the process-global lazy engine, with no
+injected engine. Config wraps canonical Selection (activate_all, singular/plural namespace/tag
+activation and exclusions), plus retention(MemorySinkConfig). No channel/sink/route is required.
+The private attachment replaces global selection/delivery in the existing context; it does not
+mutate shared configuration. Parallel captures isolate records, nested captures are exclusive,
+child scopes and explicit Context/thread/Rayon propagation retain attachment. Guards restore
+prior context on return/Result/?/unwind. Join workers and finish spans inside the closure.
+
+CapturedRun<T>::result() -> &T preserves application Result as ordinary data; dataset() returns
+a fixed ObservationDataset; typed::<O>() strictly decodes a TypedView; status() returns
+CaptureStatus{retention,emission_errors,unfinished_contexts}. run.certify(name) constructs a
+generic Certification and automatically records EvaluationError if completeness is unprovable
+(eviction, ignored serialization errors, escaped contexts/spans/workers). Healthy capture is
+silent. Always start Observation-backed proof from run.certify, not a standalone root over
+possibly incomplete retained records. TypedView decoding is explicit: prepare once and reuse.
+
+Runtime MemorySink defaults to 1,000,000 records with 10% oldest-batch eviction in VecDeque.
+MemorySinkConfig::new(capacity,fraction) validates positive capacity and finite (0,1] fraction.
+MemoryStats exposes retained/evicted/compactions; lifetime loss counters survive drain. Snapshots
+never prove retention completeness themselves. Capture freezes stats after context cleanup and
+fails closed on escaped owners; FORMAT v1 is unchanged.
+
 ## Snapshot, query, decode
 
 `ObservationDataset::from_memory(&sink)` takes fixed membership/order over shared
@@ -44,18 +69,18 @@ in typed domain keys. Never join cross-owner events by insertion order.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use sun_observations::{MemorySink, Observation};
-use sun_observations_data_source::{EnvelopeQuery, ObservationDataset};
-use sun_certifications::{certify, Equal};
+use sun_observations::{observe, Observation};
+use sun_observations_data_source::{capture_observations, CaptureConfig, EnvelopeQuery};
+
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "module::boundary")]
 struct Boundary { row:u64 }
-let sink=MemorySink::new();
-let snapshot=ObservationDataset::from_memory(&sink);
+let run=capture_observations(CaptureConfig::new().activate_namespace("module"), || observe!(Boundary { row: 1 }));
+let snapshot=run.dataset();
 let selected=snapshot.query(EnvelopeQuery { namespace_subtree:Some("module"), ..Default::default() });
 let typed=selected.typed::<Boundary>()?;
-certify("no forbidden production event")
-    .check("absence",typed.source("boundary").count().compare(Equal(0)))
+run.certify("production boundary")
+    .check("count",typed.source("boundary").count().expect(1usize))
     .assert_certify();
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

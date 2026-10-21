@@ -143,49 +143,43 @@ fn public_table_stream_shares_render_and_record_without_changing_v1_or_legacy_si
         1, 0.25, 2, 0.125
     );
     certify("human rendering preserves structured evidence and shared delivery identity")
-        .check(
-            "render once per row",
-            measured("renderer", rendered).compare(Equal(2)),
-        )
+        .check("render once per row", fact("renderer", rendered).expect(2))
         .check(
             "human text",
-            measured("console output", human_text).compare(Equal(expected_human)),
+            fact("console output", human_text).expect(expected_human),
         )
         .check(
             "render text absent from JSONL",
-            measured(
+            fact(
                 "jsonl",
                 raw.contains("Epoch | Loss") || raw.contains("------+-------"),
             )
-            .compare(Equal(false)),
+            .expect(false),
         )
-        .check(
-            "record count",
-            measured("jsonl", records.len()).compare(Equal(4)),
-        )
+        .check("record count", fact("jsonl", records.len()).expect(4))
         .check(
             "legacy and memory payloads",
-            measured("structured sinks", legacy_matches_memory).compare(Equal(true)),
+            fact("structured sinks", legacy_matches_memory).expect(true),
         )
         .check(
             "human sinks share records",
-            measured("human sinks", shared_record_mismatches).compare(Equal(0)),
+            fact("human sinks", shared_record_mismatches).expect(0),
         )
         .check(
             "human sinks share rendered text",
-            measured("human sinks", shared_render_mismatches).compare(Equal(0)),
+            fact("human sinks", shared_render_mismatches).expect(0),
         )
         .check(
             "memory and human share records",
-            measured("memory delivery", memory_identity_mismatches).compare(Equal(0)),
+            fact("memory delivery", memory_identity_mismatches).expect(0),
         )
         .check(
             "persisted records equal delivered records",
-            measured("persisted delivery", persisted_mismatches).compare(Equal(0)),
+            fact("persisted delivery", persisted_mismatches).expect(0),
         )
         .check(
             "point lifecycle fields absent",
-            measured("point records", lifecycle_fields_present).compare(Equal(0)),
+            fact("point records", lifecycle_fields_present).expect(0),
         )
         .assert_certify();
 }
@@ -211,16 +205,16 @@ fn custom_human_sink_receives_absent_renderer_and_span_lifecycle_without_invente
     let records = human.0.lock().unwrap();
     let evidence = source_slice("human deliveries", records.as_slice());
     certify("human sink does not invent render text for points or span lifecycle")
-        .check("delivery count", evidence.count().compare(Equal(3)))
+        .check("delivery count", evidence.count().expect(3))
         .check(
             "render text absent",
             evidence
                 .matching_count(|delivery| delivery.render_text().is_some())
-                .compare(Equal(0)),
+                .expect(0),
         )
         .check(
             "span end data is null",
-            measured("span end", records[2].record().data.is_null()).compare(Equal(true)),
+            fact("span end", records[2].record().data.is_null()).expect(true),
         )
         .assert_certify();
 }

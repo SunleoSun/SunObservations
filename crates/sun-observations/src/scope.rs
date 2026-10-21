@@ -74,6 +74,7 @@ pub(crate) struct ScopeState {
     pub id: u64,
     pub config: ScopeConfig,
     pub plans: Mutex<ScopePlans>,
+    pub capture: Option<Arc<crate::capture::CaptureStorage>>,
 }
 impl ScopeState {
     pub fn new(config: ScopeConfig) -> Self {
@@ -81,12 +82,15 @@ impl ScopeState {
             id: next_identity(),
             config,
             plans: Mutex::new(ScopePlans::default()),
+            capture: None,
         }
     }
 }
 
 pub fn start_scope(config: ScopeConfig) -> ContextGuard {
-    context::enter_scope(Arc::new(ScopeState::new(config)))
+    let mut scope = ScopeState::new(config);
+    scope.capture = context::current_scope().and_then(|parent| parent.capture.clone());
+    context::enter_scope(Arc::new(scope))
 }
 
 #[cfg(test)]

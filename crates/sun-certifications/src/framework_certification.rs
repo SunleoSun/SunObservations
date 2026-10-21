@@ -41,31 +41,31 @@ fn scalar_struct_collection_and_empty_contracts() {
                     count: v.count,
                     score: v.score,
                 })
-                .compare(Equal(Output {
+                .expect(Equal(Output {
                     count: 3,
                     score: 1.5,
                 })),
         )
         .check(
             "count",
-            result.select(|v| v.count).compare(CountRule::Exact(3)),
+            result.select(|v| v.count).expect(CountRule::Exact(3)),
         )
         .check(
             "finite",
-            result.select(|v| v.score).compare(NumericRule::Finite),
+            result.select(|v| v.score).expect(NumericRule::Finite),
         );
     let values = [1u64, 2, 3];
     let values = proof.collection("loaded artifact", &values);
     proof.section("artifact", |c| {
-        c.check("nonempty", values.count().compare(CountRule::NonEmpty))
-            .check("unique", values.unique(|v| *v).compare(AllValid))
+        c.check("nonempty", values.count().expect(CountRule::NonEmpty))
+            .check("unique", values.unique(|v| *v).expect(AllValid))
             .check(
                 "contiguous",
-                values.contiguous(|v| *v, 1, 3).compare(AllValid),
+                values.contiguous(|v| *v, 1, 3).expect(AllValid),
             )
             .check(
                 "forbidden",
-                values.matching_count(|v| *v > 3).compare(Equal(0)),
+                values.matching_count(|v| *v > 3).expect(Equal(0)),
             );
     });
     proof
@@ -73,7 +73,7 @@ fn scalar_struct_collection_and_empty_contracts() {
             "empty allowed",
             source_slice::<u64>("excluded", &[])
                 .count()
-                .compare(Equal(0)),
+                .expect(Equal(0)),
         )
         .assert_certify();
     assert_eq!(proof.certify().checks, 8);
@@ -110,30 +110,33 @@ fn preparation_reuses_keys_alignment_and_projected_values_across_fields() {
     );
     for _ in 0..3 {
         let mut c = certify("producer-consumer composite identity");
-        c.check("coverage", comparison.coverage().compare(AllValid));
+        c.check(
+            "comparison_fact",
+            comparison.comparison_fact().expect(AllValid),
+        );
         c.check(
             "signal",
             comparison
                 .equal(|v| v.signal, |v| v.signal, 3)
-                .compare(AllValid),
+                .expect(AllValid),
         );
         c.check(
             "strength",
             comparison
                 .equal(|v| v.strength, |v| v.strength, 3)
-                .compare(AllValid),
+                .expect(AllValid),
         );
         c.check(
             "relation",
             numeric
                 .relation()
-                .compare(RelationExpectation::positive(0.99).unwrap()),
+                .expect(RelationExpectation::positive(0.99).unwrap()),
         );
         c.check(
             "zero difference",
-            numeric.difference().compare(criterion(
+            numeric.difference().expect(criterion(
                 "zero maximum difference",
-                CheckClass::Hard,
+                CheckClass::HardViolation,
                 |r: &DifferenceSummary| r.absolute.max == 0.,
             )),
         );
@@ -162,11 +165,11 @@ fn dedicated_domain_key_and_unordered_sources_preserve_semantic_correspondence()
         |v| Key(v.fold, v.target, v.row),
     );
     certify("typed key")
-        .check("coverage", pair.coverage().compare(AllValid))
+        .check("comparison_fact", pair.comparison_fact().expect(AllValid))
         .check(
             "values",
             pair.check_pairs(|l, r| l.signal == r.signal, 3)
-                .compare(AllValid),
+                .expect(AllValid),
         )
         .assert_certify();
 }
@@ -178,19 +181,19 @@ fn missing_and_duplicate_evidence_fails_hard_and_blocks_only_dependent_measureme
     let b = source_slice("right", &b);
     let pair = a.compare_with(&b).on(|v| v.0, |v| v.0);
     let mut c = certify("incomplete correspondence");
-    c.check("coverage", pair.coverage().compare(AllValid));
+    c.check("comparison_fact", pair.comparison_fact().expect(AllValid));
     c.check(
         "dependent",
         pair.numeric(|v| v.1, |v| v.1)
             .relation()
-            .compare(RelationExpectation::positive(0.9).unwrap()),
+            .expect(RelationExpectation::positive(0.9).unwrap()),
     );
-    c.check("healthy", measured("independent", 2).compare(Equal(2)));
+    c.check("healthy", fact("independent", 2).expect(Equal(2)));
     let r = c.certify();
     assert_eq!(r.failed, 2);
     assert_eq!(r.checks, 3);
-    assert_eq!(r.failures[0].class, CheckClass::Hard);
-    assert_eq!(r.failures[1].class, CheckClass::Error);
+    assert_eq!(r.failures[0].class, CheckClass::HardViolation);
+    assert_eq!(r.failures[1].class, CheckClass::EvaluationError);
     let s = r.to_string();
     assert!(s.contains("missing right=2"));
     assert!(s.contains("duplicate left=1"));
@@ -225,7 +228,7 @@ fn expensive_source_and_group_projections_are_cached() {
     certify("per-fold behavior")
         .check(
             "group mean",
-            measured("folds", robust).compare(GroupExpectation {
+            fact("folds", robust).expect(GroupExpectation {
                 minimum_count: 30,
                 mean_min: 40.,
                 mean_max: 60.,
@@ -237,10 +240,7 @@ fn expensive_source_and_group_projections_are_cached() {
 fn hard_statistical_undefined_and_analysis_states_are_distinct_and_collect_all() {
     let mut c = certify("all independent failures");
     c.section("inputs", |c| {
-        c.check(
-            "count",
-            measured("input", 0usize).compare(CountRule::NonEmpty),
-        );
+        c.check("count", fact("input", 0usize).expect(CountRule::NonEmpty));
     });
     let a = [(1, 1.), (2, 2.), (3, 3.)];
     let b = [(1, 3.), (2, 2.), (3, 1.)];
@@ -253,19 +253,19 @@ fn hard_statistical_undefined_and_analysis_states_are_distinct_and_collect_all()
                 "direction",
                 pair.numeric(|v| v.1, |v| v.1)
                     .relation()
-                    .compare(RelationExpectation::positive(0.9).unwrap()),
+                    .expect(RelationExpectation::positive(0.9).unwrap()),
             );
         });
     });
     c.check(
         "numeric input",
-        measurement("bad", NumericSeries::new([f64::NAN].into_iter()).summary()).compare(
-            criterion("mean > 0", CheckClass::Statistical, |v: &Summary| {
-                v.mean > 0.
-            }),
-        ),
+        try_fact("bad", NumericSeries::new([f64::NAN].into_iter()).summary()).expect(criterion(
+            "mean > 0",
+            CheckClass::StatisticalViolation,
+            |v: &Summary| v.mean > 0.,
+        )),
     );
-    c.check("output", measured("output", 2).compare(Equal(3)));
+    c.check("output", fact("output", 2).expect(Equal(3)));
     let r = c.certify();
     assert_eq!(r.failed, 4);
     assert_eq!(r.checks, 4);
@@ -274,9 +274,9 @@ fn hard_statistical_undefined_and_analysis_states_are_distinct_and_collect_all()
         "all independent failures",
         "inputs/",
         "encoder/prediction/",
-        "[HARD]",
-        "[STATISTICAL]",
-        "[ERROR]",
+        "[HardViolation]",
+        "[StatisticalViolation]",
+        "[EvaluationError]",
         "direction",
         "numeric input",
         "output",
@@ -284,34 +284,32 @@ fn hard_statistical_undefined_and_analysis_states_are_distinct_and_collect_all()
     ] {
         assert!(s.contains(marker), "{s}");
     }
-    let undefined = measurement(
+    let undefined = try_fact(
         "constant",
         numeric_relation([(1., 2.), (1., 2.)].into_iter()),
     )
-    .compare(RelationExpectation::positive(0.9).unwrap());
-    assert_eq!(undefined.class, CheckClass::Statistical);
+    .expect(RelationExpectation::positive(0.9).unwrap());
+    assert_eq!(undefined.class, CheckClass::EvaluationError);
     assert!(undefined.observed.is_ok());
-    assert_eq!(undefined.violations.len(), 1);
+    assert!(undefined.analysis_error.is_some());
 }
 #[test]
 fn direct_results_preserve_observation_and_typed_violations_including_invalid_criteria() {
-    let r = measured("value", 4).compare(Criterion::Range { min: 5, max: 3 });
-    assert_eq!(r.class, CheckClass::Error);
+    let r = fact("value", 4).expect(Criterion::Range { min: 5, max: 3 });
+    assert_eq!(r.class, CheckClass::EvaluationError);
     assert_eq!(r.observed.unwrap(), 4);
     assert!(r.analysis_error.is_some());
-    let r = measured("ordinary", 5).compare(Equal(6));
-    assert_eq!(r.class, CheckClass::Hard);
+    let r = fact("ordinary", 5).expect(Equal(6));
+    assert_eq!(r.class, CheckClass::HardViolation);
     assert_eq!(r.observed.unwrap(), 5);
     assert_eq!(r.violations.len(), 1);
-    assert!(measured("absence", 0).compare(Equal(0)).is_pass());
-    assert!(measured("positive", 1.)
-        .compare(NumericRule::Positive)
-        .is_pass());
-    let incomparable_observed = measured("nan", f64::NAN).compare(Criterion::Greater(0.0));
-    assert_eq!(incomparable_observed.class, CheckClass::Error);
+    assert!(fact("absence", 0).expect(Equal(0)).is_pass());
+    assert!(fact("positive", 1.).expect(NumericRule::Positive).is_pass());
+    let incomparable_observed = fact("nan", f64::NAN).expect(Criterion::Greater(0.0));
+    assert_eq!(incomparable_observed.class, CheckClass::EvaluationError);
     assert!(incomparable_observed.analysis_error.is_some());
-    let incomparable_bound = measured("finite", 1.0).compare(Criterion::AtMost(f64::NAN));
-    assert_eq!(incomparable_bound.class, CheckClass::Error);
+    let incomparable_bound = fact("finite", 1.0).expect(Criterion::AtMost(f64::NAN));
+    assert_eq!(incomparable_bound.class, CheckClass::EvaluationError);
     assert!(incomparable_bound.analysis_error.is_some());
 }
 #[test]
@@ -321,8 +319,8 @@ fn anomaly_and_lag_expectations_fail_as_required_not_as_warnings() {
     let n = source.numeric(|v| *v);
     let out = n
         .outliers(OutlierConfig::default())
-        .compare(AtMostAnomalies(0));
-    assert_eq!(out.class, CheckClass::Statistical);
+        .expect(AtMostAnomalies(0));
+    assert_eq!(out.class, CheckClass::StatisticalViolation);
     assert_eq!(out.observed.unwrap().suspicious[0].index, 4);
     let jump = n
         .jumps(JumpConfig {
@@ -330,8 +328,8 @@ fn anomaly_and_lag_expectations_fail_as_required_not_as_warnings() {
             relative_threshold: None,
             denominator_floor: 1.,
         })
-        .compare(AtMostAnomalies(0));
-    assert_eq!(jump.class, CheckClass::Statistical);
+        .expect(AtMostAnomalies(0));
+    assert_eq!(jump.class, CheckClass::StatisticalViolation);
     let a: Vec<_> = (0..30)
         .map(|i| (i, ((i * i * 13 + i * 17) % 101) as f64))
         .collect();
@@ -348,7 +346,7 @@ fn anomaly_and_lag_expectations_fail_as_required_not_as_warnings() {
                 measure: LagMeasure::Pearson,
             },
         );
-        let r = m.compare(LagExpectation { best_lag: shift });
+        let r = m.expect(LagExpectation { best_lag: shift });
         assert!(r.is_pass());
         assert_eq!(r.observed.unwrap().best.unwrap().lag, shift);
     }
@@ -384,15 +382,15 @@ fn million_record_failures_and_success_aggregation_keep_bounded_evidence() {
         characters_per_failure: 500,
     });
     for _ in 0..100 {
-        c.check("success count", a.count().compare(Equal(values.len())));
+        c.check("success count", a.count().expect(Equal(values.len())));
     }
     assert!(c.certify().failures.is_empty());
     for _ in 0..10 {
         c.check(
             "failure",
-            measured("large measured report", &values).compare(criterion(
+            fact("large fact report", &values).expect(criterion(
                 "forbidden evidence absent",
-                CheckClass::Hard,
+                CheckClass::HardViolation,
                 |_: &&Vec<u64>| false,
             )),
         );
@@ -436,9 +434,11 @@ fn aggregation_drops_success_reports_without_rendering_or_cloning_trace() {
     let mut c = certify("trace ownership");
     c.check(
         "success",
-        measured("trace", trace()).compare(criterion("present", CheckClass::Hard, |t: &Trace| {
-            t.rows.len() == 1_000_000
-        })),
+        fact("trace", trace()).expect(criterion(
+            "present",
+            CheckClass::HardViolation,
+            |t: &Trace| t.rows.len() == 1_000_000,
+        )),
     );
     assert_eq!(dropped.get(), 1);
     assert_eq!(rendered.get(), 0);
@@ -449,8 +449,11 @@ fn aggregation_drops_success_reports_without_rendering_or_cloning_trace() {
     });
     c.check(
         "failure",
-        measured("trace", trace())
-            .compare(criterion("absent", CheckClass::Hard, |_: &Trace| false)),
+        fact("trace", trace()).expect(criterion(
+            "absent",
+            CheckClass::HardViolation,
+            |_: &Trace| false,
+        )),
     );
     assert_eq!(dropped.get(), 2);
     assert!(rendered.get() < 100);
@@ -474,8 +477,8 @@ fn invalid_custom_classification_cannot_turn_a_violation_into_a_pass() {
             CheckClass::Pass
         }
     }
-    let result = measured("value", 1usize).compare(Invalid);
-    assert_eq!(result.class, CheckClass::Error);
+    let result = fact("value", 1usize).expect(Invalid);
+    assert_eq!(result.class, CheckClass::EvaluationError);
     assert_eq!(result.observed.unwrap(), 1);
     assert!(result.analysis_error.is_some());
 }
@@ -497,7 +500,7 @@ fn bounded_pair_diagnostics_preserve_counts_before_truncating_examples() {
     });
     c.check(
         "exact transfer",
-        pair.equal(|v| v.signal, |v| v.signal, 32).compare(AllValid),
+        pair.equal(|v| v.signal, |v| v.signal, 32).expect(AllValid),
     );
     let report = c.certify().to_string();
     assert!(report.contains("matched=1000 mismatches=1000"), "{report}");
@@ -518,7 +521,7 @@ fn final_assertion_panics_at_invocation_not_framework() {
     }));
     let c = {
         let mut c = certify("caller location");
-        c.check("wrong", measured("x", 1).compare(Equal(2)));
+        c.check("wrong", fact("x", 1).expect(Equal(2)));
         c
     };
     let expected_line = line!() + 1;

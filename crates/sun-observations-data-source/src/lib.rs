@@ -1,4 +1,6 @@
 //! Observation snapshot, envelope selection, decoding and provenance adapters.
+mod capture;
+pub use capture::*;
 mod dataset;
 pub use dataset::*;
 #[cfg(test)]

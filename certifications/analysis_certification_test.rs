@@ -29,156 +29,137 @@ fn engine() -> (ObservationEngine, Arc<MemorySink>) {
     engine.set_selection(Selection::new().activate_namespace("pipeline"));
     (engine, memory)
 }
-fn capture(n: u64, slope: f64) -> ObservationDataset {
-    let (engine, memory) = engine();
-    for row in 0..n {
-        engine
-            .observe_if_active(|| Input {
+fn capture(n: u64, slope: f64) -> CapturedRun<()> {
+    capture_observations(CaptureConfig::new().activate_namespace("pipeline"), || {
+        for row in 0..n {
+            obs::observe!(Input {
                 row,
-                value: row as f64,
+                value: row as f64
             })
             .unwrap();
-    }
-    for row in (0..n).rev() {
-        engine
-            .observe_if_active(|| Output {
+        }
+        for row in (0..n).rev() {
+            obs::observe!(Output {
                 row,
-                value: slope * row as f64 + 3.,
+                value: slope * row as f64 + 3.
             })
             .unwrap();
-    }
-    engine.flush_channels().unwrap();
-    ObservationDataset::from_memory(&memory)
-}
-fn close(c: &mut Certification, name: &str, actual: f64, expected: f64) {
-    c.check(
-        name,
-        measured(name, actual).compare(Criterion::Range {
-            min: expected - 1e-9 * (1. + expected.abs()),
-            max: expected + 1e-9 * (1. + expected.abs()),
-        }),
-    );
+        }
+    })
 }
 
 #[test]
 fn same_observation_types_certify_positive_negative_and_wrong_scale_scenarios() {
-    let mut proof = certify("producer-consumer direction and scale");
     for slope in [2., -2., 100.] {
-        let dataset = capture(100, slope);
-        let left = dataset.typed::<Input>().unwrap();
-        let right = dataset.typed::<Output>().unwrap();
+        let run = capture(100, slope);
+        let left = run.typed::<Input>().unwrap();
+        let right = run.typed::<Output>().unwrap();
         let a = left.source("producer");
         let b = right.source("consumer");
         let pair = a.compare_with(&b).on(|v| v.row, |v| v.row);
         let numeric = pair.numeric(|v| v.value, |v| v.value);
-        proof.check("coverage", pair.coverage().compare(AllValid));
-        let expectation = if slope > 0. {
-            RelationExpectation::positive(0.99)
+        let mut proof = run.certify("producer-consumer direction and scale");
+        proof.check("comparison", pair.comparison_fact().expect_valid());
+        let direction = if slope > 0. {
+            CorrelationExpectation::positive(0.99)
         } else {
-            RelationExpectation::negative(-0.99)
+            CorrelationExpectation::negative(-0.99)
         }
         .unwrap();
-        proof.check("direction", numeric.relation().compare(expectation.clone()));
-        let metrics = numeric.relation().observed.unwrap();
-        close(
-            &mut proof,
+        proof.check("direction", numeric.correlation().expect(direction));
+        proof.check(
             "affine slope",
-            metrics.linear.slope.value().unwrap(),
-            slope,
+            numeric.linear_fit().slope().expect(close_to(slope)),
         );
         let wrong = if slope > 0. {
-            RelationExpectation::negative(-0.9)
+            CorrelationExpectation::negative(-0.9)
         } else {
-            RelationExpectation::positive(0.9)
+            CorrelationExpectation::positive(0.9)
         }
         .unwrap();
-        let rejected = numeric.relation().compare(wrong);
-        proof.check(
+        proof.check_fact_expect(
             "wrong direction rejected",
-            measured("control", rejected.class).compare(Equal(CheckClass::Statistical)),
+            numeric.correlation().expect(wrong).class,
+            CheckClass::StatisticalViolation,
         );
         if slope == 100. {
-            let rejected = numeric.relation().compare(
-                expectation
-                    .bound(RelationMeasure::Slope, Some(0.9), Some(1.1))
-                    .unwrap(),
-            );
-            proof.check(
+            proof.check_fact_expect(
                 "scale distinct from direction",
-                measured("control", rejected.violations[0].measure)
-                    .compare(Equal(RelationMeasure::Slope)),
+                numeric
+                    .linear_fit()
+                    .expect(LinearFitExpectation::default().slope(0.9, 1.1).unwrap())
+                    .class,
+                CheckClass::StatisticalViolation,
             );
         }
+        proof.assert_certify();
     }
-    proof.assert_certify();
 }
 
 #[test]
 fn runtime_missing_and_duplicate_evidence_is_a_hard_failure_not_suspicion() {
-    let (engine, memory) = engine();
-    for row in [1, 2, 2, 4] {
-        engine
-            .observe_if_active(|| Input {
+    let dataset = capture_observations(CaptureConfig::new().activate_namespace("pipeline"), || {
+        for row in [1, 2, 2, 4] {
+            obs::observe!(Input {
                 row,
-                value: row as f64,
+                value: row as f64
             })
             .unwrap();
-    }
-    for row in [2, 3, 4] {
-        engine
-            .observe_if_active(|| Output {
+        }
+        for row in [2, 3, 4] {
+            obs::observe!(Output {
                 row,
-                value: row as f64,
+                value: row as f64
             })
             .unwrap();
-    }
-    let dataset = ObservationDataset::from_memory(&memory);
+        }
+    });
     let left = dataset.typed::<Input>().unwrap();
     let right = dataset.typed::<Output>().unwrap();
     let a = left.source("producer");
     let b = right.source("consumer");
     let pair = a.compare_with(&b).on(|v| v.row, |v| v.row);
     let a = pair.alignment();
-    let mut c = certify("ambiguous evidence fails closed");
+    let mut c = dataset.certify("ambiguous evidence fails closed");
     c.check(
         "classification",
-        measured("coverage", pair.coverage().compare(AllValid).class)
-            .compare(Equal(CheckClass::Hard)),
+        fact(
+            "comparison_fact",
+            pair.comparison_fact().expect_valid().class,
+        )
+        .expect(CheckClass::HardViolation),
     )
-    .check(
-        "matched",
-        measured("pairs", a.matched.len()).compare(Equal(1)),
-    )
+    .check("matched", fact("pairs", a.matched.len()).expect(1))
     .check(
         "missing producer",
-        measured("keys", a.missing_left[0].key).compare(Equal(3)),
+        fact("keys", a.missing_left[0].key).expect(3),
     )
     .check(
         "missing consumer",
-        measured("keys", a.missing_right[0].key).compare(Equal(1)),
+        fact("keys", a.missing_right[0].key).expect(1),
     )
     .check(
         "ambiguous source coordinates",
-        measured("indices", &a.duplicate_left[0].indices).compare(Equal(&vec![1, 2])),
+        fact("indices", &a.duplicate_left[0].indices).expect(&vec![1, 2]),
     )
     .check(
         "dataset coordinate",
-        measured(
+        fact(
             "provenance",
             left.sources()[a.duplicate_left[0].indices[1]].0,
         )
-        .compare(Equal(2)),
+        .expect(2),
     )
     .check(
         "dependent blocked",
-        measured(
+        fact(
             "relation",
             pair.numeric(|v| v.value, |v| v.value)
                 .relation()
-                .compare(RelationExpectation::positive(0.9).unwrap())
+                .expect(RelationExpectation::positive(0.9).unwrap())
                 .class,
         )
-        .compare(Equal(CheckClass::Error)),
+        .expect(CheckClass::EvaluationError),
     )
     .assert_certify();
 }
@@ -193,19 +174,19 @@ fn captured_100k_and_one_million_records_remain_complete_and_mathematically_corr
         let b = right.source("output");
         let pair = a.compare_with(&b).on_u64(|v| v.row, |v| v.row);
         let numeric = pair.numeric(|v| v.value, |v| v.value);
-        let mut c = certify("million-record production trace");
+        let mut c = dataset.certify("million-record production trace");
         c.check(
             "snapshot count",
-            measured("snapshot", dataset.records().len()).compare(Equal(2 * n as usize)),
+            fact("snapshot", dataset.dataset().records().len()).expect(2 * n as usize),
         )
         .check(
             "contiguous",
-            a.contiguous(|v| v.row, 0, n - 1).compare(AllValid),
+            a.contiguous(|v| v.row, 0, n - 1).expect_valid(),
         )
-        .check("coverage", pair.coverage().compare(AllValid))
+        .check("comparison_fact", pair.comparison_fact().expect_valid())
         .check(
             "affine semantics",
-            numeric.relation().compare(
+            numeric.relation().expect(
                 RelationExpectation::positive(0.99)
                     .unwrap()
                     .bound(RelationMeasure::Slope, Some(2.), Some(2.))
@@ -217,17 +198,16 @@ fn captured_100k_and_one_million_records_remain_complete_and_mathematically_corr
             ),
         );
         let signal = a.numeric(|v| v.value);
-        close(
-            &mut c,
+        c.check_fact_expect(
             "mean",
             signal.summary().observed.unwrap().mean,
-            (n - 1) as f64 / 2.,
+            close_to((n - 1) as f64 / 2.),
         );
         c.check(
             "outliers",
             signal
                 .outliers(OutlierConfig::default())
-                .compare(AtMostAnomalies(0)),
+                .expect(AtMostAnomalies(0)),
         )
         .check(
             "jumps",
@@ -237,7 +217,7 @@ fn captured_100k_and_one_million_records_remain_complete_and_mathematically_corr
                     relative_threshold: None,
                     denominator_floor: 1.,
                 })
-                .compare(AtMostAnomalies(0)),
+                .expect(AtMostAnomalies(0)),
         )
         .assert_certify();
     }
@@ -276,7 +256,7 @@ fn captured_large_grouped_source_and_shifted_evidence_remains_exact_after_drain(
         let mut c = certify("snapshot provenance, groups and causal lag");
         c.check(
             "source identity",
-            measured(
+            fact(
                 "snapshot",
                 inputs.iter().all(|e| {
                     e.dataset_index == e.value.row as usize
@@ -284,25 +264,25 @@ fn captured_large_grouped_source_and_shifted_evidence_remains_exact_after_drain(
                         && e.source.proc == engine.process_id()
                 }),
             )
-            .compare(Equal(true)),
+            .expect(true),
         )
         .check(
             "group membership",
-            measured(
+            fact(
                 "groups",
                 groups.iter().all(|g| {
                     g.values().all(|v| v.row % 16 == *g.key) && g.len() == g.iter().count()
                 }),
             )
-            .compare(Equal(true)),
+            .expect(true),
         )
         .check(
             "group count",
-            measured("groups", summaries.groups.len()).compare(Equal(16)),
+            fact("groups", summaries.groups.len()).expect(16),
         )
         .check(
             "member count",
-            measured(
+            fact(
                 "groups",
                 summaries
                     .groups
@@ -310,17 +290,16 @@ fn captured_large_grouped_source_and_shifted_evidence_remains_exact_after_drain(
                     .map(|g| g.member_count)
                     .sum::<usize>(),
             )
-            .compare(Equal(n as usize)),
+            .expect(n as usize),
         );
-        close(
-            &mut c,
+        c.check_fact_expect(
             "group sum",
             summaries
                 .groups
                 .iter()
                 .map(|g| g.summary.as_ref().unwrap().sum)
-                .sum(),
-            a.numeric(|v| v.value).summary().observed.unwrap().sum,
+                .sum::<f64>(),
+            close_to(a.numeric(|v| v.value).summary().observed.unwrap().sum),
         );
         c.check(
             "causal lag",
@@ -333,7 +312,7 @@ fn captured_large_grouped_source_and_shifted_evidence_remains_exact_after_drain(
                     measure: LagMeasure::Pearson,
                 },
             )
-            .compare(LagExpectation { best_lag: 2 }),
+            .expect(LagExpectation { best_lag: 2 }),
         )
         .assert_certify();
     }

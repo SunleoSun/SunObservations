@@ -7,10 +7,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "concurrent");
     let all = source_slice("concurrent observations", &records);
     let mut proof = certify("concurrent scopes preserve independent budgets and semantic identity");
-    proof.check(
-        "record count",
-        all.count().compare(Equal(8 * (1000 + 431 + 200))),
-    );
+    proof.check("record count", all.count().expect(8 * (1000 + 431 + 200)));
 
     let mut actual = BTreeSet::new();
     let mut expected = BTreeSet::new();
@@ -30,7 +27,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
             c.check(
                 "scope",
                 own.matching_count(|r| r["scope"] != expected_scope)
-                    .compare(Equal(0)),
+                    .expect(0),
             );
             for (namespace, count) in [
                 ("cert::point", 1000usize),
@@ -40,7 +37,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
                 c.check(
                     format!("{namespace} count"),
                     own.matching_count(|r| r["namespace"] == namespace)
-                        .compare(Equal(count)),
+                        .expect(count),
                 );
             }
         });
@@ -62,7 +59,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
         .check(
             "unique semantic records",
             all.unique(|r| (r["namespace"].to_string(), r["data"].to_string()))
-                .compare(AllValid),
+                .expect_valid(),
         )
         .check(
             "parent bounds",
@@ -71,7 +68,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
                     .as_u64()
                     .is_none_or(|parent| parent >= 8)
             })
-            .compare(Equal(0)),
+            .expect(0),
         )
         .check(
             "child and sequence bounds",
@@ -84,7 +81,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
                         || sequence.is_none_or(|sequence| sequence >= 250)
                 }
             })
-            .compare(Equal(0)),
+            .expect(0),
         )
         .check(
             "point identity fields are typed",
@@ -94,11 +91,11 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
                         || r["data"]["child"].as_u64().is_none()
                         || r["data"]["sequence"].as_u64().is_none())
             })
-            .compare(Equal(0)),
+            .expect(0),
         )
         .check(
             "point semantic identities",
-            measured("point identities", actual).compare(Equal(expected)),
+            fact("point identities", actual).expect(expected),
         )
         .assert_certify();
 }

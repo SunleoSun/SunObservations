@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::sync::Arc;
-use sun_observations::{ConsoleSink, Observation, ObservationEngine, Selection};
+use sun_observations::{global, observe, ConsoleSink, Observation, Selection};
 
 #[derive(Serialize, Observation)]
 #[observation(namespace = "example::status")]
@@ -44,24 +44,24 @@ impl Observation for TableEnd {
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let engine = ObservationEngine::new();
+    let engine = global();
     engine.set_selection(Selection::new().activate_namespace("example"));
     engine.register_namespace_channel("example::status", "status")?;
     engine.register_namespace_channel("example::table", "table")?;
     engine.add_channel_sink("status", Arc::new(ConsoleSink::stderr()));
     engine.add_channel_sink("table", Arc::new(ConsoleSink::stdout()));
-    engine.observe_if_active(|| Status { state: "training" })?;
-    engine.observe_if_active(|| TableStart {
+    observe!(Status { state: "training" })?;
+    observe!(TableStart {
         columns: ["epoch", "loss", "accuracy"],
     })?;
     for epoch in 1..=2 {
-        engine.observe_if_active(|| Epoch {
+        observe!(Epoch {
             epoch,
             loss: 0.38 / epoch as f64,
             accuracy: 0.61 + epoch as f64 * 0.02,
         })?;
     }
-    engine.observe_if_active(|| TableEnd { epochs: 2 })?;
+    observe!(TableEnd { epochs: 2 })?;
     engine.flush_channels()?;
     Ok(())
 }

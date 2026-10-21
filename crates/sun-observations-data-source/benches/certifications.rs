@@ -28,22 +28,19 @@ fn sample(name: &str, n: usize, mut op: impl FnMut()) {
 fn field_check(pair: &PreparedComparison<'_, Row, Row, (u64, u64, u64)>, field: usize) {
     match field {
         0 => {
-            black_box(pair.equal(|v| v.signal, |v| v.signal, 5).compare(AllValid));
+            black_box(pair.equal(|v| v.signal, |v| v.signal, 5).expect_valid());
         }
         1 => {
-            black_box(
-                pair.equal(|v| v.strength, |v| v.strength, 5)
-                    .compare(AllValid),
-            );
+            black_box(pair.equal(|v| v.strength, |v| v.strength, 5).expect_valid());
         }
         2 => {
             black_box(
                 pair.check_pairs(|l, r| l.fold == r.fold && l.target == r.target, 5)
-                    .compare(AllValid),
+                    .expect_valid(),
             );
         }
         3 => {
-            black_box(pair.numeric(|v| v.signal, |v| v.signal).linear());
+            black_box(pair.numeric(|v| v.signal, |v| v.signal).linear_fit());
         }
         _ => {
             black_box(pair.numeric(|v| v.strength, |v| v.strength).difference());
@@ -117,7 +114,7 @@ fn main() {
                 black_box(
                     source("returned row", black_box(&left[i % n]))
                         .select(|v| v.signal)
-                        .compare(Criterion::AtLeast(0.)),
+                        .expect(Criterion::AtLeast(0.)),
                 );
             }
         });
@@ -139,10 +136,10 @@ fn main() {
         let pair = a.compare_with(&b).on(key, key);
         let numeric = pair.numeric(|v| v.signal, |v| v.signal);
         sample("same_keys", n, || {
-            black_box(pair.coverage().compare(AllValid));
+            black_box(pair.comparison_fact().expect_valid());
         });
         sample("equality", n, || {
-            black_box(pair.equal(|v| v.signal, |v| v.signal, 5).compare(AllValid));
+            black_box(pair.equal(|v| v.signal, |v| v.signal, 5).expect_valid());
         });
         sample("difference", n, || {
             black_box(numeric.difference());
@@ -204,20 +201,20 @@ fn main() {
         sample("success_aggregation_100", n, || {
             let mut c = certify("success");
             for _ in 0..100 {
-                c.check("count", a.count().compare(Equal(n)));
+                c.check("count", a.count().expect(n));
             }
             black_box(c.certify());
         });
         sample("multiple_failures_100", n, || {
             let mut c = certify("failed");
             for _ in 0..100 {
-                c.check("count", a.count().compare(Equal(0)));
+                c.check("count", a.count().expect(0));
             }
             black_box(c.certify());
         });
         let mut c = certify("million-record failure");
         for _ in 0..10 {
-            c.check("count", a.count().compare(Equal(0)));
+            c.check("count", a.count().expect(0));
         }
         let report = c.certify();
         sample("bounded_formatting", n, || {
