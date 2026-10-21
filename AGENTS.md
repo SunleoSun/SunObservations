@@ -1,7 +1,7 @@
 # Project Context & Coding Standards
 
-SunObservations is a Rust workspace for typed, structured runtime observations, diagnostics, and profiling.
-The runtime crate, derive crate, examples, persisted format, and tests together define the current repository contract.
+SunObservations is a Rust workspace for typed structured logging, runtime diagnostics, profiling, and generic semantic certification.
+The runtime/derive crates produce evidence; sun-observations-data-source owns Observation access/provenance; sun-certifications owns all generic analysis, acceptance, and proof aggregation. The code, persisted format, examples, and certifications define the current contract.
 
 ## Code as Contract
 
@@ -51,8 +51,7 @@ Add or update focused tests when changing:
 Prefer testing non-critical helpers through the important behavior that owns them unless the helper has meaningful branching or independent semantics.
 
 Keep implementation and tests grouped by semantic owner.
-Follow the repository's existing owner-adjacent `*_test.rs` convention.
-Treat `*_certification_test.rs` and `certifications/` according to their actual current repository status; do not assume placeholders are implemented or passing certification suites.
+Prefer owner-adjacent `<owner>_certification.rs` for semantic behavior verification and use sun-certifications to aggregate related expectations. Existing framework bootstrap/self-tests and low-level compile/process infrastructure may use direct Rust assertions. Inspect executable evidence rather than inferring suite status from filenames. Agent API manuals are `.agents/skills/sun-observations/SKILL.md` and `.agents/skills/certifications/SKILL.md`.
 
 ## Execution Discipline
 

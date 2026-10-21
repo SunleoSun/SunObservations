@@ -44,6 +44,7 @@ name = "benchmark_reports"
 path = "benches/support/report_test.rs"
 
 [dev-dependencies]
+sun-certifications = { path = "../sun-certifications", version = "0.1.0" }
 trybuild = "1"
 # Benchmark-only equivalent-schema raw-payload comparison; no production representation change.
 serde_json = { workspace = true, features = ["raw_value"] }

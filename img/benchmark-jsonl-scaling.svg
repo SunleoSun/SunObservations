@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="627" viewBox="0 0 960 627" role="img" aria-labelledby="title desc">
 <title id="title">JSONL producer vs end-to-end throughput</title>
-<desc id="desc">One shared sink; 1M calls total; median of 3 samples; throughput = 1000 / aggregate ns/call. 1 producer, Producer: 665.07 ns/call; 1 producer, End-to-end: 665.11 ns/call; 2 producers, Producer: 334.70 ns/call; 2 producers, End-to-end: 720.27 ns/call; 4 producers, Producer: 188.47 ns/call; 4 producers, End-to-end: 862.99 ns/call; 8 producers, Producer: 153.03 ns/call; 8 producers, End-to-end: 819.79 ns/call; 16 producers, Producer: 136.78 ns/call; 16 producers, End-to-end: 888.42 ns/call. End-to-end includes flush_channels(), not fsync. Source: BENCHMARKS.md</desc>
+<desc id="desc">One shared sink; 1M calls total; median of 3 samples; throughput = 1000 / aggregate ns/call. 1 producer, Producer: 665.07 ns/call; 1 producer, End-to-end: 665.11 ns/call; 2 producers, Producer: 334.70 ns/call; 2 producers, End-to-end: 720.27 ns/call; 4 producers, Producer: 188.47 ns/call; 4 producers, End-to-end: 862.99 ns/call; 8 producers, Producer: 153.03 ns/call; 8 producers, End-to-end: 819.79 ns/call; 16 producers, Producer: 136.78 ns/call; 16 producers, End-to-end: 888.42 ns/call. End-to-end includes flush_channels(), not fsync. Source: docs/BENCHMARKS.md</desc>
 <rect width="960" height="627" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">JSONL producer vs end-to-end throughput</text>
@@ -46,6 +46,6 @@
 <text x="749.29" y="470.00" font-size="13" text-anchor="start" fill="#172b3a">7.31</text>
 <rect x="255" y="485" width="75.02" height="21" fill="#b55112"/>
 <text x="337.02" y="501.00" font-size="13" text-anchor="start" fill="#172b3a">1.13</text>
-<text x="24.00" y="600.00" font-size="13" text-anchor="start" fill="#172b3a">End-to-end includes flush_channels(), not fsync. Source: BENCHMARKS.md</text>
+<text x="24.00" y="600.00" font-size="13" text-anchor="start" fill="#172b3a">End-to-end includes flush_channels(), not fsync. Source: docs/BENCHMARKS.md</text>
 </g>
 </svg>

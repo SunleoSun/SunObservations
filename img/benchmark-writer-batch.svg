@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="704" viewBox="0 0 960 704" role="img" aria-labelledby="title desc">
 <title id="title">Bounded JSONL writer batch tradeoff</title>
-<desc id="desc">End-to-end aggregate ns/record; 262144 records/case; median of 10 samples. 1p Event, Before (unbounded chunk): 700.02 ns/record; 1p Event, 8192-message chunk: 707.68 ns/record; 1p Rich, Before (unbounded chunk): 1022.26 ns/record; 1p Rich, 8192-message chunk: 1116.84 ns/record; 4p Event, Before (unbounded chunk): 699.01 ns/record; 4p Event, 8192-message chunk: 654.09 ns/record; 4p Rich, Before (unbounded chunk): 1645.20 ns/record; 4p Rich, 8192-message chunk: 1501.97 ns/record; 16p Event, Before (unbounded chunk): 786.07 ns/record; 16p Event, 8192-message chunk: 724.79 ns/record; 16p Rich, Before (unbounded chunk): 1827.66 ns/record; 16p Rich, 8192-message chunk: 1600.99 ns/record. 8192 bounds the writer chunk, not the queue. Source: BATCH_BENCHMARKS.md</desc>
+<desc id="desc">End-to-end aggregate ns/record; 262144 records/case; median of 10 samples. 1p Event, Before (unbounded chunk): 700.02 ns/record; 1p Event, 8192-message chunk: 707.68 ns/record; 1p Rich, Before (unbounded chunk): 1022.26 ns/record; 1p Rich, 8192-message chunk: 1116.84 ns/record; 4p Event, Before (unbounded chunk): 699.01 ns/record; 4p Event, 8192-message chunk: 654.09 ns/record; 4p Rich, Before (unbounded chunk): 1645.20 ns/record; 4p Rich, 8192-message chunk: 1501.97 ns/record; 16p Event, Before (unbounded chunk): 786.07 ns/record; 16p Event, 8192-message chunk: 724.79 ns/record; 16p Rich, Before (unbounded chunk): 1827.66 ns/record; 16p Rich, 8192-message chunk: 1600.99 ns/record. 8192 bounds the writer chunk, not the queue. Source: docs/BATCH_BENCHMARKS.md</desc>
 <rect width="960" height="704" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Bounded JSONL writer batch tradeoff</text>
@@ -51,6 +51,6 @@
 <text x="749.29" y="547.00" font-size="13" text-anchor="start" fill="#172b3a">1827.66</text>
 <rect x="255" y="562" width="426.85" height="21" fill="#b55112"/>
 <text x="688.85" y="578.00" font-size="13" text-anchor="start" fill="#172b3a">1600.99</text>
-<text x="24.00" y="677.00" font-size="13" text-anchor="start" fill="#172b3a">8192 bounds the writer chunk, not the queue. Source: BATCH_BENCHMARKS.md</text>
+<text x="24.00" y="677.00" font-size="13" text-anchor="start" fill="#172b3a">8192 bounds the writer chunk, not the queue. Source: docs/BATCH_BENCHMARKS.md</text>
 </g>
 </svg>

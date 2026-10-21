@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="472" viewBox="0 0 960 472" role="img" aria-labelledby="title desc">
 <title id="title">Warm observation hot path</title>
-<desc id="desc">No sink; Event payload; median of 3 x 1M macro calls. Inactive, ns/call: 7.37 ns/call; Excluded, ns/call: 7.28 ns/call; Never, ns/call: 7.36 ns/call; EveryN(100), ns/call: 9.55 ns/call; Always / no sink, ns/call: 154.45 ns/call. EveryN(100) admits 1%; Always includes payload serialization. Source: BENCHMARKS.md</desc>
+<desc id="desc">No sink; Event payload; median of 3 x 1M macro calls. Inactive, ns/call: 7.37 ns/call; Excluded, ns/call: 7.28 ns/call; Never, ns/call: 7.36 ns/call; EveryN(100), ns/call: 9.55 ns/call; Always / no sink, ns/call: 154.45 ns/call. EveryN(100) admits 1%; Always includes payload serialization. Source: docs/BENCHMARKS.md</desc>
 <rect width="960" height="472" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Warm observation hot path</text>
@@ -34,6 +34,6 @@
 <text x="240.00" y="348.50" font-size="14" text-anchor="end" fill="#172b3a">Always / no sink</text>
 <rect x="255" y="330" width="487.29" height="21" fill="#126b96"/>
 <text x="749.29" y="346.00" font-size="13" text-anchor="start" fill="#172b3a">154.45</text>
-<text x="24.00" y="445.00" font-size="13" text-anchor="start" fill="#172b3a">EveryN(100) admits 1%; Always includes payload serialization. Source: BENCHMARKS.md</text>
+<text x="24.00" y="445.00" font-size="13" text-anchor="start" fill="#172b3a">EveryN(100) admits 1%; Always includes payload serialization. Source: docs/BENCHMARKS.md</text>
 </g>
 </svg>

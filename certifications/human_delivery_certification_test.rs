@@ -10,6 +10,7 @@ use std::{
         Arc, Mutex,
     },
 };
+use sun_certifications::*;
 
 #[derive(Default)]
 struct Legacy(Mutex<Vec<ObservationRecord>>);
@@ -106,39 +107,87 @@ fn public_table_stream_shares_render_and_record_without_changing_v1_or_legacy_si
     }
     engine.observe_if_active(|| TableEnd { epochs: 2 }).unwrap();
     engine.flush_channels().unwrap();
-    assert_eq!(renders.load(Ordering::Relaxed), 2);
-    assert_eq!(
-        std::fs::read_to_string(&text).unwrap(),
-        "Epoch | Loss\n------+-------\n    1 | 0.2500\n    2 | 0.1250\n------+-------\n"
-    );
+    let rendered = renders.load(Ordering::Relaxed);
+    let human_text = std::fs::read_to_string(&text).unwrap();
     let raw = std::fs::read_to_string(&jsonl).unwrap();
-    assert!(!raw.contains("Epoch | Loss"));
-    assert!(!raw.contains("------+-------"));
     let records = sun_observations_certifications::read(&jsonl);
-    assert_eq!(records.len(), 4);
-    assert_eq!(legacy.0.lock().unwrap().as_slice(), memory.records());
+    let legacy_matches_memory = legacy.0.lock().unwrap().as_slice() == memory.records();
     let a = humans[0].0.lock().unwrap();
     let b = humans[1].0.lock().unwrap();
-    for index in 0..4 {
-        assert!(Arc::ptr_eq(
-            a[index].shared_record(),
-            b[index].shared_record()
-        ));
-        assert!(Arc::ptr_eq(
-            a[index].shared_render_text().unwrap(),
-            b[index].shared_render_text().unwrap()
-        ));
-        assert!(Arc::ptr_eq(
-            a[index].shared_record(),
-            &memory.shared_records()[index]
-        ));
-        assert_eq!(
-            records[index],
-            serde_json::to_value(a[index].record()).unwrap()
-        );
-        assert!(a[index].record().phase.is_none());
-        assert!(a[index].record().span.is_none());
-    }
+    let shared_record_mismatches = (0..4)
+        .filter(|&index| !Arc::ptr_eq(a[index].shared_record(), b[index].shared_record()))
+        .count();
+    let shared_render_mismatches = (0..4)
+        .filter(
+            |&index| match (a[index].shared_render_text(), b[index].shared_render_text()) {
+                (Some(left), Some(right)) => !Arc::ptr_eq(left, right),
+                _ => true,
+            },
+        )
+        .count();
+    let memory_records = memory.shared_records();
+    let memory_identity_mismatches = (0..4)
+        .filter(|&index| !Arc::ptr_eq(a[index].shared_record(), &memory_records[index]))
+        .count();
+    let persisted_mismatches = (0..4)
+        .filter(|&index| records[index] != serde_json::to_value(a[index].record()).unwrap())
+        .count();
+    let lifecycle_fields_present = a
+        .iter()
+        .filter(|delivery| delivery.record().phase.is_some() || delivery.record().span.is_some())
+        .count();
+
+    let newline = char::from(10);
+    let expected_human = format!(
+        "Epoch | Loss{newline}------+-------{newline}{:>5} | {:.4}{newline}{:>5} | {:.4}{newline}------+-------{newline}",
+        1, 0.25, 2, 0.125
+    );
+    certify("human rendering preserves structured evidence and shared delivery identity")
+        .check(
+            "render once per row",
+            measured("renderer", rendered).compare(Equal(2)),
+        )
+        .check(
+            "human text",
+            measured("console output", human_text).compare(Equal(expected_human)),
+        )
+        .check(
+            "render text absent from JSONL",
+            measured(
+                "jsonl",
+                raw.contains("Epoch | Loss") || raw.contains("------+-------"),
+            )
+            .compare(Equal(false)),
+        )
+        .check(
+            "record count",
+            measured("jsonl", records.len()).compare(Equal(4)),
+        )
+        .check(
+            "legacy and memory payloads",
+            measured("structured sinks", legacy_matches_memory).compare(Equal(true)),
+        )
+        .check(
+            "human sinks share records",
+            measured("human sinks", shared_record_mismatches).compare(Equal(0)),
+        )
+        .check(
+            "human sinks share rendered text",
+            measured("human sinks", shared_render_mismatches).compare(Equal(0)),
+        )
+        .check(
+            "memory and human share records",
+            measured("memory delivery", memory_identity_mismatches).compare(Equal(0)),
+        )
+        .check(
+            "persisted records equal delivered records",
+            measured("persisted delivery", persisted_mismatches).compare(Equal(0)),
+        )
+        .check(
+            "point lifecycle fields absent",
+            measured("point records", lifecycle_fields_present).compare(Equal(0)),
+        )
+        .assert_certify();
 }
 
 #[test]
@@ -160,9 +209,18 @@ fn custom_human_sink_receives_absent_renderer_and_span_lifecycle_without_invente
         .finish()
         .unwrap();
     let records = human.0.lock().unwrap();
-    assert_eq!(records.len(), 3);
-    assert!(records
-        .iter()
-        .all(|delivery| delivery.render_text().is_none()));
-    assert_eq!(records[2].record().data, serde_json::Value::Null);
+    let evidence = source_slice("human deliveries", records.as_slice());
+    certify("human sink does not invent render text for points or span lifecycle")
+        .check("delivery count", evidence.count().compare(Equal(3)))
+        .check(
+            "render text absent",
+            evidence
+                .matching_count(|delivery| delivery.render_text().is_some())
+                .compare(Equal(0)),
+        )
+        .check(
+            "span end data is null",
+            measured("span end", records[2].record().data.is_null()).compare(Equal(true)),
+        )
+        .assert_certify();
 }

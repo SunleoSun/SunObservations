@@ -1,67 +1,103 @@
 use std::collections::BTreeSet;
-use sun_observations_certifications::{certify, pair};
+use sun_observations_certifications::{certify as capture, pair};
 #[test]
 fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutation() {
-    let records = certify(env!("CARGO_BIN_EXE_scenario"), "runtime");
+    use sun_certifications::{certify as proof, *};
+    let records = capture(env!("CARGO_BIN_EXE_scenario"), "runtime");
     let points = 480 + if cfg!(feature = "rayon") { 30 } else { 0 };
-    assert_eq!(records.len(), 4 * (points + 73 + 160 + 16));
+    let mut c = proof("runtime production contract");
+    c.check(
+        "total delivery",
+        measured("persisted artifact", records.len()).compare(Equal(4 * (points + 73 + 160 + 16))),
+    );
     pair(&records, 32);
     let mut unique = BTreeSet::new();
+    let mut duplicate_count = 0;
     for parent in 0..4 {
         let own: Vec<_> = records
             .iter()
             .filter(|r| r["scope"] == format!("release-{parent}"))
             .collect();
-        assert_eq!(own.len(), points + 73 + 160 + 16);
-        for r in &own {
-            if r["phase"] != "end" {
-                assert_eq!(r["data"]["parent"], parent);
-                match r["namespace"].as_str().unwrap() {
-                    "cert::work" => assert!(r["data"]["child"].as_u64().unwrap() < 8),
-                    "cert::sample" => assert!(r["data"]["sequence"].as_u64().unwrap() < 480),
-                    "cert::limited" => {
-                        assert!(r["data"]["child"].as_u64().unwrap() < 4);
-                        assert!(r["data"]["sequence"].as_u64().unwrap() < 60);
-                    }
-                    "cert::point" => (),
-                    other => panic!("unexpected namespace {other}"),
-                }
-                assert!(unique.insert((r["namespace"].to_string(), r["data"].to_string())));
-            }
-        }
-        for (namespace, n) in [
-            ("cert::point", points),
-            ("cert::limited", 73),
-            ("cert::sample", 160),
-            ("cert::work", 16),
-        ] {
-            assert_eq!(
-                own.iter().filter(|r| r["namespace"] == namespace).count(),
-                n
+        c.section(format!("execution {parent}"), |c| {
+            c.check(
+                "scope count",
+                measured("scope", own.len()).compare(Equal(points + 73 + 160 + 16)),
             );
-        }
-        let mut expected = BTreeSet::new();
-        for child in 0..4 {
-            for sequence in 0..120 {
-                expected.insert((child, sequence));
+            let valid = own.iter().filter(|r| r["phase"] != "end").all(|r| {
+                r["data"]["parent"] == parent
+                    && match r["namespace"].as_str() {
+                        Some("cert::work") => r["data"]["child"].as_u64().is_some_and(|v| v < 8),
+                        Some("cert::sample") => {
+                            r["data"]["sequence"].as_u64().is_some_and(|v| v < 480)
+                        }
+                        Some("cert::limited") => {
+                            r["data"]["child"].as_u64().is_some_and(|v| v < 4)
+                                && r["data"]["sequence"].as_u64().is_some_and(|v| v < 60)
+                        }
+                        Some("cert::point") => true,
+                        _ => false,
+                    }
+            });
+            c.check(
+                "propagated payload and admission bounds",
+                measured("records", valid).compare(Equal(true)),
+            );
+            for r in own.iter().filter(|r| r["phase"] != "end") {
+                if !unique.insert((r["namespace"].to_string(), r["data"].to_string())) {
+                    duplicate_count += 1;
+                }
             }
-        }
-        if cfg!(feature = "rayon") {
-            for sequence in 0..30 {
-                expected.insert((99, sequence));
+            for (namespace, n) in [
+                ("cert::point", points),
+                ("cert::limited", 73),
+                ("cert::sample", 160),
+                ("cert::work", 16),
+            ] {
+                c.check(
+                    namespace,
+                    measured(
+                        "namespace count",
+                        own.iter().filter(|r| r["namespace"] == namespace).count(),
+                    )
+                    .compare(Equal(n)),
+                );
             }
-        }
-        let actual: BTreeSet<_> = own
-            .iter()
-            .filter(|r| r["namespace"] == "cert::point")
-            .map(|r| {
-                (
-                    r["data"]["child"].as_u64().unwrap(),
-                    r["data"]["sequence"].as_u64().unwrap(),
-                )
-            })
-            .collect();
-        assert_eq!(actual, expected);
+            let mut expected = BTreeSet::new();
+            for child in 0..4 {
+                for sequence in 0..120 {
+                    expected.insert((child, sequence));
+                }
+            }
+            if cfg!(feature = "rayon") {
+                for sequence in 0..30 {
+                    expected.insert((99, sequence));
+                }
+            }
+            let actual: BTreeSet<_> = own
+                .iter()
+                .filter(|r| r["namespace"] == "cert::point")
+                .map(|r| {
+                    (
+                        r["data"]["child"].as_u64().unwrap(),
+                        r["data"]["sequence"].as_u64().unwrap(),
+                    )
+                })
+                .collect();
+            c.check(
+                "exact domain coverage",
+                measured("child and sequence", actual).compare(Equal(expected)),
+            );
+        });
     }
-    assert!(records.iter().all(|r| r["namespace"] != "cert::blocked"));
+    c.check(
+        "no duplicate points",
+        measured("delivery", duplicate_count).compare(Equal(0)),
+    )
+    .check(
+        "forbidden namespace absent",
+        source_slice("artifact", &records)
+            .matching_count(|r| r["namespace"] == "cert::blocked")
+            .compare(Equal(0)),
+    )
+    .assert_certify();
 }

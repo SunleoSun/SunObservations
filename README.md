@@ -1,91 +1,188 @@
 # SunObservations
 
-Typed, structured runtime observations for Rust applications: production events,
-selective diagnostics, in-process capture, and coarse lifecycle profiling without
-passing a logger or recorder through domain methods.
-
 ## Overview
 
-Use SunObservations when the identity and payload of an event should be a typed
-application contract, while activation, execution context, and output destinations
-remain runtime concerns. An Observation describes **what happened**, not where to
-write it. It can be selected by semantic namespace or cross-cutting tags, limited
-by a scope-local Policy, and delivered to several Sinks.
+SunObservations is a cohesive **typed structured logging + runtime diagnostics + profiling + semantic certification framework** for Rust.
 
-Principal properties:
-
-- Explicit, stable namespaces independent of Rust type names; Serde payloads.
-- Lazy admission: rejected observations do not construct or serialize their payload.
-- Execution-local Scopes and explicitly propagated Context, including optional Rayon.
-- Independent routing to structured Memory/JSONL, asynchronous human Console, or custom Sinks.
-- Opt-in transient `render_text()`, evaluated once only for human-capable routes.
-- RAII Spans and a documented persisted JSONL contract.
-- Executable production-contract certifications and measured performance evidence.
-
-This is not a distributed tracing system or an automatic async-runtime integration.
-If bounded backlog, fsync durability, or transactional delivery across destinations
-is required, the built-in Sinks do not provide those guarantees.
+| Crate | Semantic owner |
+| --- | --- |
+| `sun-observations` | Typed production evidence, selection, policies, scopes, routing, sinks and profiling spans |
+| `sun-observations-data-source` | Fixed Observation snapshots, envelope queries, decode-once typed views and provenance |
+| `sun-certifications` | Generic sources, preparation, alignment, analysis, expectations and hierarchical proofs; no runtime dependency |
 
 ```text
-typed Observation expression
-          |
-          v
- admission: Selection + exclusions + Policy
-          | rejected: no payload construction
-          v
- payload serialization -> ObservationRecord
-          |
-          v
- namespace routing
-          +---- Channel A ---- Sink(s)
-          +---- Channel B ---- Sink(s)
+production evidence → generic data sources → semantic certification
+ordinary Rust values ─────────────────────→ semantic certification
 ```
 
-### Guide map
+Use canonical returned values and persisted artifacts when they already expose the contract. Emit typed production Observations for otherwise disappearing semantic boundaries, decisions and diagnostic evidence. Join evidence by explicit domain keys, not arrival order. Certifications combine ordinary inputs, internal evidence and canonical outputs into one collect-all proof with a silent success path and bounded failure diagnostics.
 
-- [Captured-evidence analysis](#captured-evidence-analysis)
-- [Quick Start](#quick-start)
-- [Core Model](#core-model), [Observations](#observations), [Namespaces and Tags](#namespaces-and-tags)
-- [Runtime Selection](#runtime-selection), [Scopes and Policies](#scopes-and-policies)
-- [Threads and Rayon](#threads-and-rayon), [Channels and Routing](#channels-and-routing)
-- [Human Rendering](#human-rendering), [Sinks](#sinks), [Spans](#spans), [Error Handling and Shutdown](#error-handling-and-shutdown)
-- [Persisted Format](#persisted-format), [Benchmarks](#benchmarks), [Examples](#examples)
-- [Production Usage Patterns](#production-usage-patterns), [Performance Guidelines](#performance-guidelines)
-- [Production Certification](#production-certification), [Guarantees and Non-Guarantees](#guarantees-and-non-guarantees)
-- [Public API Surface](#public-api-surface), [Development and Release Checks](#development-and-release-checks)
+### Start here
 
-| Document | Role |
-| --- | --- |
-| This README | Primary production integration and operations guide |
-| [FORMAT.md](FORMAT.md) | **Canonical** persisted JSONL compatibility contract |
-| [CERTIFICATION.md](CERTIFICATION.md) | **Canonical** certification matrix, executable evidence, and release gate |
-| [BENCHMARKS.md](BENCHMARKS.md) | Principal performance methodology and measured results |
-| [crates/sun-observations-analysis/README.md](crates/sun-observations-analysis/README.md) | Typed immutable analysis, integrity, joins, statistics and structured certification reports |
-| [ANALYSIS_BENCHMARKS.md](ANALYSIS_BENCHMARKS.md) | Analysis scaling measurements through one million records/pairs |
-| [BATCH_BENCHMARKS.md](BATCH_BENCHMARKS.md) | Bounded JSONL writer experiment and production measurements |
-| [PERFORMANCE_INVESTIGATION.md](PERFORMANCE_INVESTIGATION.md) | Historical engineering investigation, not current usage guidance |
+- [Runtime quick start](#quick-start) and [examples](examples).
+- [Generic certification API](docs/CERTIFICATIONS_API.md), [Observation adapter](docs/ANALYSIS.md) and [certification matrix](docs/CERTIFICATION.md).
+- Agent operational manuals: [SunObservations](.agents/skills/sun-observations/SKILL.md) and [certifications](.agents/skills/certifications/SKILL.md). Both are self-contained, including usable API syntax.
+- [Persisted format](docs/FORMAT.md), [runtime selection](#runtime-selection) and [routing](#channels-and-routing), and [performance investigation](docs/PERFORMANCE_INVESTIGATION.md).
 
-## Captured-evidence analysis
+## Benchmarks
 
-The separate workspace crate [sun-observations-analysis](crates/sun-observations-analysis/README.md)
-consumes shared canonical ObservationRecords without changing the runtime or FORMAT v1.
-It provides fixed snapshots, composable envelope queries, reusable typed decoding,
-streaming/robust statistics, hard integrity checks, domain-key joins, numeric differences,
-Pearson/Spearman/linear relations, scenario-owned expectations, MAD outliers and jumps.
-Reports and failures are typed, JSON-serializable evidence; suspicion is not automatically
-an application failure. Production Observation types do not need Deserialize unless a
-consumer requests typed decoding.
+### Semantic certification framework
 
-Start with the executable [module input/output certification example](crates/sun-observations-analysis/examples/module_relation.rs).
-It captures two different Observation types, joins by row rather than insertion order,
-checks correlation and scale independently, and serializes a wrong-direction failure.
-When row identity is not globally unique, first narrow the dataset with proc/scope envelope
-selectors, or include execution identity in the typed payload key. Generic and sorted joins
-use cache-friendly vectors; the integer-key entry point also selects a
-bounded dense path automatically. There is no hash-table fallback or runtime dependency
-on analysis. See [certification coverage](CERTIFICATION.md#analysis-certification) and
-[measured scaling](ANALYSIS_BENCHMARKS.md); rolling, lag, drift and arbitrary JSON queries
-are deliberately excluded.
+Release medians in milliseconds, three samples per scale. The final harness measures 29 categories from 1k through 1M records; raw samples and the full run are preserved under `scripts/`. Timings are reference-machine evidence, not correctness thresholds.
+
+| Operation | 1k | 10k | 100k | 1M |
+| --- | ---: | ---: | ---: | ---: |
+| Composite prepared alignment | 0.1025 | 0.8688 | 9.6098 | 147.5912 |
+| Pearson on cached pairs | 0.0198 | 0.1606 | 1.6141 | 23.3894 |
+| Spearman on cached pairs | 0.0789 | 1.2856 | 13.9725 | 201.5130 |
+| Prepare once + five checks | 0.1060 | 1.3086 | 17.2743 | 265.3567 |
+| Prepare/join five times | 0.2240 | 4.8752 | 54.6654 | 831.6717 |
+| Ordinary numeric projection | 0.0007 | 0.0041 | 0.1247 | 3.7558 |
+| Decoded Observation numeric projection | 0.0007 | 0.0039 | 0.0611 | 3.9450 |
+
+At 1M, reusable correspondence is **3.13× faster** for five different field checks; adapted numeric
+projection costs **1.050×** ordinary projection on this run (about 5% more; one-time decode measured separately).
+[All categories, methodology, scratch estimates and raw samples](docs/CERTIFICATION_BENCHMARKS.md)
+include grouping, robust/MAD/outliers, jumps, lag ±2/±8/±32, successful aggregation and
+bounded failure rendering. These are measurements, never acceptance thresholds.
+
+### Runtime evidence
+
+These are **measured reference-machine results, not universal performance guarantees**.
+[BENCHMARKS.md](docs/BENCHMARKS.md#environment-and-reproduction) records the AMD Ryzen 9
+5950X (16 cores/32 logical CPUs), 64 GiB RAM, Windows 11/NTFS, MSVC target, Rust/Cargo
+1.96.0, default optimized profile, and timing boundaries. The host was not isolated or
+pinned. Filesystem measurements use buffered writes/OS caching, **not fsync**.
+
+Charts 1–4 use the principal report's three-sample medians and small Event payload.
+Those runs precede the bounded-writer follow-up; chart 5 shows that paired follow-up
+separately. Do not treat results from different harnesses/runs as one normalized sample.
+Full reports include min–max ranges, cold resolution, short-lived threads, and retention
+costs not captured in these headline views.
+
+### Warm hot-path latency
+
+![Warm hot-path latency in nanoseconds per macro call](img/benchmark-hot-path.svg)
+
+Inactive, excluded, and Never observations measured **7.28–7.37 ns/call**.
+EveryN(100) measured 9.55 ns averaged over all calls, including the 99% rejected;
+it is not the latency of each accepted record. Always/no-Sink measured 154.45 ns
+and still serializes the payload. Payload complexity matters.
+[Method and results](docs/BENCHMARKS.md#warm-hot-path).
+
+### Selector scale
+
+![Warm rejected and admitted costs across selector counts with separate panel scales](img/benchmark-selector-scale.svg)
+
+Each N means N irrelevant positive namespaces, tags, excluded namespaces, and excluded
+tags: **4N rules**. With fixed Observation depth/tag count, warm rejected cost was
+7.30 ns at N=10 and 7.35 ns at N=10,000; warm admitted/no-Sink cost stayed around
+153–156 ns. This is evidence against linear warm degradation in this workload,
+not a promise about unlimited interleaved types, cold resolution, or arbitrary taxonomy.
+The two panels have separate scales.
+[Method and cold costs](docs/BENCHMARKS.md#selector-scale-no-linear-warm-degradation).
+
+### JSONL producer versus end-to-end scaling
+
+![Aggregate JSONL producer and end-to-end throughput across one to sixteen producers](img/benchmark-jsonl-scaling.svg)
+
+Producer throughput includes admission, payload/envelope materialization, and enqueue;
+end-to-end adds `flush_channels()`. Throughput is derived as `1000 / aggregate ns/call`
+in million calls/s, not an additional measurement. With 16 producers, the measured
+136.78 ns/call producer cost versus 888.42 ns/call end-to-end shows substantial
+backlog: more producers do not create more writers for one Sink. **Enqueue throughput
+is not file persistence throughput.**
+[Timing boundaries and thread results](docs/BENCHMARKS.md#thread-scaling-1m-total-shared-parent-scope).
+
+### Sink comparison
+
+![End-to-end accepted-observation costs by sink topology](img/benchmark-sink-comparison.svg)
+
+For one producer, no Sink cost 157.95 ns/call, MemorySink 630.22, JSONL 678.93,
+and Memory+JSONL 783.08. The fan-out case is four MemorySinks across two Channels,
+not four file writers. Destination choice is a major part of accepted-record cost;
+JSONL's near-equal producer/end-to-end timings here mean the worker largely kept up
+in **this** single-producer workload. They do not make JSONL synchronous.
+[Topology and results](docs/BENCHMARKS.md#sink-comparison-one-producer).
+
+### Bounded writer batch tradeoff
+
+![Before and 8192-message writer chunk end-to-end costs for Event and Rich payloads](img/benchmark-writer-batch.svg)
+
+The production follow-up compares the previous unbounded **writer chunk** with the
+current 8192-message bound; the producer queue is unbounded in both. Medians cover
+ten samples for each before/after case with 262,144 records. Saturated 4/16-producer
+end-to-end costs improved **6.4–12.4%**, while single-producer Rich **regressed 9.3%**
+(1022.26 to 1116.84 ns/record). Single-producer Event increased 1.1%, within observed
+run variation. This is **not a universal speedup** or a payload-byte/latency bound.
+[Paired measurements, alternative caps, and limitations](docs/BATCH_BENCHMARKS.md).
+
+### Human rendering and structured-path control
+
+![Same-machine structured before and after medians](img/benchmark-human-structured.svg)
+
+![Console default producer and through-flush service by producer count](img/benchmark-console-scaling.svg)
+
+![Default versus custom row formatting Console costs](img/benchmark-console-rendering.svg)
+
+The five-sample follow-up keeps the historical datasets above separate. Structured
+end-to-end medians changed by −2.8% no-sink, −3.3% Memory, +0.8% JSONL, and −14.9%
+Memory+JSONL, with overlapping ranges: no material regression is demonstrated. Improvements
+are not isolated causal speedups. Console's file-backed default output measured 782 ns/call
+with one producer; custom five-column rows measured 1606 ns/call including rendering.
+At 16 producers default enqueue was 157 ns/call versus 816 ns/call through flush,
+exposing backlog rather than promising terminal throughput. Real terminal rendering can be much slower.
+See [human benchmark methodology, raw data and limits](docs/BENCHMARKS.md#human-rendering-follow-up).
+
+### Reproduce the graphics, not a new benchmark dataset
+
+```sh
+python scripts/render_benchmark_charts.py
+python scripts/render_benchmark_charts.py --check
+```
+
+The renderer needs Python 3.9+ and only the standard library, runs offline, and emits
+deterministic SVGs. [benchmark_metrics.csv](scripts/benchmark_metrics.csv) traces every
+value to its report, section, row, and column. The script validates those values
+against the tracked Markdown evidence before rendering; it does not estimate missing
+points or rerun benchmarks. `--check` also byte-compares generated output with the
+checked-in assets. See [Development](#development-and-release-checks) to intentionally
+collect a new machine-specific dataset instead.
+
+## Evidence and semantic certification
+
+Use **sun-certifications** directly for ordinary returned structs, inputs/outputs,
+collections, loaded artifacts, reference oracles and metamorphic scenarios. Use
+**sun-observations-data-source** only for fixed Observation snapshots, envelope queries,
+strict one-time typed decoding and shared source provenance. All generic integrity,
+join/alignment, grouping, statistics, relations, robust anomalies and lag behavior is
+owned by sun-certifications—not duplicated in the adapter or runtime.
+
+```rust
+use sun_certifications::{certify, source_slice, CountRule, Equal};
+let returned_rows = vec![1u64, 2, 3];
+let rows = source_slice("canonical output", &returned_rows);
+certify("row contract")
+    .check("count", rows.count().compare(CountRule::Exact(3)))
+    .check("forbidden rows", rows.matching_count(|r| *r > 3).compare(Equal(0)))
+    .assert_certify();
+```
+
+For two sources, prepare explicit typed domain correspondence once:
+`a.compare_with(&b).on(|v| (v.fold,v.target,v.row), |v| (v.fold,v.target,v.row))`.
+Reuse that PreparedComparison for coverage, equality, custom predicates and multiple
+cached numeric field pairs (difference, Pearson/Spearman, covariance/fit/residuals,
+top disagreements); shifted lag searches project once per search. Missing/duplicate
+keys never silently form ambiguous pairs. Nested semantic sections collect HARD,
+STATISTICAL and ERROR results together; one final assertion renders bounded diagnostics.
+
+The executable [mixed evidence workflow](crates/sun-observations-data-source/examples/skill_workflows.rs)
+combines ordinary input, production prediction evidence and ordinary output. The
+[module transfer example](crates/sun-observations-data-source/examples/module_relation.rs)
+checks direction, scale and residuals. If rows repeat between executions, select envelope
+proc/scope first or include execution identity in typed domain keys. See the
+[generic workflow](docs/CERTIFICATIONS_API.md), [adapter guide](docs/ANALYSIS.md),
+[certification matrix](docs/CERTIFICATION.md) and [current measurements](docs/CERTIFICATION_BENCHMARKS.md).
 
 ## Quick Start
 
@@ -710,7 +807,7 @@ replaces the destination. Directory permissions must allow that replacement work
   This is framing/JSON validation, not certification of arbitrary hand-written envelopes.
 - Without retention, append does not retrospectively validate or repair existing history.
 - Compaction/replacement errors are sticky too. Small limits and frequent replacement
-  can be expensive; see the [retention measurements](BENCHMARKS.md#writer-batches-and-line-safe-compaction).
+  can be expensive; see the [retention measurements](docs/BENCHMARKS.md#writer-batches-and-line-safe-compaction).
 
 #### Local Drop and global shutdown
 
@@ -861,7 +958,7 @@ records and concurrent Spans interleave. For a successful pair, subtract `proc_m
 for millisecond-resolution elapsed time; zero is valid. Do not subtract wall-clock
 `ts` or compare elapsed clocks across engines. No parent tree, distributed trace ID,
 automatic duration field, or exclusive/self-time aggregation is provided. Overlapping
-intervals cannot simply be summed as disjoint work. See [FORMAT.md](FORMAT.md#lifecycle-and-timing).
+intervals cannot simply be summed as disjoint work. See [FORMAT.md](docs/FORMAT.md#lifecycle-and-timing).
 
 ## Error Handling and Shutdown
 
@@ -913,7 +1010,7 @@ without an application-defined duplication policy.
 
 ## Persisted Format
 
-[FORMAT.md](FORMAT.md) is the **canonical v1 compatibility contract**. JSONL is UTF-8
+[FORMAT.md](docs/FORMAT.md) is the **canonical v1 compatibility contract**. JSONL is UTF-8
 without BOM: one compact JSON object followed by LF, no headers, wrapper array, or
 blank lines. The following point record is pretty-printed only for readability;
 the file stores it on one physical line:
@@ -957,109 +1054,6 @@ preserved; there is no global thread order or cross-Sink total ordering. Concurr
 timestamps can tie or appear out of order. Retention, duplication, failures, and
 unmatched lifecycle records are part of the reader contract, not automatically
 corrected by the runtime.
-
-## Benchmarks
-
-These are **measured reference-machine results, not universal performance guarantees**.
-[BENCHMARKS.md](BENCHMARKS.md#environment-and-reproduction) records the AMD Ryzen 9
-5950X (16 cores/32 logical CPUs), 64 GiB RAM, Windows 11/NTFS, MSVC target, Rust/Cargo
-1.96.0, default optimized profile, and timing boundaries. The host was not isolated or
-pinned. Filesystem measurements use buffered writes/OS caching, **not fsync**.
-
-Charts 1–4 use the principal report's three-sample medians and small Event payload.
-Those runs precede the bounded-writer follow-up; chart 5 shows that paired follow-up
-separately. Do not treat results from different harnesses/runs as one normalized sample.
-Full reports include min–max ranges, cold resolution, short-lived threads, and retention
-costs not captured in these headline views.
-
-### Warm hot-path latency
-
-![Warm hot-path latency in nanoseconds per macro call](img/benchmark-hot-path.svg)
-
-Inactive, excluded, and Never observations measured **7.28–7.37 ns/call**.
-EveryN(100) measured 9.55 ns averaged over all calls, including the 99% rejected;
-it is not the latency of each accepted record. Always/no-Sink measured 154.45 ns
-and still serializes the payload. Payload complexity matters.
-[Method and results](BENCHMARKS.md#warm-hot-path).
-
-### Selector scale
-
-![Warm rejected and admitted costs across selector counts with separate panel scales](img/benchmark-selector-scale.svg)
-
-Each N means N irrelevant positive namespaces, tags, excluded namespaces, and excluded
-tags: **4N rules**. With fixed Observation depth/tag count, warm rejected cost was
-7.30 ns at N=10 and 7.35 ns at N=10,000; warm admitted/no-Sink cost stayed around
-153–156 ns. This is evidence against linear warm degradation in this workload,
-not a promise about unlimited interleaved types, cold resolution, or arbitrary taxonomy.
-The two panels have separate scales.
-[Method and cold costs](BENCHMARKS.md#selector-scale-no-linear-warm-degradation).
-
-### JSONL producer versus end-to-end scaling
-
-![Aggregate JSONL producer and end-to-end throughput across one to sixteen producers](img/benchmark-jsonl-scaling.svg)
-
-Producer throughput includes admission, payload/envelope materialization, and enqueue;
-end-to-end adds `flush_channels()`. Throughput is derived as `1000 / aggregate ns/call`
-in million calls/s, not an additional measurement. With 16 producers, the measured
-136.78 ns/call producer cost versus 888.42 ns/call end-to-end shows substantial
-backlog: more producers do not create more writers for one Sink. **Enqueue throughput
-is not file persistence throughput.**
-[Timing boundaries and thread results](BENCHMARKS.md#thread-scaling-1m-total-shared-parent-scope).
-
-### Sink comparison
-
-![End-to-end accepted-observation costs by sink topology](img/benchmark-sink-comparison.svg)
-
-For one producer, no Sink cost 157.95 ns/call, MemorySink 630.22, JSONL 678.93,
-and Memory+JSONL 783.08. The fan-out case is four MemorySinks across two Channels,
-not four file writers. Destination choice is a major part of accepted-record cost;
-JSONL's near-equal producer/end-to-end timings here mean the worker largely kept up
-in **this** single-producer workload. They do not make JSONL synchronous.
-[Topology and results](BENCHMARKS.md#sink-comparison-one-producer).
-
-### Bounded writer batch tradeoff
-
-![Before and 8192-message writer chunk end-to-end costs for Event and Rich payloads](img/benchmark-writer-batch.svg)
-
-The production follow-up compares the previous unbounded **writer chunk** with the
-current 8192-message bound; the producer queue is unbounded in both. Medians cover
-ten samples for each before/after case with 262,144 records. Saturated 4/16-producer
-end-to-end costs improved **6.4–12.4%**, while single-producer Rich **regressed 9.3%**
-(1022.26 to 1116.84 ns/record). Single-producer Event increased 1.1%, within observed
-run variation. This is **not a universal speedup** or a payload-byte/latency bound.
-[Paired measurements, alternative caps, and limitations](BATCH_BENCHMARKS.md).
-
-### Human rendering and structured-path control
-
-![Same-machine structured before and after medians](img/benchmark-human-structured.svg)
-
-![Console default producer and through-flush service by producer count](img/benchmark-console-scaling.svg)
-
-![Default versus custom row formatting Console costs](img/benchmark-console-rendering.svg)
-
-The five-sample follow-up keeps the historical datasets above separate. Structured
-end-to-end medians changed by −2.8% no-sink, −3.3% Memory, +0.8% JSONL, and −14.9%
-Memory+JSONL, with overlapping ranges: no material regression is demonstrated. Improvements
-are not isolated causal speedups. Console's file-backed default output measured 782 ns/call
-with one producer; custom five-column rows measured 1606 ns/call including rendering.
-At 16 producers default enqueue was 157 ns/call versus 816 ns/call through flush,
-exposing backlog rather than promising terminal throughput. Real terminal rendering can be much slower.
-See [human benchmark methodology, raw data and limits](BENCHMARKS.md#human-rendering-follow-up).
-
-### Reproduce the graphics, not a new benchmark dataset
-
-```sh
-python scripts/render_benchmark_charts.py
-python scripts/render_benchmark_charts.py --check
-```
-
-The renderer needs Python 3.9+ and only the standard library, runs offline, and emits
-deterministic SVGs. [benchmark_metrics.csv](scripts/benchmark_metrics.csv) traces every
-value to its report, section, row, and column. The script validates those values
-against the tracked Markdown evidence before rendering; it does not estimate missing
-points or rerun benchmarks. `--check` also byte-compares generated output with the
-checked-in assets. See [Development](#development-and-release-checks) to intentionally
-collect a new machine-specific dataset instead.
 
 ## Examples
 
@@ -1195,7 +1189,7 @@ correct application usage.
 
 ## Production Certification
 
-[CERTIFICATION.md](CERTIFICATION.md) is the canonical executable matrix and release
+[CERTIFICATION.md](docs/CERTIFICATION.md) is the canonical executable matrix and release
 gate. It covers namespace/derive contracts, admission/laziness/exclusions, exact
 scope Policies, configuration invalidation, Scope isolation, OS-thread and optional
 Rayon propagation, Channel fan-out, Span lifecycle, JSONL framing/FIFO, multi-producer
@@ -1235,8 +1229,8 @@ certification or a guarantee for every host/workload.
 - automatic Context inheritance in arbitrary OS threads or external executors;
 - universal benchmark speedups or a guaranteed throughput on your hardware.
 
-See [certification limits](CERTIFICATION.md#findings-and-limits) and
-[FORMAT.md](FORMAT.md) for the precise boundaries.
+See [certification limits](docs/CERTIFICATION.md#findings-and-limits) and
+[FORMAT.md](docs/FORMAT.md) for the precise boundaries.
 
 ## Public API Surface
 
@@ -1267,15 +1261,16 @@ This is a navigation map, not a replacement for source-generated Rust API docs.
 | `context::rayon::ContextThreadPool` | Optional construction-bound Rayon pool (`rayon` feature) |
 | `namespace::validate_namespace` / `namespace::InvalidNamespace` | Runtime namespace validation and route error |
 
-The separate analysis API is documented in its [crate guide](crates/sun-observations-analysis/README.md):
-ObservationDataset/EnvelopeQuery/TypedView, integrity reports, generic/sorted/integer joins,
-NumericSeries, relation metrics/expectations/failures and outlier/jump reports. These
-are consumers of the runtime API above, not runtime re-exports.
+The [adapter guide](docs/ANALYSIS.md) covers ObservationDataset/EnvelopeQuery/TypedView
+and original-record provenance. The [generic framework guide](docs/CERTIFICATIONS_API.md)
+covers named sources, preparation, reusable composite-key comparisons, integrity/statistics,
+expectations, CompareResult and hierarchical certification. Neither API is a runtime re-export.
 
 ## Development and Release Checks
 
 Repository layout: runtime in `crates/sun-observations`, derive in
-`crates/sun-observations-derive`, offline analysis in `crates/sun-observations-analysis`,
+`crates/sun-observations-derive`, Observation adapters in `crates/sun-observations-data-source`,
+and generic semantic certification/analysis in `crates/sun-certifications`,
 public/process checks in `certifications`, and runtime consumers in `examples`.
 The analysis module-boundary example lives in its own crate. Tests stay adjacent
 to their semantic owners.
@@ -1292,7 +1287,9 @@ cargo test --workspace
 cargo test --workspace --all-features
 cargo test -p sun-observations --all-features --lib certification
 cargo test -p sun-observations-certifications
-cargo test -p sun-observations-analysis
+cargo test -p sun-observations-data-source
+cargo test -p sun-certifications
+cargo test -p sun-observations-certifications --test documentation_certification
 cargo test -p sun-observations-certifications --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo build -p sun-observations --examples
@@ -1302,7 +1299,7 @@ python scripts/render_benchmark_charts.py --check
 ```
 
 Run the example binaries as listed [above](#examples), not only their build checks.
-See [CERTIFICATION.md](CERTIFICATION.md#required-release-commands) for the release
+See [CERTIFICATION.md](docs/CERTIFICATION.md#required-release-commands) for the release
 matrix and compile-pass/fail/downstream requirements.
 
 To intentionally collect new benchmark evidence:
@@ -1316,8 +1313,8 @@ cargo bench -p sun-observations --bench human
 All benchmark targets save `metrics.csv` and `stderr.txt` in unique run directories
 beside the active Cargo profile directory, replay output, and remove temporary
 scenario JSONL files. Failed runs keep diagnostic reports and propagate failure.
-See [artifact layout and timing controls](BENCHMARKS.md#generated-artifacts) and the
-[batch method](BATCH_BENCHMARKS.md#method). Record host/toolchain/workload context and
+See [artifact layout and timing controls](docs/BENCHMARKS.md#generated-artifacts) and the
+[batch method](docs/BATCH_BENCHMARKS.md#method). Record host/toolchain/workload context and
 update measured report tables and chart data together when intentionally refreshing
 the dataset; chart regeneration alone must not replace reference results with a new
 machine's measurements.

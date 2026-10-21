@@ -120,14 +120,14 @@ def chart(rows, title, subtitle, footer, split_series=False, throughput=False, u
 def render():
     rows = load_metrics()
     specs = {
-        "human-structured": ("Human capability: structured-only control", "Same-machine before/after; 5 x 1M calls; render-capable type after, no human sinks", "Overlapping ranges; do not interpret small median changes as universal speedups. Source: BENCHMARKS.md", False, False),
-        "console-scaling": ("Console producer vs through-flush service", "Default formatting; file-backed production worker; 5 x 262144 records", "Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: BENCHMARKS.md", False, True),
-        "console-rendering": ("Console default vs custom numeric row", "Through-flush ns/call; different output bytes and formatting threads; median of 5", "File-backed worker, not terminal painting. Row-only renderer: 595.38 ns. Source: BENCHMARKS.md", False, False),
-        "hot-path": ("Warm observation hot path", "No sink; Event payload; median of 3 x 1M macro calls", "EveryN(100) admits 1%; Always includes payload serialization. Source: BENCHMARKS.md", False, False),
-        "selector-scale": ("Warm selector cost", "N irrelevant rules per category (4N total); fixed observation depth and tags", "Separate panel scales. Setup and cold resolution excluded. Source: BENCHMARKS.md", True, False),
-        "jsonl-scaling": ("JSONL producer vs end-to-end throughput", "One shared sink; 1M calls total; median of 3 samples; throughput = 1000 / aggregate ns/call", "End-to-end includes flush_channels(), not fsync. Source: BENCHMARKS.md", False, True),
-        "sink-comparison": ("Accepted-observation sink comparison", "One producer; Event payload; median of 3 x 1M macro calls", "No-sink control still serializes payload; fan-out uses 4 MemorySinks. Source: BENCHMARKS.md", False, False),
-        "writer-batch": ("Bounded JSONL writer batch tradeoff", "End-to-end aggregate ns/record; 262144 records/case; median of 10 samples", "8192 bounds the writer chunk, not the queue. Source: BATCH_BENCHMARKS.md", False, False, "ns/record"),
+        "human-structured": ("Human capability: structured-only control", "Same-machine before/after; 5 x 1M calls; render-capable type after, no human sinks", "Overlapping ranges; do not interpret small median changes as universal speedups. Source: docs/BENCHMARKS.md", False, False),
+        "console-scaling": ("Console producer vs through-flush service", "Default formatting; file-backed production worker; 5 x 262144 records", "Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: docs/BENCHMARKS.md", False, True),
+        "console-rendering": ("Console default vs custom numeric row", "Through-flush ns/call; different output bytes and formatting threads; median of 5", "File-backed worker, not terminal painting. Row-only renderer: 595.38 ns. Source: docs/BENCHMARKS.md", False, False),
+        "hot-path": ("Warm observation hot path", "No sink; Event payload; median of 3 x 1M macro calls", "EveryN(100) admits 1%; Always includes payload serialization. Source: docs/BENCHMARKS.md", False, False),
+        "selector-scale": ("Warm selector cost", "N irrelevant rules per category (4N total); fixed observation depth and tags", "Separate panel scales. Setup and cold resolution excluded. Source: docs/BENCHMARKS.md", True, False),
+        "jsonl-scaling": ("JSONL producer vs end-to-end throughput", "One shared sink; 1M calls total; median of 3 samples; throughput = 1000 / aggregate ns/call", "End-to-end includes flush_channels(), not fsync. Source: docs/BENCHMARKS.md", False, True),
+        "sink-comparison": ("Accepted-observation sink comparison", "One producer; Event payload; median of 3 x 1M macro calls", "No-sink control still serializes payload; fan-out uses 4 MemorySinks. Source: docs/BENCHMARKS.md", False, False),
+        "writer-batch": ("Bounded JSONL writer batch tradeoff", "End-to-end aggregate ns/record; 262144 records/case; median of 10 samples", "8192 bounds the writer chunk, not the queue. Source: docs/BATCH_BENCHMARKS.md", False, False, "ns/record"),
     }
     if {r["chart"] for r in rows} != set(specs):
         raise ValueError("Dataset/chart specifications disagree")
