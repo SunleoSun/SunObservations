@@ -118,9 +118,6 @@ impl<'a> ObservationsQuery<'a> {
         }
         self
     }
-    pub fn without_span(self) -> Self {
-        self.points()
-    }
     pub fn process(mut self, process: &'a str) -> Self {
         self.proc = Some(process);
         self

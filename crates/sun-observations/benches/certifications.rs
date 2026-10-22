@@ -127,9 +127,6 @@ fn main() {
         sample("simple_comparison", n, || {
             black_box(a.compare_with(&b).on(|v| v.row, |v| v.row));
         });
-        sample("u64_comparison", n, || {
-            black_box(join_u64_by(a.values(), b.values(), |v| v.row, |v| v.row));
-        });
         sample("composite_comparison", n, || {
             black_box(a.compare_with(&b).on(key, key));
         });

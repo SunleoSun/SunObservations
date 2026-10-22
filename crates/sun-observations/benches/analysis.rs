@@ -82,8 +82,6 @@ fn benchmark() {
         shuffle(&mut unordered);
         let mut unordered_right = unordered.clone();
         unordered_right.reverse();
-        let sparse: Vec<_> = keys.iter().map(|k| k * 1_000_003).collect();
-        let sparse_unordered: Vec<_> = unordered.iter().map(|k| k * 1_000_003).collect();
         let prepared_numeric = source.numeric(|v| v.value);
         let numeric = prepared_numeric.series();
         let values: Vec<_> = typed
@@ -213,17 +211,8 @@ fn benchmark() {
             measure("generic_unordered_join", n, sample, 56 * n, || {
                 join_by(&unordered, &keys, |v| *v, |v| *v)
             });
-            measure("integer_unordered_join", n, sample, 56 * n, || {
-                join_u64_by(&unordered, &keys, |v| *v, |v| *v)
-            });
             measure("generic_both_unordered_join", n, sample, 56 * n, || {
                 join_by(&unordered, &unordered_right, |v| *v, |v| *v)
-            });
-            measure("integer_both_unordered_join", n, sample, 56 * n, || {
-                join_u64_by(&unordered, &unordered_right, |v| *v, |v| *v)
-            });
-            measure("integer_sparse_join", n, sample, 56 * n, || {
-                join_u64_by(&sparse_unordered, &sparse, |v| *v, |v| *v)
             });
             measure("dense_candidate_unique", n, sample, 40 * n, || {
                 dense_candidate(&unordered, &keys)

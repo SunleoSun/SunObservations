@@ -44,11 +44,6 @@ fn query_builders_replace_incompatible_intent_and_compose_independent_filters() 
         1,
     );
     c.check_fact_expect(
-        "missing span",
-        count(ObservationsQuery::new().without_span()),
-        2,
-    );
-    c.check_fact_expect(
         "end replaces points",
         count(ObservationsQuery::new().points().span_ends()),
         1,
@@ -343,11 +338,6 @@ fn envelope_selectors_preserve_order_identity_and_segment_boundaries() {
         ),
         ("point", ObservationsQuery::new().points(), vec![1, 2, 3]),
         ("named span", ObservationsQuery::new().span("span"), vec![0]),
-        (
-            "absent span",
-            ObservationsQuery::new().without_span(),
-            vec![1, 2, 3],
-        ),
         (
             "process",
             ObservationsQuery::new().process("test"),

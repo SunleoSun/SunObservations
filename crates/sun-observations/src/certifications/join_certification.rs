@@ -166,49 +166,6 @@ fn generic_and_sorted_merges_match_independent_map_reference_with_omissions_and_
 }
 
 #[test]
-fn integer_adaptation_matches_reference_for_dense_sparse_extreme_and_duplicate_keys() {
-    for seed in 0..80u64 {
-        let mut left: Vec<_> = (0..100).filter(|k| (k + seed) % 7 != 0).collect();
-        let mut right: Vec<_> = (0..105).filter(|k| (k + seed) % 11 != 0).collect();
-        shuffle(&mut left, seed + 1);
-        shuffle(&mut right, seed + 2);
-        assert_eq!(
-            *join_u64_by(&left, &right, |v| *v, |v| *v).comparison(),
-            reference(&left, &right)
-        );
-        left.push(2);
-        left.push(2);
-        right.push(3);
-        right.push(3);
-        assert_eq!(
-            *join_u64_by(&left, &right, |v| *v, |v| *v).comparison(),
-            reference(&left, &right)
-        );
-        for v in &mut left {
-            *v *= 1_000_000;
-        }
-        for v in &mut right {
-            *v *= 1_000_000;
-        }
-        assert_eq!(
-            *join_u64_by(&left, &right, |v| *v, |v| *v).comparison(),
-            reference(&left, &right)
-        );
-    }
-    for left in [
-        vec![u64::MAX, 0, 1],
-        vec![u64::MAX, u64::MAX - 1, u64::MAX - 2],
-        vec![],
-    ] {
-        let right: Vec<_> = left.iter().copied().rev().collect();
-        assert_eq!(
-            *join_u64_by(&left, &right, |v| *v, |v| *v).comparison(),
-            reference(&left, &right)
-        );
-    }
-}
-
-#[test]
 fn generic_keys_and_key_order_not_insertion_order_define_comparison() {
     let left = [("b", 2.), ("a", 1.)];
     let right = [("a", 10.), ("b", 20.)];

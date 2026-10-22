@@ -39,7 +39,7 @@ fails closed on escaped owners; FORMAT v1 is unchanged.
 
 `ObservationDataset::try_from_memory(&sink)` or `try_from_records(Vec<Arc<ObservationRecord>>)` validates external FORMAT v1 records before taking fixed shared-record membership. Both return Result<Self,IngestionError>; errors retain the source index. `records()` borrows the shared slice; clones share membership and later append/drain cannot change it. JSONL loading must deserialize every physical line fallibly and pass the collected Arc records to try_from_records. Unmatched span halves remain valid retained evidence.
 
-`query(ObservationsQuery::new())` is unrestricted. Independent dimensions compose with AND: `namespace(...)` or `namespace_subtree(...)`, `scope(...)` or `without_scope()`, `level(...)`, `points()/span_starts()/span_ends()`, `span(...)/without_span()`, `process(...)`. Later namespace/lifecycle intent replaces incompatible earlier intent. RecordView::iter yields (original dataset index, &Arc<ObservationRecord>).
+`query(ObservationsQuery::new())` is unrestricted. Independent dimensions compose with AND: `namespace(...)` or `namespace_subtree(...)`, `scope(...)` or `without_scope()`, `level(...)`, `points()/span_starts()/span_ends()`, `span(...)`, `process(...)`. Later namespace/lifecycle intent replaces incompatible earlier intent. RecordView::iter yields (original dataset index, &Arc<ObservationRecord>).
 
 `dataset.to_typed::<T>()` or `selected.to_typed::<T>()` requires Observation+DeserializeOwned.
 Matching namespace points and span starts decode strictly once; lifecycle ends have
