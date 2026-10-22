@@ -171,6 +171,10 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
             ],
         ),
         (
+            "Anomaly, jump and temporal lag",
+            vec!["zero_lag(", "has_interior_gaps("],
+        ),
+        (
             "Hierarchy, report and final assertion",
             vec![
                 "certify(",
@@ -452,6 +456,20 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Decision",
                 "Diagnostic",
                 "which certification/consumer uses it",
+                "explicit task instructions take precedence",
+                "all=false",
+                "Always default",
+                "Default has no scope",
+                "1,000,000/0.10",
+                "flush_ms=1000",
+                "max_file_size_bytes=None",
+                "trim_fraction=0.10",
+                "MemorySinkConfig::default()",
+                "EnvelopeQuery::default()",
+                "every field to None",
+                "defaults Ok(())",
+                "Default: all counters 0",
+                "Default sets all four counters to 0",
             ],
         ),
         (
@@ -504,19 +522,51 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Error",
                 "Evidence plan",
                 "deterministic fixtures",
+                "explicit task instructions take precedence",
+                "absolute=1e-9",
+                "relative=1e-9",
+                "zero constraints",
+                "vacuous by itself",
+                "no Default",
+                "all five counters to 0",
+                "defaults 3.5/ExactMedian",
+                "defaults 64/2048",
             ],
         ),
     ] {
         let text = skill(name);
         let front = text.splitn(3, "---").collect::<Vec<_>>();
+        let metadata = front.get(1).copied().unwrap_or_default();
+        let declared_name = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("name: "))
+            .unwrap_or_default();
+        let description = metadata
+            .lines()
+            .find_map(|line| line.strip_prefix("description: "))
+            .unwrap_or_default();
+        let valid_name = !declared_name.is_empty()
+            && declared_name.len() <= 64
+            && declared_name == name
+            && !declared_name.starts_with('-')
+            && !declared_name.ends_with('-')
+            && !declared_name.contains("--")
+            && declared_name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
         let valid = front.len() == 3
             && front[0].is_empty()
-            && front[1].lines().any(|l| l == format!("name: {name}"))
-            && front[1]
-                .lines()
-                .any(|l| l.starts_with("description: ") && l.len() > 20);
+            && valid_name
+            && !description.is_empty()
+            && description.len() <= 1024
+            && description.contains("Use when");
         c.section(name, |c| {
             c.check("manifest", fact("front matter", valid).expect(true));
+            c.check_fact_expect(
+                "description stays concise for skill discovery",
+                description.len() <= 320,
+                true,
+            );
             c.check(
                 "root mirror matches canonical package skill",
                 skill_mirror_check(
@@ -557,6 +607,13 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                     .any(|token| token == "Alignment"),
                 false,
             );
+            if name == "certifications" {
+                c.check_fact_expect(
+                    "JumpConfig and LagConfig explicitly have no Default",
+                    text.matches("has **no Default**").count(),
+                    CountRule::Minimum(2),
+                );
+            }
             if name == "sun-observations" {
                 for generic_api in [
                     "use sun_observations::certifications::*",
