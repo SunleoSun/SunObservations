@@ -51,7 +51,7 @@ Add or update focused tests when changing:
 Prefer testing non-critical helpers through the important behavior that owns them unless the helper has meaningful branching or independent semantics.
 
 Keep implementation and tests grouped by semantic owner.
-Prefer owner-adjacent `<owner>_certification.rs` for semantic behavior verification and use sun-certifications to aggregate related expectations. Existing framework bootstrap/self-tests and low-level compile/process infrastructure may use direct Rust assertions. Inspect executable evidence rather than inferring suite status from filenames. Agent API manuals are `.agents/skills/sun-observations/SKILL.md` and `.agents/skills/certifications/SKILL.md`.
+Prefer owner-adjacent `<owner>_certification.rs` for semantic behavior verification and use sun-certifications to aggregate related expectations. Existing framework bootstrap/self-tests and low-level compile/process infrastructure may use direct Rust assertions. Inspect executable evidence rather than inferring suite status from filenames. Canonical agent API manuals are `crates/sun-observations/agent-skills/sun-observations/SKILL.md` and `crates/sun-certifications/agent-skills/certifications/SKILL.md`. Root `.agents/skills` files are synchronized mirrors, never independent edit targets. Edit the owning package skill, then run `cargo sun-observations-skills sync` with the installed tool (or `cargo run -p cargo-sun-observations-skills -- sync` locally); documentation certifications enforce byte equality.
 
 ## Execution Discipline
 

@@ -3,6 +3,7 @@ name = "sun-observations"
 version.workspace = true
 edition.workspace = true
 description = "Typed, scoped runtime observations with lazy admission and namespace routing"
+include = ["Cargo.toml", "src/**", "agent-skills/**", "benches/**", "tests/**"]
 
 [features]
 default = []

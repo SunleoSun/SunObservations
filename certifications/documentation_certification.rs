@@ -337,8 +337,46 @@ fn root() -> PathBuf {
         .unwrap()
         .to_owned()
 }
+fn canonical_skill_path(name: &str) -> PathBuf {
+    let owner = match name {
+        "certifications" => "sun-certifications",
+        "sun-observations" => "sun-observations",
+        _ => panic!("unknown skill {name}"),
+    };
+    root()
+        .join("crates")
+        .join(owner)
+        .join("agent-skills")
+        .join(name)
+        .join("SKILL.md")
+}
+
 fn skill(name: &str) -> String {
-    fs::read_to_string(root().join(format!(".agents/skills/{name}/SKILL.md"))).unwrap()
+    fs::read_to_string(canonical_skill_path(name)).unwrap()
+}
+
+fn skill_mirror_check(canonical: Vec<u8>, mirror: Vec<u8>) -> CheckResult<Vec<u8>> {
+    fact("synchronized skill bytes", mirror).expect(Equal(canonical))
+}
+
+#[test]
+fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
+    let canonical = b"---\nname: certifications\ndescription: Valid synchronized skill fixture\n---\ncanonical API".to_vec();
+    let stale =
+        b"---\nname: certifications\ndescription: Valid synchronized skill fixture\n---\nstale API"
+            .to_vec();
+    certify("mirror drift rejection")
+        .check_fact_expect(
+            "identical mirror",
+            skill_mirror_check(canonical.clone(), canonical.clone()).is_pass(),
+            true,
+        )
+        .check_fact_expect(
+            "stale mirror",
+            skill_mirror_check(canonical, stale).class,
+            CheckClass::HardViolation,
+        )
+        .assert_certify();
 }
 fn blocks(text: &str) -> impl Iterator<Item = &str> {
     text.split(
@@ -465,6 +503,13 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 .any(|l| l.starts_with("description: ") && l.len() > 20);
         c.section(name, |c| {
             c.check("manifest", fact("front matter", valid).expect(true));
+            c.check(
+                "root mirror matches canonical package skill",
+                skill_mirror_check(
+                    text.as_bytes().to_vec(),
+                    fs::read(root().join(format!(".agents/skills/{name}/SKILL.md"))).unwrap(),
+                ),
+            );
             for marker in markers {
                 c.check(
                     marker,
@@ -781,6 +826,10 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
     let mut files = vec![root().join("README.md")];
     markdown(&root().join("docs"), &mut files);
     markdown(&root().join(".agents/skills"), &mut files);
+    files.extend([
+        canonical_skill_path("certifications"),
+        canonical_skill_path("sun-observations"),
+    ]);
     let mut c = certify("documentation architecture and navigation");
     for file in files {
         let text = fs::read_to_string(&file).unwrap();

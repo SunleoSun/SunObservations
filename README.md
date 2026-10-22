@@ -21,7 +21,7 @@ Use canonical returned values and persisted artifacts when they already expose t
 
 - [Runtime quick start](#quick-start) and [examples](examples).
 - [Generic certification API](docs/CERTIFICATIONS_API.md), [Observation adapter](docs/ANALYSIS.md) and [certification matrix](docs/CERTIFICATION.md).
-- Agent operational manuals: [SunObservations](.agents/skills/sun-observations/SKILL.md) and [certifications](.agents/skills/certifications/SKILL.md). Both are self-contained, including usable API syntax.
+- Canonical package-owned agent manuals: [SunObservations](crates/sun-observations/agent-skills/sun-observations/SKILL.md) and [certifications](crates/sun-certifications/agent-skills/certifications/SKILL.md). Both are self-contained, including usable API syntax. See [skill installation and synchronization](docs/AGENT_SKILLS.md); root `.agents/skills` files are checked synchronized mirrors.
 - [Persisted format](docs/FORMAT.md), [runtime selection](#runtime-selection) and [routing](#channels-and-routing), and [performance investigation](docs/PERFORMANCE_INVESTIGATION.md).
 
 ## Benchmarks

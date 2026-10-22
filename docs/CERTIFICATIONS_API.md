@@ -89,7 +89,7 @@ difference() returns Fact<DifferenceSummary> (right minus left); DifferenceExpec
 return Result and all bounds are inclusive. The advanced relation()/RelationExpectation composite
 remains for deliberate multi-class analysis and delegates to the same mathematical owners.
 
-When internal production evidence is required, use the [SunObservations skill](../.agents/skills/sun-observations/SKILL.md):
+When internal production evidence is required, use the [SunObservations skill](../crates/sun-observations/agent-skills/sun-observations/SKILL.md):
 capture_observations wraps the real global observe! path, and run.certify automatically
 incorporates capture completeness before mixing ordinary inputs/outputs and typed evidence.
 
@@ -121,5 +121,5 @@ lag, independent formula reference, nested sections and negative forbidden-event
 [Benchmarks](CERTIFICATION_BENCHMARKS.md) preserve release samples through 1M and compare
 reusable vs repeated preparation and ordinary vs Observation-adapted projections.
 [Certification matrix](CERTIFICATION.md) maps important invariants to executable evidence.
-The [self-contained certification skill](../.agents/skills/certifications/SKILL.md) is the
+The [self-contained certification skill](../crates/sun-certifications/agent-skills/certifications/SKILL.md) is the
 complete methodology and normal-use API reference, including direct analysis/result inspection.

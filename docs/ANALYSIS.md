@@ -104,6 +104,6 @@ See [generic workflows](CERTIFICATIONS_API.md), [certification matrix](CERTIFICA
 [current performance](CERTIFICATION_BENCHMARKS.md), and executable
 [module transfer](../crates/sun-observations-data-source/examples/module_relation.rs) /
 [mixed evidence workflow](../crates/sun-observations-data-source/examples/skill_workflows.rs).
-The self-contained [evidence skill](../.agents/skills/sun-observations/SKILL.md) documents
+The self-contained [evidence skill](../crates/sun-observations/agent-skills/sun-observations/SKILL.md) documents
 the full usable runtime/adapter API; the
-[certification skill](../.agents/skills/certifications/SKILL.md) documents the complete generic API.
+[certification skill](../crates/sun-certifications/agent-skills/certifications/SKILL.md) documents the complete generic API.
