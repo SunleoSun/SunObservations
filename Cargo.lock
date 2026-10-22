@@ -490,6 +490,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sun-certifications",
+ "sun-observations-data-source",
  "sun-observations-derive",
  "tempfile",
  "trybuild",

@@ -1,7 +1,7 @@
 //! Research only: public API measurements and isolated controls, no production instrumentation.
 //! SUN_OBS_INV_REPEATS=7 SUN_OBS_INV_GROUP=micro|serde|writer|api|confirm.
 //! Empty group selects main four groups; confirm is a separate order-reversed follow-up.
-//! Times include destruction unless stated otherwise. See docs/PERFORMANCE_INVESTIGATION.md.
+//! Times include destruction unless stated otherwise. See docs/history/PERFORMANCE_INVESTIGATION.md.
 // Deliberately mirror engine's to_value(&payload), including its borrow.
 #![allow(clippy::needless_borrows_for_generic_args)]
 mod support;

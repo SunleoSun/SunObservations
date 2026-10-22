@@ -1,4 +1,9 @@
-# Generic semantic certification
+# Generic certification API and semantics reference
+
+Technical reference for `sun-certifications`. For a first proof and progressive
+examples, start with the [human guide](../README.md#certifications).
+This page describes preparation, acceptance and analysis semantics, not the
+SunObservations project release gate.
 
 sun-certifications owns generic named sources, preparation, comparison, facts,
 acceptance and hierarchical proofs. It has no dependency on SunObservations. An ordinary
@@ -118,8 +123,9 @@ incorporates capture completeness before mixing ordinary inputs/outputs and type
 The [mixed workflow](../crates/sun-observations-data-source/examples/skill_workflows.rs)
 combines ordinary input, internal production evidence and canonical output, with grouping,
 lag, independent formula reference, nested sections and negative forbidden-event absence.
-[Benchmarks](CERTIFICATION_BENCHMARKS.md) preserve release samples through 1M and compare
-reusable vs repeated preparation and ordinary vs Observation-adapted projections.
-[Certification matrix](CERTIFICATION.md) maps important invariants to executable evidence.
+[Current capture/cache benchmarks](CAPTURE_BENCHMARKS.md) measure reusable semantic views.
+[Earlier certification samples](history/CERTIFICATION_BENCHMARKS.md) preserve the
+pre-cache dataset, including ordinary vs Observation-adapted projections.
+[Framework release validation](RELEASE_VALIDATION.md) maps the project's own invariants to executable evidence.
 The [self-contained certification skill](../crates/sun-certifications/agent-skills/certifications/SKILL.md) is the
 complete methodology and normal-use API reference, including direct analysis/result inspection.

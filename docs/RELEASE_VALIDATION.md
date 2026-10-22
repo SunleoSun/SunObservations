@@ -1,4 +1,8 @@
-# Production release certification
+# Framework release validation
+
+Release evidence and executable certification matrix for **SunObservations itself**.
+This is not the application-facing `sun-certifications` tutorial; use the
+[human guide](../README.md#certifications) for that.
 
 The suite is executable, not a collection of placeholders. Owner-adjacent modules are
 compiled by the runtime lib test harness; the workspace package
@@ -6,7 +10,7 @@ sun-observations-certifications supplies public cross-module, downstream and OS-
 checks. Existing regression tests remain part of the release gate, especially the allocation,
 context lifecycle, retention hysteresis and compile-diagnostic checks listed below.
 
-For application usage and operational boundaries, see the [production user guide](../README.md).
+For application usage and operational boundaries, see the [framework human guide](../README.md).
 
 ## Compact capture and acceptance contracts
 
@@ -26,9 +30,9 @@ Explicit engines, sinks, routes, selectors and closure emission remain in runtim
 OS-process persistence/routing fixtures and runtime benchmarks: their subject is delivery,
 configuration, isolation, cache generation, flushing or fan-out. The analysis snapshot/drain
 fixture intentionally retains a MemorySink to prove frozen provenance after drain; ordinary
-analysis captures and production examples use scoped capture. The new capture benchmark's
-explicit engine is the configured-delivery control. README's isolated-engine example is
-explicitly advanced. Runtime examples configure global delivery once and emit typed macros.
+analysis captures and production examples use scoped capture. The capture benchmark's
+explicit engine is the configured-delivery control. Independent engines are for
+proving runtime delivery/isolation, not ordinary production capture. Runtime examples configure global delivery once and emit typed macros.
 
 The sole local close helper is in generic numerical bootstrap test_support: independent
 floating-point oracle tests deliberately avoid certifying their own math with itself.
@@ -128,7 +132,7 @@ while its own bootstrap/reference tests use direct Rust assertions without circu
 | Observation groups preserve generic source-local identity, summaries and explicit per-group failures | sun-observations-data-source/src/grouping_certification.rs |
 | Real production capture, wrong-direction/scale controls, negative ambiguity, 100k/1M-record traces, group sums and lag after drain | certifications/analysis_certification.rs |
 | Ordinary input + production internal evidence + ordinary output, hierarchical transfer, reference formula, rejection category and forbidden downstream absence | examples/skill_workflows.rs under sun-observations-data-source; certifications/documentation_certification.rs |
-| Canonical two skill manifests/features/no duplicate sections; every Rust block compiled downstream; scalar/capture/direct workflows run; Markdown links/README architecture and every benchmark median checked | certifications/documentation_certification.rs |
+| Canonical skill manifests/mirrors/API families; skill and focused-reference Rust blocks compiled downstream; README doctests including capture; local Markdown paths/anchors, guide order, historical classification and benchmark medians checked | certifications/documentation_certification.rs |
 | End-to-end runtime delivery/scope/admission/domain correspondence/forbidden namespace under one proof | certifications/runtime_end_to_end_certification.rs |
 
 Generic bootstrap/reference tests, adapter capture/snapshot/decode/grouping certifications,
@@ -136,11 +140,13 @@ public analysis integration and documentation/API certifications are discovered 
 by the workspace gate. The runtime, derive and process-level matrices remain part of that gate.
 Statistical references use relative/absolute tolerances; timing is never a correctness threshold.
 
-[Current release benchmarks](CERTIFICATION_BENCHMARKS.md) preserve 348 samples through 1M,
+[Pre-cache certification benchmark evidence](history/CERTIFICATION_BENCHMARKS.md) preserves 348 samples through 1M,
 ordinary/adapted overhead, prepare-once versus repeated preparation, bounded formatting,
-grouping/anomalies/lag and storage estimates. Reproduce with
-`cargo test -p sun-observations-data-source --release --bench certifications -- --measure`.
-[Earlier algorithm/extension measurements](ANALYSIS_BENCHMARKS.md) remain historical evidence.
+grouping/anomalies/lag and storage estimates. The current harness runs with
+`cargo test -p sun-observations-data-source --release --bench certifications -- --measure`;
+this does not recreate the pre-cache samples. Current-representation capture/cache
+measurements are separate in [CAPTURE_BENCHMARKS.md](CAPTURE_BENCHMARKS.md).
+[Earlier algorithm/extension measurements](history/ANALYSIS_BENCHMARKS.md) remain historical evidence.
 
 ## Human-presentation production group
 
@@ -184,14 +190,19 @@ use multisets while dedicated single-sink tests enforce FIFO/per-producer order.
 Cargo discovery was also checked by temporarily breaking a fan-out assertion: the dedicated
 Cargo target failed with exit 101, then passed after restoration. No assertion remains disabled.
 
-## Acceptance evidence
+## Historical acceptance snapshots
+
+The following counts and completed commands belong to earlier implementation
+revisions. They are retained release evidence, not the current test inventory or
+a claim that these commands were run on every subsequent checkout. Current release
+acceptance requires running the commands above.
 
 The analysis addition passes all required workspace checks, default/all-features tests,
 warning-denying Clippy, 54 analysis tests plus its doctest, four documentation
 certifications and both executable analysis examples. The extended release harness
 retains 336 raw samples (including typed/source, grouping and ±2/±8/±32 lag windows
 at 1k/10k/100k/1M); the original 240 baseline samples remain separate. See
-ANALYSIS_BENCHMARKS.md for measured evidence, materialization estimates and noise.
+[historical analysis report](history/ANALYSIS_BENCHMARKS.md) for measured evidence, materialization estimates and noise.
 Runtime, derive and FORMAT v1 source contracts remain unchanged.
 
 Validated human-delivery revision: 96 default/100 all-features runtime tests,

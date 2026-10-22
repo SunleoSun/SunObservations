@@ -1,8 +1,11 @@
-# Semantic certification benchmarks
+# Historical certification benchmarks — pre-cache dataset
 
-The final release harness measures ordinary and Observation-backed sources, reusable comparison, generic analysis, criteria and bounded aggregation at **1k, 10k, 100k and 1M records**. Every cell is the median of three raw samples, in milliseconds. These are measurements, not acceptance thresholds.
+Historical benchmark evidence. This is not a current recommendation or a fresh
+measurement of the present cached representation.
 
-These samples predate scoped capture and numeric-result caching. See [current capture and semantic-view measurements](CAPTURE_BENCHMARKS.md) for the final API; this historical dataset is preserved, not relabeled as a new run.
+The recorded release harness measured ordinary and Observation-backed sources, reusable comparison, generic analysis, criteria and bounded aggregation at **1k, 10k, 100k and 1M records**. Every cell is the median of three raw samples, in milliseconds. These are measurements, not acceptance thresholds.
+
+These samples predate scoped capture and numeric-result caching. See [current capture and semantic-view measurements](../CAPTURE_BENCHMARKS.md) for the final API; this historical dataset is preserved, not relabeled as a new run.
 
 ## Environment and reproduction
 
@@ -12,7 +15,11 @@ Reference host: AMD Ryzen 9 5950X, 64 GiB RAM, Windows 11/NTFS, MSVC target, Rus
 cargo test -p sun-observations-data-source --release --bench certifications -- --measure
 ```
 
-Harness: [certifications.rs](../crates/sun-observations-data-source/benches/certifications.rs). Raw evidence: [348 CSV samples](../scripts/certification_metrics.csv) and [complete final run](../scripts/certification_benchmark_run.txt), including command status and output. Without `--measure` the harness exits without timing work, so normal all-target validation does not run expensive benchmarks.
+The command now executes the current harness, not the historical implementation.
+Exact reproduction of the recorded samples requires the original implementation
+and measurement environment; new runs must be retained as separate datasets.
+
+Harness: [certifications.rs](../../crates/sun-observations-data-source/benches/certifications.rs). Raw evidence: [348 CSV samples](../../scripts/certification_metrics.csv) and [complete final run](../../scripts/certification_benchmark_run.txt), including command status and output. Without `--measure` the harness exits without timing work, so normal all-target validation does not run expensive benchmarks.
 
 The recorded metric keys ending in `_alignment` below and in the raw samples are historical identifiers; the current harness emits `_comparison` keys. No samples have been relabeled or rerun for this vocabulary refactor.
 
@@ -64,8 +71,10 @@ On 64-bit targets: a numeric source projection owns n f64 (~8n bytes); a numeric
 
 ## Runtime and historical measurements
 
-Runtime evidence and charts remain in [BENCHMARKS.md](BENCHMARKS.md),
-[BATCH_BENCHMARKS.md](BATCH_BENCHMARKS.md), and the README benchmark section.
+Runtime evidence and charts remain in [runtime benchmark evidence](../BENCHMARKS.md),
+[bounded-writer follow-up](../BATCH_BENCHMARKS.md), and
+[benchmark charts](../BENCHMARK_CHARTS.md).
 [ANALYSIS_BENCHMARKS.md](ANALYSIS_BENCHMARKS.md) preserves earlier algorithm/extension measurements;
-its old grouping projection representation is historical. Current framework measurements above
-include the final prepared-source/group caches and named collect-all result path.
+its old grouping projection representation is historical. The measurements above included prepared-source/group projection caches and the
+named collect-all result path, but predate numeric-result caching and scoped capture.
+Only the linked capture/cache report measures that later representation.

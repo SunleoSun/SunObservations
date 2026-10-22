@@ -378,13 +378,29 @@ fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
         )
         .assert_certify();
 }
-fn blocks(text: &str) -> impl Iterator<Item = &str> {
-    text.split(
-        "```rust
-",
-    )
-    .skip(1)
-    .map(|s| s.split("```").next().unwrap())
+fn blocks(text: &str) -> impl Iterator<Item = String> {
+    let mut result = Vec::new();
+    let mut fence = None;
+    let mut rust = false;
+    let mut body = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(marker) = fence {
+            if trimmed == marker {
+                if rust {
+                    result.push(std::mem::take(&mut body));
+                }
+                fence = None;
+            } else if rust {
+                body.push_str(line);
+                body.push('\n');
+            }
+        } else if let Some(marker) = ["```", "~~~"].into_iter().find(|m| trimmed.starts_with(m)) {
+            fence = Some(marker);
+            rust = trimmed[marker.len()..].split(',').next() == Some("rust");
+        }
+    }
+    result.into_iter()
 }
 #[test]
 fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_no_stale_api() {
@@ -591,7 +607,7 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
     .assert_certify();
 }
 #[test]
-fn canonical_skill_rust_blocks_and_readme_capture_compile_and_execute() {
+fn canonical_skill_and_focused_reference_rust_blocks_compile_and_execute() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     let mut source = String::from("#![allow(dead_code,unused_imports)]\n");
@@ -628,16 +644,23 @@ fn canonical_skill_rust_blocks_and_readme_capture_compile_and_execute() {
             index += 1;
         }
     }
-    let readme = fs::read_to_string(root().join("README.md")).unwrap();
-    let capture_blocks: Vec<_> = readme
-        .split("```rust,ignore\n")
-        .skip(1)
-        .map(|block| block.split("```").next().unwrap())
-        .collect();
-    for (index, block) in capture_blocks.iter().enumerate() {
-        source.push_str(&format!(
-            "#[test] fn readme_capture_{index}() -> Result<(), Box<dyn std::error::Error>> {{\n{block}\nOk(())\n}}\n"
-        ));
+    let mut reference_count = 0usize;
+    for path in [
+        "docs/CAPTURE.md",
+        "docs/CERTIFICATIONS_API.md",
+        "docs/OPERATIONS.md",
+    ] {
+        for block in blocks(&fs::read_to_string(root().join(path)).unwrap()) {
+            let body = block
+                .lines()
+                .filter(|line| !line.starts_with("# "))
+                .collect::<Vec<_>>()
+                .join("\n");
+            source.push_str(&format!(
+                "#[test] fn reference_{reference_count}() -> Result<(), Box<dyn std::error::Error>> {{\n{body}\nOk(())\n}}\n"
+            ));
+            reference_count += 1;
+        }
     }
     let path = |name: &str| {
         root()
@@ -671,15 +694,15 @@ serde_json="1"
         .arg(dir.path().join("target"))
         .output()
         .unwrap();
-    certify("skill and README APIs compile as documented")
+    certify("skill and focused reference APIs compile as documented")
         .limits(DiagnosticLimits {
             failures: 1,
             characters_per_failure: 16_384,
         })
         .check_fact_expect(
-            "README capture workflow present",
-            capture_blocks.len(),
-            1usize,
+            "focused reference examples present",
+            reference_count,
+            CountRule::Minimum(5),
         )
         .check(
             "all Rust blocks",
@@ -766,7 +789,7 @@ fn scoped_capture_benchmark_medians_preserve_every_raw_scale_and_sample() {
 #[test]
 fn historical_benchmark_medians_preserve_every_raw_scale_and_sample() {
     let raw = fs::read_to_string(root().join("scripts/certification_metrics.csv")).unwrap();
-    let docs = fs::read_to_string(root().join("docs/CERTIFICATION_BENCHMARKS.md")).unwrap();
+    let docs = fs::read_to_string(root().join("docs/history/CERTIFICATION_BENCHMARKS.md")).unwrap();
     let mut samples: BTreeMap<(&str, usize), Vec<(usize, f64)>> = BTreeMap::new();
     for line in raw.lines().skip(1) {
         let p: Vec<_> = line.split(',').collect();
@@ -821,6 +844,107 @@ fn markdown(directory: &Path, files: &mut Vec<PathBuf>) {
         }
     }
 }
+
+fn markdown_anchors(text: &str) -> BTreeSet<String> {
+    let mut anchors = BTreeSet::new();
+    let mut seen = BTreeMap::<String, usize>::new();
+    let mut fence = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(marker) = fence {
+            if trimmed == marker {
+                fence = None;
+            }
+            continue;
+        }
+        if let Some(marker) = ["```", "~~~"].into_iter().find(|m| trimmed.starts_with(m)) {
+            fence = Some(marker);
+            continue;
+        }
+        let title = trimmed.trim_start_matches('#');
+        if title.len() == trimmed.len() || !title.starts_with(' ') {
+            continue;
+        }
+        let slug: String = title
+            .trim()
+            .trim_end_matches('#')
+            .trim()
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '-' || *c == '_')
+            .map(|c| if c.is_whitespace() { '-' } else { c })
+            .collect();
+        let count = seen.entry(slug.clone()).or_default();
+        anchors.insert(if *count == 0 {
+            slug
+        } else {
+            format!("{slug}-{count}")
+        });
+        *count += 1;
+    }
+    anchors
+}
+
+fn local_markdown_link_valid(file: &Path, target: &str) -> bool {
+    let (path, anchor) = target
+        .split_once('#')
+        .map_or((target, None), |(p, a)| (p, Some(a)));
+    let destination = if path.is_empty() {
+        file.to_owned()
+    } else {
+        file.parent().unwrap().join(path)
+    };
+    if !destination.exists() {
+        return false;
+    }
+    match anchor {
+        Some(anchor) if !anchor.is_empty() => fs::read_to_string(destination)
+            .is_ok_and(|text| markdown_anchors(&text).contains(anchor)),
+        _ => true,
+    }
+}
+
+#[test]
+fn markdown_navigation_rejects_missing_paths_and_anchors_and_ignores_fenced_headings() {
+    let headings = markdown_anchors("# Title\n## `Typed` & meaningful!\n```rust\n# Hidden\n```\n~~~text\n## Also hidden\n~~~\n## Repeat\n## Repeat\n");
+    let readme = root().join("README.md");
+    certify("Markdown navigation validation")
+        .check(
+            "heading identity",
+            fact("slugs", headings).expect(BTreeSet::from([
+                "title".into(),
+                "typed--meaningful".into(),
+                "repeat".into(),
+                "repeat-1".into(),
+            ])),
+        )
+        .check_fact_expect(
+            "valid self anchor",
+            local_markdown_link_valid(&readme, "#certifications"),
+            true,
+        )
+        .check_fact_expect(
+            "valid cross-file anchor",
+            local_markdown_link_valid(&readme, "docs/FORMAT.md#envelope"),
+            true,
+        )
+        .check_fact_expect(
+            "missing self anchor",
+            local_markdown_link_valid(&readme, "#nonexistent-heading"),
+            false,
+        )
+        .check_fact_expect(
+            "missing cross-file anchor",
+            local_markdown_link_valid(&readme, "docs/FORMAT.md#nonexistent-heading"),
+            false,
+        )
+        .check_fact_expect(
+            "missing file",
+            local_markdown_link_valid(&readme, "docs/nonexistent.md"),
+            false,
+        )
+        .assert_certify();
+}
 #[test]
 fn documentation_links_and_architecture_overview_remain_coherent() {
     let mut files = vec![root().join("README.md")];
@@ -831,6 +955,7 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
         canonical_skill_path("sun-observations"),
     ]);
     let mut c = certify("documentation architecture and navigation");
+    let map = fs::read_to_string(root().join("docs/README.md")).unwrap();
     for file in files {
         let text = fs::read_to_string(&file).unwrap();
         for target in text
@@ -838,13 +963,60 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
             .skip(1)
             .map(|s| s.split(')').next().unwrap())
         {
-            if target.contains("://") || target.starts_with('#') {
+            if target.contains("://") {
                 continue;
             }
-            let path = target.split('#').next().unwrap();
             c.check(
                 format!("{} -> {target}", file.display()),
-                fact("local link", file.parent().unwrap().join(path).exists()).expect(true),
+                fact(
+                    "local path and anchor",
+                    local_markdown_link_valid(&file, target),
+                )
+                .expect(true),
+            );
+        }
+        if file.starts_with(root().join("docs")) && file.file_name().unwrap() != "README.md" {
+            c.check(
+                format!("indexed {}", file.display()),
+                fact(
+                    "documentation map",
+                    map.contains(file.file_name().unwrap().to_str().unwrap()),
+                )
+                .expect(true),
+            );
+        }
+        if file.starts_with(root().join("docs/history")) {
+            c.check(
+                format!("historical {}", file.display()),
+                fact(
+                    "historical status",
+                    text.lines().next().unwrap().starts_with("# Historical"),
+                )
+                .expect(true),
+            );
+        } else {
+            for obsolete in [
+                "measured(",
+                ".compare(",
+                ".coverage(",
+                "`Measurement`",
+                "Measurement<",
+                "CompareResult",
+                "Alignment<",
+                ".alignment(",
+                "aligned pairs",
+            ] {
+                c.check_fact_expect(
+                    format!("{}: no {obsolete}", file.display()),
+                    text.contains(obsolete),
+                    false,
+                );
+            }
+            c.check_fact_expect(
+                format!("{}: no obsolete correspondence type", file.display()),
+                text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                    .any(|v| v == "Alignment"),
+                false,
             );
         }
     }
@@ -855,8 +1027,33 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
         .take(2)
         .collect();
     c.check(
-        "overview then benchmarks",
-        fact("README", headings).expect(vec!["## Overview", "## Benchmarks"]),
-    )
-    .assert_certify();
+        "workflows before internals and benchmarks",
+        fact("README", headings).expect(vec![
+            "## Five-minute tour",
+            "## How the framework fits together",
+        ]),
+    );
+    c.check(
+        "ordinary before Observation-backed proof",
+        fact(
+            "tour order",
+            readme
+                .find("### Certify ordinary Rust values")
+                .zip(readme.find("### Observe and certify real production behavior"))
+                .is_some_and(|(ordinary, capture)| ordinary < capture),
+        )
+        .expect(true),
+    );
+    c.check_fact_expect(
+        "no unvalidated ignored README examples",
+        readme.contains("rust,ignore"),
+        false,
+    );
+    let release = fs::read_to_string(root().join("docs/RELEASE_VALIDATION.md")).unwrap();
+    c.check_fact_expect(
+        "release gate is not an application tutorial",
+        release.contains("not the application-facing"),
+        true,
+    );
+    c.assert_certify();
 }

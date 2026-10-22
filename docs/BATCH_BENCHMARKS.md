@@ -1,7 +1,9 @@
 # Production JsonlSink bounded-batch measurements
 
-See the [production user guide](../README.md#bounded-writer-batch-tradeoff) for the generated
-comparison chart and operational context.
+Benchmark evidence: a specific bounded-writer follow-up on the reference machine,
+not a general performance recommendation. See the
+[comparison chart](BENCHMARK_CHARTS.md#bounded-writer-follow-up) and
+[current operational contract](OPERATIONS.md#asynchronous-delivery-and-barriers).
 
 ## Method
 

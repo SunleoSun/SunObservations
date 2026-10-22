@@ -1,5 +1,9 @@
 # Scoped capture and bounded retention benchmarks
 
+Current capture/cache benchmark evidence: recorded samples of the current
+representation, not fresh measurements of every checkout. See the
+[benchmark map](BENCHMARK_CHARTS.md) for other runs and historical datasets.
+
 ## Reproduction and boundaries
 
 Host verified for this run: AMD Ryzen 9 5950X, Windows 11 10.0.26200, x86_64-pc-windows-msvc, rustc 1.96.0 (ac68faa20), Cargo 1.96.0. Default optimized release profile; no pinning/isolation or allocator/RSS profiling. Three raw samples at every scale, no samples discarded. Timings are evidence, never correctness assertions.
@@ -38,6 +42,6 @@ At 1M, scoped emission median is 709.8432 ms versus 726.2997 ms direct configure
 
 At 1M, VecDeque batch control is 3.9603 ms versus Vec batch 5.8977 ms (~33% lower); VecDeque is also lower at 10k and 100k. Choose VecDeque for the canonical bounded MemorySink. The default stays finite at 1,000,000 records / 10% batches: bounded handle count, amortized batch removal, no million-handle tail move on overflow. Actual byte use depends on payloads and snapshots held by callers; this is not a byte cap or RSS guarantee.
 
-Prepare-once six requests take 121.2639 ms versus 357.8696 ms repeated preparation (2.95× faster at 1M). Cached semantic views retain compact results, not rank/quantile scratch, and do not repeat projection or correspondence. [Deterministic certifications](CERTIFICATION.md) protect decoding/key/numeric reuse, bounded diagnostics, dropped success reports and retention independently of timing.
+Prepare-once six requests take 121.2639 ms versus 357.8696 ms repeated preparation (2.95× faster at 1M). Cached semantic views retain compact results, not rank/quantile scratch, and do not repeat projection or correspondence. [Deterministic certifications](RELEASE_VALIDATION.md) protect decoding/key/numeric reuse, bounded diagnostics, dropped success reports and retention independently of timing.
 
-The [earlier certification dataset](CERTIFICATION_BENCHMARKS.md) is historical and unchanged. Its uncached analysis timings must not be interpreted as fresh samples from the now-cached harness. Runtime JSONL/Console queue benchmarks remain separate from scoped in-memory capture; bounded history does not bound asynchronous sink backlog.
+The [earlier certification dataset](history/CERTIFICATION_BENCHMARKS.md) is historical and unchanged. Its uncached analysis timings must not be interpreted as fresh samples from the now-cached harness. Runtime JSONL/Console queue benchmarks remain separate from scoped in-memory capture; bounded history does not bound asynchronous sink backlog.

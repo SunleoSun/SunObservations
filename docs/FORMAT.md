@@ -4,7 +4,7 @@ This document specifies the JSONL envelope produced by the runtime, independentl
 Rust struct names and API module layout. It is the canonical input contract for future
 parsers. No domain-specific fields or parser/query/stats implementation are defined here.
 
-For application integration and operations, start with the [production user guide](../README.md).
+For application integration and operations, start with the [framework human guide](../README.md).
 This document remains the canonical persisted-format contract.
 
 ## Framing and compatibility

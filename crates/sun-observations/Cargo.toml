@@ -45,6 +45,8 @@ name = "benchmark_reports"
 path = "benches/support/report_process.rs"
 
 [dev-dependencies]
+# The framework README is runtime rustdoc and includes cross-crate capture workflows.
+sun-observations-data-source = { path = "../sun-observations-data-source", version = "0.1.0" }
 sun-certifications = { path = "../sun-certifications", version = "0.1.0" }
 trybuild = "1"
 # Benchmark-only equivalent-schema raw-payload comparison; no production representation change.

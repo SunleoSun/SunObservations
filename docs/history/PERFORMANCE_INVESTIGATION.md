@@ -1,4 +1,15 @@
-# SunObservations: accepted observation and async JSONL cost
+# Historical investigation: accepted observation and async JSONL cost
+
+**Historical investigation — 2026-10-20, checkout
+`283b6448ec9008f175ff4540a3b4a7dc913845f5`.** The conclusions and words
+“current”, “now”, and “next” below refer only to that checkout. Experiments were
+not production changes. Original local snapshots are no longer tracked; tables
+preserve the findings, while a new harness run cannot recreate those exact samples.
+
+The later [bounded-writer production follow-up](../BATCH_BENCHMARKS.md) measured
+and implemented the batch bound proposed here. For current delivery guarantees use
+[operations](../OPERATIONS.md), not the provisional recommendations below.
+The historical body is preserved, including experimental limits and rejected designs.
 
 ## Executive conclusion
 
@@ -33,8 +44,8 @@ batch**: контроль 8192 records вместо всего накоплен�
   FlushFileBuffers**. Это service rate до OS file cache, не durable storage bandwidth.
 
 Исходные measurement snapshots были локальными файлами в `performance/`; они не являются
-tracked release artifacts и больше не присутствуют. Воспроизводимость обеспечивается
-benchmark harness и командами ниже.
+tracked release artifacts и больше не присутствуют. Benchmark harness и команды ниже позволяют повторить эксперименты,
+но не восстановить точные исходные samples без исторических source inputs.
 
 ## Current baseline
 
@@ -79,9 +90,9 @@ Evidence: `performance/investigation_runtime_hot.csv`,
 
 Benchmark-only sources:
 
-- [investigation.rs](../crates/sun-observations/benches/investigation.rs): public API,
+- [investigation.rs](../../crates/sun-observations/benches/investigation.rs): public API,
   timestamp/envelope, Serde, queue, writer, ownership and bounded-batch controls.
-- [investigation_allocations.rs](../crates/sun-observations/benches/investigation_allocations.rs):
+- [investigation_allocations.rs](../../crates/sun-observations/benches/investigation_allocations.rs):
   отдельный executable с counting allocator; **не используется для timing**.
 - `performance/summary.csv`: medians, min/max, paired differences;
   `performance/summarize.py` использует только Python stdlib.
@@ -149,7 +160,7 @@ SUN_OBS_BENCH_REPEATS=7 SUN_OBS_BENCH_GROUP=hot \
 
 ## Accepted-path decomposition
 
-Canonical behavior: [engine.rs](../crates/sun-observations/src/engine.rs),
+Canonical behavior: [engine.rs](../../crates/sun-observations/src/engine.rs),
 `ObservationEngine::observe_if_active()`:
 
 ```text
@@ -277,8 +288,8 @@ allocation reuse и кодогенерация меняют absolute producer ti
 harness не даёт точной lock/queue decomposition. Контролируемая retain vs paused-queue
 пара и прямой `write_shared` — более корректная оценка enqueue.
 
-Source: [channel.rs](../crates/sun-observations/src/channel.rs) `dispatch()` делает один
-Arc clone на sink; [jsonl.rs](../crates/sun-observations/src/sinks/jsonl.rs)
+Source: [channel.rs](../../crates/sun-observations/src/channel.rs) `dispatch()` делает один
+Arc clone на sink; [jsonl.rs](../../crates/sun-observations/src/sinks/jsonl.rs)
 `write_shared()` передаёт Arc, **не deep-clones ObservationRecord**. Один JsonlSink —
 один lazy writer thread, общий для всех producers; это поведение не менялось.
 
@@ -379,7 +390,7 @@ producer→e2e разницы: там смешаны queue tail, незапис�
 
 ### Batch accumulation hypothesis
 
-Текущий [jsonl_writer.rs](../crates/sun-observations/src/sinks/jsonl_writer.rs) `run()`
+Текущий [jsonl_writer.rs](../../crates/sun-observations/src/sinks/jsonl_writer.rs) `run()`
 снимает весь `receiver.len()` после первого receive, складывает prefix в messages,
 затем сериализует его целиком в один growing byte Vec. Это уже batching, не write syscall
 на каждый record, но при backlog размер batch практически не ограничен.

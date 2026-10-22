@@ -1,11 +1,11 @@
 # SunObservations benchmark report
 
-See the [production user guide](../README.md#benchmarks) for generated charts and practical
-interpretation. This report retains the detailed methodology and measured evidence.
-
-The generic certification framework and Observation adapter have [current release scaling measurements](CERTIFICATION_BENCHMARKS.md); earlier algorithms have their own [measured scaling report](ANALYSIS_BENCHMARKS.md)
-for snapshots, typed decoding, joins, numeric/statistical algorithms and structured reports
-at 1k/10k/100k/1M. These are offline-consumer costs, not runtime capture hot-path costs.
+Runtime benchmark evidence, with separate baseline, bounded-writer and human-output
+follow-ups. Recorded runs are not a fresh benchmark of every checkout. See
+[charts and dataset navigation](BENCHMARK_CHARTS.md) for interpretation,
+[current capture/cache measurements](CAPTURE_BENCHMARKS.md) for offline sources,
+and [historical evidence](README.md#historical-evidence) for earlier representations.
+This report retains the detailed methodology and measured evidence.
 
 ## Environment and reproduction
 
@@ -266,7 +266,7 @@ Unbounded queues can exhaust RAM if storage cannot catch up. Explicit flush_chan
 required for deterministic global shutdown because process statics are not dropped. Flush is
 not fsync; fail-stop writer errors must be checked. Background I/O never runs on a producer.
 Executable owner and process/downstream release certifications are documented in
-[CERTIFICATION.md](CERTIFICATION.md). Existing user .cargo/config.toml (target-dir only)
+[Framework release validation](RELEASE_VALIDATION.md). Existing user .cargo/config.toml (target-dir only)
 was not changed.
 
 ## Bounded writer follow-up

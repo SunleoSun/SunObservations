@@ -3,7 +3,7 @@ name = "sun-observations-data-source"
 version.workspace = true
 edition.workspace = true
 description = "Observation snapshots, typed decoding and generic certification source adapters"
-readme = "../../docs/ANALYSIS.md"
+readme = "../../docs/CAPTURE.md"
 
 [dependencies]
 sun-certifications = { path = "../sun-certifications", version = "0.1.0" }

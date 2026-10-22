@@ -1,4 +1,8 @@
-# sun-observations-data-source
+# Observation capture and data-source reference
+
+Technical reference for `sun-observations-data-source`. Start with the
+[production workflow](../README.md#observe-and-certify-real-production-behavior);
+this page specifies capture, access and provenance boundaries.
 
 Observation-specific evidence access for the logging + diagnostics + profiling +
 semantic certification workspace. This adapter depends on sun-observations and
@@ -68,6 +72,7 @@ If row identities repeat across runs, first query proc/scope or include executio
 in typed domain keys. Never join cross-owner events by insertion order.
 
 ```rust
+use sun_certifications::try_fact;
 use serde::{Deserialize, Serialize};
 use sun_observations::{observe, Observation};
 use sun_observations_data_source::{capture_observations, CaptureConfig, EnvelopeQuery};
@@ -80,6 +85,7 @@ let snapshot=run.dataset();
 let selected=snapshot.query(EnvelopeQuery { namespace_subtree:Some("module"), ..Default::default() });
 let typed=selected.typed::<Boundary>()?;
 run.certify("production boundary")
+    .check("production call", try_fact("emission", run.result().as_ref().map(|_| true)).expect(true))
     .check("count",typed.source("boundary").count().expect(1usize))
     .assert_certify();
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -93,15 +99,15 @@ aggregation all live in **sun-certifications**. Import those types/functions the
 Adapter convenience methods numeric/group_by/join_by/join_sorted_by/join_u64_by/
 lag_relation_by delegate to that owner; they are not parallel algorithms. Lazy numeric
 conveniences can replay selectors; prefer source().numeric() for cached expensive projection.
-Group iteration now yields generic SourceEntry rather than TypedEntry; preserve the typed
+Group iteration yields generic SourceEntry, not TypedEntry; preserve the typed
 view when resolving original provenance.
 
 Use a PreparedComparison for one typed composite-key comparison reused across fields,
 and a cached numeric field pair for several metrics. Direct generic analysis remains
 available without asserting; scenario acceptance belongs in a CheckResult/Certification.
 
-See [generic workflows](CERTIFICATIONS_API.md), [certification matrix](CERTIFICATION.md),
-[current performance](CERTIFICATION_BENCHMARKS.md), and executable
+See the [generic API reference](CERTIFICATIONS_API.md),
+[current capture/cache measurements](CAPTURE_BENCHMARKS.md), and executable
 [module transfer](../crates/sun-observations-data-source/examples/module_relation.rs) /
 [mixed evidence workflow](../crates/sun-observations-data-source/examples/skill_workflows.rs).
 The self-contained [evidence skill](../crates/sun-observations/agent-skills/sun-observations/SKILL.md) documents

@@ -1,5 +1,8 @@
 # Package-owned agent skills
 
+Operational/tooling reference. For learning the framework, use the
+[human guide](../README.md); for other documentation roles, see the [map](README.md).
+
 Install the external Cargo subcommand from this checkout:
 
 ```text

@@ -1,11 +1,16 @@
-# Analysis benchmark report
+# Historical analysis benchmark report
+
+Historical benchmark evidence, not current API guidance. Measurements and design
+descriptions below refer to the earlier representation. See the
+[documentation map](../README.md#historical-evidence) for dataset chronology.
 
 Historical algorithm/extension samples retained across the ownership migration. Generic
 algorithms now belong to sun-certifications; the executable adapter harness delegates to
 that owner. Grouped numeric projection now caches values once, so these timings describe
 the earlier representation, not a claim of byte-identical current measurements. See
-[final framework/adapter benchmarks](CERTIFICATION_BENCHMARKS.md) for current prepared-source,
-reusable comparison and aggregation results.
+[pre-cache certification benchmarks](CERTIFICATION_BENCHMARKS.md) for the next
+measurement stage, and [capture/cache benchmarks](../CAPTURE_BENCHMARKS.md) for
+the current representation. These are distinct datasets, not a controlled speedup series.
 
 ## Environment and reproduction
 
@@ -30,8 +35,8 @@ existing benchmark child-process report support: unique run directory beside the
 active Cargo profiles, metrics.csv and stderr.txt, replay to console, and child
 failure propagation. The original baseline measured run was analysis-cjX2jh under
 C:/Temp/sun-observations-build/benchmarks. Tracked complete samples are
-[scripts/analysis_metrics.csv](../scripts/analysis_metrics.csv) (240 rows) and
-[scripts/analysis_stderr.txt](../scripts/analysis_stderr.txt) (verified report sizes).
+[scripts/analysis_metrics.csv](../../scripts/analysis_metrics.csv) (240 rows) and
+[scripts/analysis_stderr.txt](../../scripts/analysis_stderr.txt) (verified report sizes).
 No benchmark writes to production evidence or modifies FORMAT v1.
 
 ## Workload and timing boundaries
@@ -161,9 +166,9 @@ The extended **same harness** was run in release mode with the command above on
 Windows 11 10.0.26200, AMD64 Family 25 Model 33 (the reference host), rustc/cargo
 1.96.0, ordinary release profile/allocator, no added tuning or affinity. Run directory:
 `C:/Temp/sun-observations-build/benchmarks/analysis-ed0SRm`. Complete raw samples:
-[analysis_extension_metrics.csv](../scripts/analysis_extension_metrics.csv) (**336 rows**,
+[analysis_extension_metrics.csv](../../scripts/analysis_extension_metrics.csv) (**336 rows**,
 28 operations × four scales × three samples), with
-[diagnostics](../scripts/analysis_extension_stderr.txt). Original 240 baseline samples
+[diagnostics](../../scripts/analysis_extension_stderr.txt). Original 240 baseline samples
 remain separately tracked; do not silently compare runs as a controlled speedup claim.
 
 ### Extension workload and timing boundaries
