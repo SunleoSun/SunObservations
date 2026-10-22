@@ -289,7 +289,7 @@ impl<K> Expectation<PairCheck<K>> for AllValid {
         })
     }
     fn describe(&self) -> String {
-        "all aligned pairs satisfy predicate".into()
+        "all compared pairs satisfy predicate".into()
     }
 }
 impl Expectation<usize> for CountRule {

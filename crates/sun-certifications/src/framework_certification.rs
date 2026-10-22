@@ -514,7 +514,11 @@ fn final_assertion_panics_at_invocation_not_framework() {
     let captured = Arc::new(Mutex::new(None));
     let hook = captured.clone();
     let previous = std::panic::take_hook();
+    let invocation_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
+        if std::thread::current().id() != invocation_thread {
+            return;
+        }
         if let Some(location) = info.location() {
             *hook.lock().unwrap() = Some((location.file().to_owned(), location.line()));
         }

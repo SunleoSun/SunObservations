@@ -9,6 +9,328 @@ use std::{
 use sun_certifications::*;
 #[path = "../crates/sun-observations-data-source/examples/skill_workflows.rs"]
 mod workflows;
+fn certification_api_coverage(text: &str) -> CertificationReport {
+    let mut c = certify("agent-facing method-level API");
+    for (heading, methods) in [
+        (
+            "Fact and CheckResult",
+            vec![
+                "fact(",
+                "try_fact(",
+                "details(",
+                "expect(",
+                "expect_valid(",
+                "slope(",
+                "intercept(",
+                "r_squared(",
+                "is_pass(",
+                "assess(",
+                "describe(",
+                "class(",
+            ],
+        ),
+        (
+            "Expectations",
+            vec!["criterion(", "close_to(", "absolute(", "relative("],
+        ),
+        (
+            "PreparedSource",
+            vec![
+                "source(",
+                "source_slice(",
+                "collection(",
+                "name(",
+                "values(",
+                "entry(",
+                "iter(",
+                "with_provenance(",
+                "select(",
+                "project(",
+                "numeric(",
+                "count(",
+                "matching_count(",
+                "unique(",
+                "contiguous(",
+                "keys(",
+                "compare_with(",
+                "group_by(",
+                "lag_relation_by(",
+            ],
+        ),
+        ("PreparedValues", vec!["values(", "source("]),
+        (
+            "PreparedNumeric",
+            vec![
+                "values(",
+                "series(",
+                "summary(",
+                "robust_summary(",
+                "quantile(",
+                "check(",
+                "outliers(",
+                "jumps(",
+            ],
+        ),
+        ("PreparedKeys", vec!["indices(", "compare_with("]),
+        ("GroupedView", vec!["iter(", "numeric("]),
+        (
+            "Group",
+            vec!["len(", "is_empty(", "values(", "iter(", "numeric("],
+        ),
+        (
+            "GroupedNumeric",
+            vec!["summaries(", "summaries_with_robust("],
+        ),
+        ("ComparisonBuilder", vec!["on(", "on_u64(", "on_sorted("]),
+        (
+            "PreparedComparison",
+            vec![
+                "name(",
+                "comparison(",
+                "pairs(",
+                "comparison_fact(",
+                "equal(",
+                "check_pairs(",
+                "numeric(",
+                "lag(",
+            ],
+        ),
+        (
+            "PreparedNumericComparison",
+            vec![
+                "values(",
+                "correlation(",
+                "linear_fit(",
+                "relation(",
+                "difference(",
+                "linear(",
+                "pearson(",
+                "spearman(",
+                "largest(",
+            ],
+        ),
+        (
+            "Statistical expectation builders and measures",
+            vec![
+                "positive(",
+                "negative(",
+                "default(",
+                "bound(",
+                "pearson(",
+                "spearman(",
+                "slope(",
+                "intercept(",
+                "r_squared(",
+                "residual_mean_absolute(",
+                "residual_max_absolute(",
+                "mean_absolute(",
+                "p95_absolute(",
+                "max_absolute(",
+                "MetricConstraint<M>",
+                "measure:M",
+                "min:Option<f64>",
+                "max:Option<f64>",
+                "RelationConstraint = MetricConstraint<RelationMeasure>",
+            ],
+        ),
+        (
+            "Direct analysis and report/error reference",
+            vec![
+                "new(",
+                "iter(",
+                "finite_count(",
+                "summary(",
+                "quantile(",
+                "robust_summary(",
+                "check(",
+                "outliers(",
+                "jumps(",
+                "check_count(",
+                "check_unique(",
+                "check_contiguous(",
+                "check_same_keys(",
+                "is_valid(",
+                "is_complete(",
+                "join_by(",
+                "join_u64_by(",
+                "join_sorted_by(",
+                "comparison(",
+                "pairs(",
+                "require_complete(",
+                "set_source_names(",
+                "difference(",
+                "numeric_relation(",
+                "linear_metrics(",
+                "pearson(",
+                "spearman(",
+                "correlation(",
+                "linear_fit(",
+                "difference_summary(",
+                "value(",
+                "lag_relation_by(",
+                "RelationExpectation::evaluate(",
+                "LagExpectation::evaluate(",
+            ],
+        ),
+        (
+            "Hierarchy, report and final assertion",
+            vec![
+                "certify(",
+                "source(",
+                "collection(",
+                "check(",
+                "check_fact_expect(",
+                "section(",
+                "limits(",
+                "is_pass(",
+                "Certification::assert_certify(",
+                "CertificationReport::assert_certify(",
+                "bounded_debug(",
+            ],
+        ),
+        (
+            "Ordinary + Observation-backed composition",
+            vec!["run.certify(", "typed::<Prediction>", "source("],
+        ),
+    ] {
+        let section = text
+            .lines()
+            .skip_while(|line| line.trim_start_matches('#').trim() != heading)
+            .skip(1)
+            .take_while(|line| !line.starts_with("## ") && !line.starts_with("### "))
+            .collect::<Vec<_>>()
+            .join("\n");
+        c.section(heading, |c| {
+            c.check_fact_expect("owner section", !section.is_empty(), true);
+            for method in methods {
+                c.check_fact_expect(method, section.contains(method), true);
+            }
+        });
+    }
+    for (owner, measures) in [
+        (
+            "CorrelationExpectation",
+            vec![
+                "positive(",
+                "negative(",
+                "pearson(",
+                "spearman(",
+                "bound(",
+                "CorrelationMeasure",
+                "Pearson",
+                "Spearman",
+                "AbsolutePearson",
+                "AbsoluteSpearman",
+            ],
+        ),
+        (
+            "LinearFitExpectation",
+            vec![
+                "slope(",
+                "intercept(",
+                "r_squared(",
+                "residual_mean_absolute(",
+                "residual_max_absolute(",
+                "bound(",
+                "LinearFitMeasure",
+                "Slope",
+                "Intercept",
+                "RSquared",
+                "ResidualMeanAbsolute",
+                "ResidualMaxAbsolute",
+            ],
+        ),
+        (
+            "DifferenceExpectation",
+            vec![
+                "mean_absolute(",
+                "p95_absolute(",
+                "max_absolute(",
+                "bound(",
+                "DifferenceMeasure",
+                "MeanAbsolute",
+                "P95Absolute",
+                "MaxAbsolute",
+            ],
+        ),
+        (
+            "RelationExpectation",
+            vec![
+                "positive(",
+                "negative(",
+                "bound(",
+                "RelationMeasure",
+                "Pearson",
+                "Spearman",
+                "AbsolutePearson",
+                "AbsoluteSpearman",
+                "Slope",
+                "Intercept",
+                "RSquared",
+                "MeanAbsoluteDifference",
+                "P95AbsoluteDifference",
+                "MaxAbsoluteDifference",
+                "ResidualMeanAbsolute",
+                "ResidualMaxAbsolute",
+            ],
+        ),
+    ] {
+        let row = text
+            .lines()
+            .find(|line| line.starts_with(&format!("| {owner} |")))
+            .unwrap_or("");
+        c.section(owner, |c| {
+            for measure in measures {
+                let present = row
+                    .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                    .any(|token| token == measure.trim_end_matches('('));
+                c.check_fact_expect(measure, present, true);
+            }
+        });
+    }
+    c.certify()
+}
+
+#[test]
+fn certification_skill_documents_methods_in_their_owning_api_families() {
+    certification_api_coverage(&skill("certifications")).assert_certify();
+}
+
+#[test]
+fn type_names_cannot_mask_missing_prepared_numeric_methods() {
+    let text = skill("certifications");
+    let (before, numeric) = text.split_once("### PreparedNumericComparison").unwrap();
+    let (numeric, after) = numeric.split_once("### Statistical").unwrap();
+    for method in ["linear()", "pearson()", "spearman()"] {
+        let incomplete = format!(
+            "{before}### PreparedNumericComparison{}### Statistical{after}",
+            numeric.replace(method, "omitted")
+        );
+        let report = certification_api_coverage(&incomplete);
+        assert_eq!(report.failed, 1, "{method}: {report}");
+        assert_eq!(report.failures[0].section, "PreparedNumericComparison/");
+        assert!(std::panic::catch_unwind(|| report.assert_certify()).is_err());
+    }
+}
+
+#[test]
+fn absolute_measure_names_cannot_mask_missing_signed_variants() {
+    let text = skill("certifications");
+    for (prefix, owner) in [
+        (
+            "CorrelationMeasure::{Pearson,Spearman",
+            "CorrelationExpectation/",
+        ),
+        ("RelationMeasure::{Pearson,Spearman", "RelationExpectation/"),
+    ] {
+        let incomplete = text.replace(prefix, &prefix.replace("Pearson,", ""));
+        let report = certification_api_coverage(&incomplete);
+        assert_eq!(report.failed, 1, "{report}");
+        assert_eq!(report.failures[0].section, owner);
+        assert!(std::panic::catch_unwind(|| report.assert_certify()).is_err());
+    }
+}
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -54,6 +376,7 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "MemorySinkConfig",
                 "MemoryStats",
                 "CaptureConfig",
+                "ScopedCapture",
                 "capture_observations",
                 "CapturedRun",
                 "run.certify",
@@ -152,13 +475,29 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                     .expect(true),
                 );
             }
-            for obsolete in ["measured(", ".compare(", ".coverage(", "fn execute(engine:"] {
+            for obsolete in [
+                "measured(",
+                ".compare(",
+                ".coverage(",
+                "fn execute(engine:",
+                "Measurement",
+                "CompareResult",
+                "Alignment<",
+                ".alignment(",
+                "aligned pairs",
+            ] {
                 c.check_fact_expect(
                     format!("no obsolete API: {obsolete}"),
                     text.contains(obsolete),
                     false,
                 );
             }
+            c.check_fact_expect(
+                "no obsolete generic correspondence type",
+                text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                    .any(|token| token == "Alignment"),
+                false,
+            );
             if name == "sun-observations" {
                 for generic_api in [
                     "use sun_certifications::*",

@@ -24,6 +24,8 @@ pub use relation::*;
 pub use source::*;
 pub use stats::*;
 #[cfg(test)]
+mod acceptance_certification;
+#[cfg(test)]
 mod ergonomics_certification;
 #[cfg(test)]
 #[path = "framework_certification.rs"]
