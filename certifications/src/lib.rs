@@ -84,7 +84,7 @@ pub fn pair(records: &[Value], expected: usize) {
             .or_insert_with(Vec::new)
             .push(r);
     }
-    let mut c = sun_observations::certifications::certify("persisted span lifecycle");
+    let mut c = sun_observations::certifications::certification("persisted span lifecycle");
     c.check_fact_expect("pair count", pairs.len(), expected);
     for (identity, pair) in &pairs {
         c.section(format!("{identity:?}"), |c| {
@@ -104,9 +104,10 @@ pub fn pair(records: &[Value], expected: usize) {
                         b["proc_ms"].as_u64().unwrap(),
                     )
                     .expect(
-                        sun_observations::certifications::Criterion::AtLeast(
+                        sun_observations::certifications::Criterion::at_least(
                             a["proc_ms"].as_u64().unwrap(),
-                        ),
+                        )
+                        .unwrap(),
                     ),
                 );
             }
@@ -115,7 +116,7 @@ pub fn pair(records: &[Value], expected: usize) {
     c.assert_certify();
 }
 /// Run each global scenario in a new OS process and compare independent persisted views.
-pub fn certify(executable: &str, scenario: &str) -> Vec<Value> {
+pub fn run_scenario(executable: &str, scenario: &str) -> Vec<Value> {
     let directory = tempfile::tempdir().unwrap();
     let output = Command::new(executable)
         .arg(scenario)
@@ -140,7 +141,7 @@ pub fn certify(executable: &str, scenario: &str) -> Vec<Value> {
         v.sort();
         v
     };
-    sun_observations::certifications::certify("persisted and memory views")
+    sun_observations::certifications::certification("persisted and memory views")
         .check_fact_expect("canonical records", canonical(&records), canonical(&memory))
         .assert_certify();
     records

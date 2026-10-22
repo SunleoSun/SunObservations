@@ -11,10 +11,7 @@ fn zero_mad_policy_is_explicit_for_quantized_traces() {
         vec![2, 3, 6]
     );
     let report = series
-        .outliers(OutlierConfig {
-            threshold: 3.5,
-            zero_mad: ZeroMadPolicy::AbsoluteTolerance(1.),
-        })
+        .outliers(OutlierConfig::new(3.5, ZeroMadPolicy::absolute_tolerance(1.).unwrap()).unwrap())
         .unwrap();
     assert_eq!(report.suspicious.len(), 1);
     assert_eq!(report.suspicious[0].index, 6);
@@ -83,28 +80,14 @@ fn outlier_empty_nonfinite_and_invalid_configurations_fail_closed() {
         .outliers(OutlierConfig::default())
         .is_err());
     for threshold in [-1., f64::NAN, f64::INFINITY] {
-        assert!(NumericSeries::new([1.].into_iter())
-            .outliers(OutlierConfig {
-                threshold,
-                ..Default::default()
-            })
-            .is_err());
+        assert!(OutlierConfig::new(threshold, ZeroMadPolicy::ExactMedian).is_err());
     }
-    assert!(NumericSeries::new([1.].into_iter())
-        .outliers(OutlierConfig {
-            zero_mad: ZeroMadPolicy::AbsoluteTolerance(-1.),
-            ..Default::default()
-        })
-        .is_err());
+    assert!(ZeroMadPolicy::absolute_tolerance(-1.).is_err());
 }
 
 #[test]
 fn jumps_identify_exact_transition_both_endpoints_and_stable_traces() {
-    let config = JumpConfig {
-        absolute_threshold: Some(2.),
-        relative_threshold: None,
-        denominator_floor: 1e-6,
-    };
+    let config = JumpConfig::new(Some(2.), None, 1e-6).unwrap();
     let report = NumericSeries::new([1., 1.1, 1.2, 8., 8.1].into_iter())
         .jumps(config)
         .unwrap();
@@ -148,11 +131,7 @@ fn jumps_identify_exact_transition_both_endpoints_and_stable_traces() {
 
 #[test]
 fn jump_relative_floor_threshold_boundaries_and_earliest_ties_are_deterministic() {
-    let config = JumpConfig {
-        absolute_threshold: None,
-        relative_threshold: Some(2.),
-        denominator_floor: 0.1,
-    };
+    let config = JumpConfig::new(None, Some(2.), 0.1).unwrap();
     let report = NumericSeries::new([0., 0.01, 0., 1., 0.].into_iter())
         .jumps(config)
         .unwrap();
@@ -167,29 +146,15 @@ fn jump_relative_floor_threshold_boundaries_and_earliest_ties_are_deterministic(
     assert_eq!(report.suspicious[0].relative_change, 10.);
     assert_eq!(report.maximum_absolute.unwrap().from_index, 2);
     let exact = NumericSeries::new([0., 1., 0.].into_iter())
-        .jumps(JumpConfig {
-            absolute_threshold: Some(1.),
-            relative_threshold: None,
-            ..config
-        })
+        .jumps(JumpConfig::new(Some(1.), None, config.denominator_floor()).unwrap())
         .unwrap();
     assert!(exact.suspicious.is_empty());
     assert_eq!(exact.maximum_absolute.unwrap().from_index, 0);
     for floor in [0., -1., f64::INFINITY, f64::NAN] {
-        assert!(NumericSeries::new([0., 1.].into_iter())
-            .jumps(JumpConfig {
-                denominator_floor: floor,
-                ..config
-            })
-            .is_err());
+        assert!(JumpConfig::new(None, Some(2.), floor).is_err());
     }
     assert!(NumericSeries::new([0., f64::INFINITY].into_iter())
         .jumps(config)
         .is_err());
-    assert!(NumericSeries::new([0., 1.].into_iter())
-        .jumps(JumpConfig {
-            absolute_threshold: Some(-1.),
-            ..config
-        })
-        .is_err());
+    assert!(JumpConfig::new(Some(-1.), None, 0.1).is_err());
 }

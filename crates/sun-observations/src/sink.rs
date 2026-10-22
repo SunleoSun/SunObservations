@@ -9,7 +9,7 @@ pub struct ObservationDelivery {
     render_text: Option<Arc<String>>,
 }
 impl ObservationDelivery {
-    pub fn new(record: Arc<ObservationRecord>, render_text: Option<Arc<String>>) -> Self {
+    pub(crate) fn new(record: Arc<ObservationRecord>, render_text: Option<Arc<String>>) -> Self {
         Self {
             record,
             render_text,
@@ -46,7 +46,5 @@ pub trait Sink: Send + Sync + 'static {
     fn write_delivery(&self, delivery: &ObservationDelivery) -> io::Result<()> {
         self.write_shared(delivery.shared_record().clone())
     }
-    fn flush(&self) -> io::Result<()> {
-        Ok(())
-    }
+    fn flush(&self) -> io::Result<()>;
 }

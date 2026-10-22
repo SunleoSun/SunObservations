@@ -8,7 +8,7 @@ use sun_observations::certifications::*;
 #[path = "../crates/sun-observations/examples/skill_workflows.rs"]
 mod workflows;
 fn certification_api_coverage(text: &str) -> CertificationReport {
-    let mut c = certify("agent-facing method-level API");
+    let mut c = certification("agent-facing method-level API");
     for (heading, methods) in [
         (
             "Fact and CheckResult",
@@ -29,20 +29,24 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         ),
         (
             "Expectations",
-            vec!["criterion(", "close_to(", "absolute(", "relative("],
+            vec![
+                "criterion(",
+                "close_to(",
+                "absolute_tolerance(",
+                "relative_tolerance(",
+            ],
         ),
         (
             "PreparedSource",
             vec![
                 "source(",
-                "source_slice(",
                 "collection(",
                 "name(",
                 "values(",
                 "entry(",
                 "iter(",
                 "with_provenance(",
-                "select(",
+                "single_map(",
                 "project(",
                 "numeric(",
                 "count(",
@@ -52,7 +56,8 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
                 "keys(",
                 "compare_with(",
                 "group_by(",
-                "lag_relation_by(",
+                "lag_self(",
+                "lag_with(",
             ],
         ),
         ("PreparedValues", vec!["values(", "source("]),
@@ -64,7 +69,7 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
                 "summary(",
                 "robust_summary(",
                 "quantile(",
-                "check(",
+                "expect(",
                 "outliers(",
                 "jumps(",
             ],
@@ -79,18 +84,17 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
             "GroupedNumeric",
             vec!["summaries(", "summaries_with_robust("],
         ),
-        ("ComparisonBuilder", vec!["on(", "on_u64(", "on_sorted("]),
+        ("ComparisonBuilder", vec!["on(", "on_u64(", "on_presorted("]),
         (
-            "PreparedComparison",
+            "PairedComparison",
             vec![
                 "name(",
                 "comparison(",
-                "pairs(",
-                "comparison_fact(",
+                "matched_pairs(",
+                "paired_comparison_fact(",
                 "equal(",
                 "check_pairs(",
                 "numeric(",
-                "lag(",
             ],
         ),
         (
@@ -110,20 +114,8 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         (
             "Statistical expectation builders and measures",
             vec![
-                "positive(",
-                "negative(",
-                "default(",
+                "with_bound(",
                 "bound(",
-                "pearson(",
-                "spearman(",
-                "slope(",
-                "intercept(",
-                "r_squared(",
-                "residual_mean_absolute(",
-                "residual_max_absolute(",
-                "mean_absolute(",
-                "p95_absolute(",
-                "max_absolute(",
                 "MetricConstraint<M>",
                 "measure:M",
                 "min:Option<f64>",
@@ -140,7 +132,7 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
                 "summary(",
                 "quantile(",
                 "robust_summary(",
-                "check(",
+                "integrity(",
                 "outliers(",
                 "jumps(",
                 "check_count(",
@@ -151,39 +143,43 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
                 "is_complete(",
                 "join_by(",
                 "join_u64_by(",
-                "join_sorted_by(",
+                "join_presorted_by(",
                 "comparison(",
-                "pairs(",
+                "matched_pairs(",
                 "require_complete(",
                 "set_source_names(",
-                "difference(",
-                "numeric_relation(",
+                "difference_summary(",
                 "linear_metrics(",
                 "pearson(",
                 "spearman(",
                 "correlation(",
                 "linear_fit(",
-                "difference_summary(",
+                "numeric_relation(",
                 "value(",
                 "lag_relation_by(",
-                "RelationExpectation::evaluate(",
-                "LagExpectation::evaluate(",
             ],
         ),
         (
             "Anomaly, jump and temporal lag",
-            vec!["zero_lag(", "has_interior_gaps("],
+            vec![
+                "OutlierConfig::new(",
+                "JumpConfig::new(",
+                "LagRange::new(",
+                "zero_lag(",
+                "has_interior_gaps(",
+            ],
         ),
         (
             "Hierarchy, report and final assertion",
             vec![
-                "certify(",
+                "certification(",
                 "source(",
                 "collection(",
                 "check(",
                 "check_fact_expect(",
                 "section(",
                 "limits(",
+                "report(",
                 "is_pass(",
                 "Certification::assert_certify(",
                 "CertificationReport::assert_certify(",
@@ -192,7 +188,7 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         ),
         (
             "Ordinary + Observation-backed composition",
-            vec!["run.certify(", "typed::<Prediction>", "source("],
+            vec!["run.certification(", "to_typed::<Prediction>", "source("],
         ),
     ] {
         let section = text
@@ -213,11 +209,13 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         (
             "CorrelationExpectation",
             vec![
-                "positive(",
-                "negative(",
-                "pearson(",
-                "spearman(",
-                "bound(",
+                "pearson_at_least",
+                "spearman_at_least",
+                "spearman_at_most",
+                "with_bound",
+                "and_pearson_bounds",
+                "and_spearman_bounds",
+                "bound",
                 "CorrelationMeasure",
                 "Pearson",
                 "Spearman",
@@ -228,12 +226,18 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         (
             "LinearFitExpectation",
             vec![
-                "slope(",
-                "intercept(",
-                "r_squared(",
-                "residual_mean_absolute(",
-                "residual_max_absolute(",
-                "bound(",
+                "slope_between",
+                "intercept_between",
+                "r_squared_at_least",
+                "residual_mean_absolute_at_most",
+                "residual_max_absolute_at_most",
+                "with_bound",
+                "and_slope_between",
+                "and_intercept_between",
+                "and_r_squared_at_least",
+                "and_residual_mean_absolute_at_most",
+                "and_residual_max_absolute_at_most",
+                "bound",
                 "LinearFitMeasure",
                 "Slope",
                 "Intercept",
@@ -245,10 +249,14 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         (
             "DifferenceExpectation",
             vec![
-                "mean_absolute(",
-                "p95_absolute(",
-                "max_absolute(",
-                "bound(",
+                "mean_absolute_at_most",
+                "p95_absolute_at_most",
+                "max_absolute_at_most",
+                "with_bound",
+                "and_mean_absolute_at_most",
+                "and_p95_absolute_at_most",
+                "and_max_absolute_at_most",
+                "bound",
                 "DifferenceMeasure",
                 "MeanAbsolute",
                 "P95Absolute",
@@ -258,9 +266,10 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
         (
             "RelationExpectation",
             vec![
-                "positive(",
-                "negative(",
-                "bound(",
+                "spearman_at_least",
+                "spearman_at_most",
+                "with_bound",
+                "bound",
                 "RelationMeasure",
                 "Pearson",
                 "Spearman",
@@ -285,12 +294,12 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
             for measure in measures {
                 let present = row
                     .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-                    .any(|token| token == measure.trim_end_matches('('));
+                    .any(|token| token == measure);
                 c.check_fact_expect(measure, present, true);
             }
         });
     }
-    c.certify()
+    c.report()
 }
 
 #[test]
@@ -309,8 +318,8 @@ fn type_names_cannot_mask_missing_prepared_numeric_methods() {
             numeric.replace(method, "omitted")
         );
         let report = certification_api_coverage(&incomplete);
-        assert_eq!(report.failed, 1, "{method}: {report}");
-        assert_eq!(report.failures[0].section, "PreparedNumericComparison/");
+        assert_eq!(report.failed(), 1, "{method}: {report}");
+        assert_eq!(report.failures()[0].section, "PreparedNumericComparison/");
         assert!(std::panic::catch_unwind(|| report.assert_certify()).is_err());
     }
 }
@@ -327,8 +336,8 @@ fn absolute_measure_names_cannot_mask_missing_signed_variants() {
     ] {
         let incomplete = text.replace(prefix, &prefix.replace("Pearson,", ""));
         let report = certification_api_coverage(&incomplete);
-        assert_eq!(report.failed, 1, "{report}");
-        assert_eq!(report.failures[0].section, owner);
+        assert_eq!(report.failed(), 1, "{report}");
+        assert_eq!(report.failures()[0].section, owner);
         assert!(std::panic::catch_unwind(|| report.assert_certify()).is_err());
     }
 }
@@ -358,7 +367,7 @@ fn skill(name: &str) -> String {
 }
 
 fn skill_mirror_check(canonical: Vec<u8>, mirror: Vec<u8>) -> CheckResult<Vec<u8>> {
-    fact("synchronized skill bytes", mirror).expect(Equal(canonical))
+    fact("synchronized skill bytes", mirror).expect(canonical)
 }
 
 #[test]
@@ -367,7 +376,7 @@ fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
     let stale =
         b"---\nname: certifications\ndescription: Valid synchronized skill fixture\n---\nstale API"
             .to_vec();
-    certify("mirror drift rejection")
+    certification("mirror drift rejection")
         .check_fact_expect(
             "identical mirror",
             skill_mirror_check(canonical.clone(), canonical.clone()).is_pass(),
@@ -375,7 +384,7 @@ fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
         )
         .check_fact_expect(
             "stale mirror",
-            skill_mirror_check(canonical, stale).class,
+            skill_mirror_check(canonical, stale).class(),
             CheckClass::HardViolation,
         )
         .assert_certify();
@@ -406,7 +415,7 @@ fn blocks(text: &str) -> impl Iterator<Item = String> {
 }
 #[test]
 fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_no_stale_api() {
-    let mut c = certify("canonical agent skills");
+    let mut c = certification("canonical agent skills");
     for (name, markers) in [
         (
             "sun-observations",
@@ -423,19 +432,19 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Policy",
                 "FirstN",
                 "EveryN",
-                "MaxPerScope",
+                "first_n",
                 "Context",
                 "ContextThreadPool",
-                "Channel",
+                "register_namespace_channel",
                 "Custom Sink",
                 "MemorySink",
                 "MemorySinkConfig",
                 "MemoryStats",
                 "CaptureConfig",
-                "ScopedCapture",
+                "try_from_records",
                 "capture_observations",
                 "CapturedRun",
-                "run.certify",
+                "run.certification",
                 "exclusive",
                 "unfinished_contexts",
                 "compact_fraction",
@@ -447,7 +456,7 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "span_if_active",
                 "FORMAT v1",
                 "ObservationDataset",
-                "EnvelopeQuery",
+                "ObservationsQuery",
                 "TypedView",
                 "TypedEntry",
                 "SourceContext",
@@ -461,13 +470,13 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Always default",
                 "Default has no scope",
                 "1,000,000/0.10",
-                "flush_ms=1000",
+                "flush_interval_ms=1000",
                 "max_file_size_bytes=None",
                 "trim_fraction=0.10",
                 "MemorySinkConfig::default()",
-                "EnvelopeQuery::default()",
-                "every field to None",
-                "defaults Ok(())",
+                "ObservationsQuery::default()",
+                "unrestricted",
+                "real barrier",
                 "Default: all counters 0",
                 "Default sets all four counters to 0",
             ],
@@ -484,10 +493,10 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "collect",
                 "PreparedSource",
                 "PreparedKeys",
-                "PreparedComparison",
+                "PairedComparison",
                 "Comparison",
                 "CapturedRun",
-                "run.certify",
+                "run.certification",
                 "PreparedNumericComparison",
                 "CheckResult",
                 "CheckClass",
@@ -500,7 +509,7 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "LinearFitExpectation",
                 "DifferenceExpectation",
                 "check_fact_expect",
-                "comparison_fact",
+                "paired_comparison_fact",
                 "expect_valid",
                 "close_to",
                 "HardViolation",
@@ -525,11 +534,11 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "explicit task instructions take precedence",
                 "absolute=1e-9",
                 "relative=1e-9",
-                "zero constraints",
-                "vacuous by itself",
-                "no Default",
+                "start with a real bound",
+                "cannot both be absent",
+                "validates",
                 "all five counters to 0",
-                "defaults 3.5/ExactMedian",
+                "default is 3.5/ExactMedian",
                 "defaults 64/2048",
             ],
         ),
@@ -594,6 +603,23 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "Alignment<",
                 ".alignment(",
                 "aligned pairs",
+                "EnvelopeQuery",
+                "PreparedComparison",
+                "source_slice",
+                "on_sorted(",
+                "join_sorted_by(",
+                ".typed::<",
+                ".certify(",
+                "::certify(",
+                "::evaluate(",
+                "ObservationDelivery::new",
+                "ScopedCapture",
+                "MaxPerScope",
+                "RelationReport",
+                "DifferenceReport",
+                "RelationError",
+                "Criterion::AtLeast",
+                "Range{min:",
             ] {
                 c.check_fact_expect(
                     format!("no obsolete API: {obsolete}"),
@@ -607,13 +633,7 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                     .any(|token| token == "Alignment"),
                 false,
             );
-            if name == "certifications" {
-                c.check_fact_expect(
-                    "JumpConfig and LagConfig explicitly have no Default",
-                    text.matches("has **no Default**").count(),
-                    CountRule::Minimum(2),
-                );
-            }
+
             if name == "sun-observations" {
                 for generic_api in [
                     "use sun_observations::certifications::*",
@@ -748,7 +768,7 @@ serde_json="1"
         .arg(dir.path().join("target"))
         .output()
         .unwrap();
-    certify("skill and focused reference APIs compile as documented")
+    certification("skill and focused reference APIs compile as documented")
         .limits(DiagnosticLimits {
             failures: 1,
             characters_per_failure: 16_384,
@@ -761,7 +781,11 @@ serde_json="1"
         .check(
             "all Rust blocks",
             fact("downstream compile/run", output.status.success())
-                .details(String::from_utf8_lossy(&output.stderr))
+                .details(format!(
+                    "stdout: {} stderr: {}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ))
                 .expect(true),
         )
         .assert_certify();
@@ -777,8 +801,8 @@ fn mixed_evidence_workflow_proves_internal_transfer_and_negative_forbidden_absen
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
-    let mut c = certify("persisted mixed evidence workflow");
-    let data = source_slice("artifact", &records);
+    let mut c = certification("persisted mixed evidence workflow");
+    let data = collection("artifact", &records);
     c.check("canonical count", data.count().expect(64))
         .check(
             "no transient persistence",
@@ -808,7 +832,7 @@ fn scoped_capture_benchmark_medians_preserve_every_raw_scale_and_sample() {
             .or_default()
             .push((p[2].parse().unwrap(), p[3].parse().unwrap()));
     }
-    let mut c = certify("capture benchmark evidence integrity");
+    let mut c = certification("capture benchmark evidence integrity");
     c.check_fact_expect("complete matrix", samples.len(), 13 * 4);
     for ((name, n), mut values) in samples {
         c.check_fact_expect(
@@ -835,7 +859,12 @@ fn scoped_capture_benchmark_medians_preserve_every_raw_scale_and_sample() {
         c.check_fact_expect(
             format!("{name} {n}"),
             reported,
-            close_to(values[1].1).absolute(0.0000005).relative(0.),
+            close_to(values[1].1)
+                .unwrap()
+                .absolute_tolerance(0.0000005)
+                .unwrap()
+                .relative_tolerance(0.)
+                .unwrap(),
         );
     }
     c.assert_certify();
@@ -852,7 +881,7 @@ fn historical_benchmark_medians_preserve_every_raw_scale_and_sample() {
             .or_default()
             .push((p[2].parse().unwrap(), p[3].parse().unwrap()));
     }
-    let mut c = certify("benchmark evidence integrity");
+    let mut c = certification("benchmark evidence integrity");
     c.check(
         "complete matrix",
         fact("samples", samples.len()).expect(29 * 4),
@@ -880,10 +909,9 @@ fn historical_benchmark_medians_preserve_every_raw_scale_and_sample() {
             .unwrap();
         c.check(
             format!("{name} {n}"),
-            fact("median", reported).expect(Criterion::Range {
-                min: values[1].1 - 0.0000005,
-                max: values[1].1 + 0.0000005,
-            }),
+            fact("median", reported).expect(
+                Criterion::between(values[1].1 - 0.0000005, values[1].1 + 0.0000005).unwrap(),
+            ),
         );
     }
     c.assert_certify();
@@ -962,7 +990,7 @@ fn local_markdown_link_valid(file: &Path, target: &str) -> bool {
 fn markdown_navigation_rejects_missing_paths_and_anchors_and_ignores_fenced_headings() {
     let headings = markdown_anchors("# Title\n## `Typed` & meaningful!\n```rust\n# Hidden\n```\n~~~text\n## Also hidden\n~~~\n## Repeat\n## Repeat\n");
     let readme = root().join("README.md");
-    certify("Markdown navigation validation")
+    certification("Markdown navigation validation")
         .check(
             "heading identity",
             fact("slugs", headings).expect(BTreeSet::from([
@@ -1008,7 +1036,7 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
         canonical_skill_path("certifications"),
         canonical_skill_path("sun-observations"),
     ]);
-    let mut c = certify("documentation architecture and navigation");
+    let mut c = certification("documentation architecture and navigation");
     let map = fs::read_to_string(root().join("docs/README.md")).unwrap();
     for file in files {
         let text = fs::read_to_string(&file).unwrap();
@@ -1059,6 +1087,23 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
                 "Alignment<",
                 ".alignment(",
                 "aligned pairs",
+                "EnvelopeQuery",
+                "PreparedComparison",
+                "source_slice",
+                "on_sorted(",
+                "join_sorted_by(",
+                ".typed::<",
+                ".certify(",
+                "::certify(",
+                "::evaluate(",
+                "ObservationDelivery::new",
+                "ScopedCapture",
+                "MaxPerScope",
+                "RelationReport",
+                "DifferenceReport",
+                "RelationError",
+                "Criterion::AtLeast",
+                "Range{min:",
             ] {
                 c.check_fact_expect(
                     format!("{}: no {obsolete}", file.display()),

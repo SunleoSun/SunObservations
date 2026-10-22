@@ -9,6 +9,25 @@ pub enum CheckClass {
     StatisticalViolation,
     EvaluationError,
 }
+/// Only failed-acceptance classes; evaluation failures are owned by Fact.
+///
+/// ```compile_fail
+/// use sun_observations::certifications::*;
+/// let _ = criterion("invalid", CheckClass::Pass, |_: &usize| false);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViolationClass {
+    Hard,
+    Statistical,
+}
+impl From<ViolationClass> for CheckClass {
+    fn from(value: ViolationClass) -> Self {
+        match value {
+            ViolationClass::Hard => Self::HardViolation,
+            ViolationClass::Statistical => Self::StatisticalViolation,
+        }
+    }
+}
 /// A preparation/analysis error blocking this proof, without blocking independent proofs.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AnalysisError {
@@ -59,16 +78,7 @@ impl<T> Fact<T> {
                 Ok(v) => {
                     violations = v;
                     if !violations.is_empty() {
-                        class = expected.class();
-                        if !matches!(
-                            class,
-                            CheckClass::HardViolation | CheckClass::StatisticalViolation
-                        ) {
-                            class = CheckClass::EvaluationError;
-                            analysis_error = Some(AnalysisError {
-                                message: "violated expectation must be hard or statistical".into(),
-                            });
-                        }
+                        class = expected.class().into();
                     }
                 }
                 Err(e) => {
@@ -95,29 +105,56 @@ pub trait Expectation<T> {
     type Violation: fmt::Debug;
     fn assess(&self, observed: &T) -> Result<Vec<Self::Violation>, AnalysisError>;
     fn describe(&self) -> String;
-    fn class(&self) -> CheckClass {
-        CheckClass::HardViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Hard
     }
 }
-/// Directly inspectable result; aggregation consumes it without copying its report.
+/// Immutable acceptance result; aggregation consumes it without copying observed evidence.
+///
+/// ```compile_fail
+/// use sun_observations::certifications::*;
+/// let mut result = fact("value", 1).expect(2);
+/// result.class = CheckClass::Pass;
+/// ```
 #[derive(Debug)]
 pub struct CheckResult<T, V = Violation> {
-    pub source: String,
-    pub expected: String,
-    pub observed: Result<T, AnalysisError>,
-    pub violations: Vec<V>,
-    pub class: CheckClass,
-    pub analysis_error: Option<AnalysisError>,
-    pub details: String,
+    pub(crate) source: String,
+    pub(crate) expected: String,
+    pub(crate) observed: Result<T, AnalysisError>,
+    pub(crate) violations: Vec<V>,
+    pub(crate) class: CheckClass,
+    pub(crate) analysis_error: Option<AnalysisError>,
+    pub(crate) details: String,
 }
 impl<T, V> CheckResult<T, V> {
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+    pub fn expected(&self) -> &str {
+        &self.expected
+    }
+    pub fn observed(&self) -> &Result<T, AnalysisError> {
+        &self.observed
+    }
+    pub fn violations(&self) -> &[V] {
+        &self.violations
+    }
+    pub fn class(&self) -> CheckClass {
+        self.class
+    }
+    pub fn analysis_error(&self) -> Option<&AnalysisError> {
+        self.analysis_error.as_ref()
+    }
+    pub fn details(&self) -> &str {
+        &self.details
+    }
     pub fn is_pass(&self) -> bool {
         self.class == CheckClass::Pass
     }
 }
 /// Equality requires only PartialEq, including structured or collection values.
 #[derive(Clone, Debug)]
-pub struct Equal<T>(pub T);
+pub(crate) struct Equal<T>(pub T);
 #[derive(Clone, Debug)]
 pub struct NotEqual<T>(pub T);
 impl<T: PartialEq + fmt::Debug> Expectation<T> for Equal<T> {
@@ -152,18 +189,62 @@ impl<T: PartialEq + fmt::Debug> Expectation<T> for NotEqual<T> {
 }
 /// Ordinary value criteria. Bounds are inclusive; incomparable values fail closed.
 #[derive(Clone, Debug)]
-pub enum Criterion<T> {
-    Equal(T),
-    NotEqual(T),
+pub struct Criterion<T>(CriterionKind<T>);
+#[derive(Clone, Debug)]
+enum CriterionKind<T> {
     Greater(T),
     AtLeast(T),
     Less(T),
     AtMost(T),
-    Range { min: T, max: T },
+    Range(InclusiveRange<T>),
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Violation {
     pub expected: String,
+}
+/// Validated inclusive interval over comparable ordered values.
+#[derive(Clone, Debug)]
+struct InclusiveRange<T> {
+    min: T,
+    max: T,
+}
+impl<T: PartialOrd> InclusiveRange<T> {
+    pub fn new(min: T, max: T) -> Result<Self, AnalysisError> {
+        if !matches!(
+            min.partial_cmp(&max),
+            Some(std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+        ) {
+            return Err(AnalysisError {
+                message: "invalid or incomparable range bounds".into(),
+            });
+        }
+        Ok(Self { min, max })
+    }
+}
+impl<T: PartialOrd> Criterion<T> {
+    fn bound(value: T, make: impl FnOnce(T) -> CriterionKind<T>) -> Result<Self, AnalysisError> {
+        if value.partial_cmp(&value).is_none() {
+            return Err(AnalysisError {
+                message: "incomparable bound".into(),
+            });
+        }
+        Ok(Self(make(value)))
+    }
+    pub fn greater_than(value: T) -> Result<Self, AnalysisError> {
+        Self::bound(value, CriterionKind::Greater)
+    }
+    pub fn at_least(value: T) -> Result<Self, AnalysisError> {
+        Self::bound(value, CriterionKind::AtLeast)
+    }
+    pub fn less_than(value: T) -> Result<Self, AnalysisError> {
+        Self::bound(value, CriterionKind::Less)
+    }
+    pub fn at_most(value: T) -> Result<Self, AnalysisError> {
+        Self::bound(value, CriterionKind::AtMost)
+    }
+    pub fn between(min: T, max: T) -> Result<Self, AnalysisError> {
+        Ok(Self(CriterionKind::Range(InclusiveRange::new(min, max)?)))
+    }
 }
 impl<T: PartialOrd + fmt::Debug> Expectation<T> for Criterion<T> {
     type Violation = Violation;
@@ -173,19 +254,12 @@ impl<T: PartialOrd + fmt::Debug> Expectation<T> for Criterion<T> {
                 message: "incomparable criterion value".into(),
             })
         };
-        let valid = match self {
-            Self::Equal(x) => v == x,
-            Self::NotEqual(x) => v != x,
-            Self::Greater(x) => ordering(v, x)?.is_gt(),
-            Self::AtLeast(x) => !ordering(v, x)?.is_lt(),
-            Self::Less(x) => ordering(v, x)?.is_lt(),
-            Self::AtMost(x) => !ordering(v, x)?.is_gt(),
-            Self::Range { min, max } => {
-                if ordering(min, max)?.is_gt() {
-                    return Err(AnalysisError {
-                        message: "invalid criterion range".into(),
-                    });
-                }
+        let valid = match &self.0 {
+            CriterionKind::Greater(x) => ordering(v, x)?.is_gt(),
+            CriterionKind::AtLeast(x) => !ordering(v, x)?.is_lt(),
+            CriterionKind::Less(x) => ordering(v, x)?.is_lt(),
+            CriterionKind::AtMost(x) => !ordering(v, x)?.is_gt(),
+            CriterionKind::Range(InclusiveRange { min, max }) => {
                 !ordering(v, min)?.is_lt() && !ordering(v, max)?.is_gt()
             }
         };
@@ -204,10 +278,14 @@ impl<T: PartialOrd + fmt::Debug> Expectation<T> for Criterion<T> {
 /// Arbitrary domain criterion retaining caller-selected hard/statistical meaning.
 pub struct Predicate<F> {
     expected: String,
-    class: CheckClass,
+    class: ViolationClass,
     predicate: F,
 }
-pub fn criterion<F>(expected: impl Into<String>, class: CheckClass, predicate: F) -> Predicate<F> {
+pub fn criterion<F>(
+    expected: impl Into<String>,
+    class: ViolationClass,
+    predicate: F,
+) -> Predicate<F> {
     Predicate {
         expected: expected.into(),
         class,
@@ -217,14 +295,6 @@ pub fn criterion<F>(expected: impl Into<String>, class: CheckClass, predicate: F
 impl<T, F: Fn(&T) -> bool> Expectation<T> for Predicate<F> {
     type Violation = Violation;
     fn assess(&self, v: &T) -> Result<Vec<Violation>, AnalysisError> {
-        if !matches!(
-            self.class,
-            CheckClass::HardViolation | CheckClass::StatisticalViolation
-        ) {
-            return Err(AnalysisError {
-                message: "criterion must be hard or statistical".into(),
-            });
-        }
         Ok(if (self.predicate)(v) {
             vec![]
         } else {
@@ -236,7 +306,7 @@ impl<T, F: Fn(&T) -> bool> Expectation<T> for Predicate<F> {
     fn describe(&self) -> String {
         self.expected.clone()
     }
-    fn class(&self) -> CheckClass {
+    fn class(&self) -> ViolationClass {
         self.class
     }
 }
@@ -305,7 +375,7 @@ impl Expectation<f64> for NumericRule {
     type Violation = Violation;
     fn assess(&self, v: &f64) -> Result<Vec<Violation>, AnalysisError> {
         let r = NumericSeries::new(std::iter::once(*v))
-            .check(*self)
+            .integrity(*self)
             .map_err(|e| AnalysisError {
                 message: e.to_string(),
             })?;
@@ -323,25 +393,8 @@ impl Expectation<RelationMetrics> for RelationExpectation {
     fn describe(&self) -> String {
         bounded_debug(&self.constraints, 1024)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
-    }
-}
-impl<K> Expectation<RelationReport<K>> for RelationExpectation {
-    type Violation = RelationConstraint;
-    fn assess(&self, v: &RelationReport<K>) -> Result<Vec<RelationConstraint>, AnalysisError> {
-        if !v.comparison.is_complete() {
-            return Err(AnalysisError {
-                message: "incomplete relation comparison".into(),
-            });
-        }
-        self.assess(&v.observed)
-    }
-    fn describe(&self) -> String {
-        bounded_debug(&self.constraints, 1024)
-    }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }
 impl Expectation<LagReport> for LagExpectation {
@@ -352,12 +405,12 @@ impl Expectation<LagReport> for LagExpectation {
     fn describe(&self) -> String {
         format!("best lag = {}, no interior gaps", self.best_lag)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }
 fn anomaly_violations(observed: usize, maximum: usize) -> Result<Vec<Violation>, AnalysisError> {
-    let mut violations = Criterion::AtMost(maximum).assess(&observed)?;
+    let mut violations = Criterion::at_most(maximum)?.assess(&observed)?;
     for violation in &mut violations {
         violation.expected = format!("anomaly count <= {maximum}; observed {observed}");
     }
@@ -374,8 +427,8 @@ impl Expectation<OutlierReport> for AtMostAnomalies {
     fn describe(&self) -> String {
         format!("outliers <= {}", self.0)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }
 impl Expectation<JumpReport> for AtMostAnomalies {
@@ -386,16 +439,26 @@ impl Expectation<JumpReport> for AtMostAnomalies {
     fn describe(&self) -> String {
         format!("jumps <= {}", self.0)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }
 /// Per-group acceptance prevents global statistics from hiding broken subgroups.
 #[derive(Clone, Copy, Debug)]
 pub struct GroupExpectation {
-    pub minimum_count: usize,
-    pub mean_min: f64,
-    pub mean_max: f64,
+    minimum_count: usize,
+    mean_min: f64,
+    mean_max: f64,
+}
+impl GroupExpectation {
+    pub fn new(minimum_count: usize, mean_min: f64, mean_max: f64) -> Result<Self, NumericError> {
+        validate_bounds(Some(mean_min), Some(mean_max))?;
+        Ok(Self {
+            minimum_count,
+            mean_min,
+            mean_max,
+        })
+    }
 }
 impl<K: fmt::Debug> Expectation<GroupedSummaryReport<K>> for GroupExpectation {
     type Violation = Violation;
@@ -423,12 +486,6 @@ impl<K: fmt::Debug> Expectation<GroupedSummaryReport<K>> for GroupExpectation {
                 });
             }
         }
-        if !self.mean_min.is_finite() || !self.mean_max.is_finite() || self.mean_min > self.mean_max
-        {
-            return Err(AnalysisError {
-                message: "invalid group mean bounds".into(),
-            });
-        }
         Ok(failures)
     }
     fn describe(&self) -> String {
@@ -437,7 +494,7 @@ impl<K: fmt::Debug> Expectation<GroupedSummaryReport<K>> for GroupExpectation {
             self.minimum_count, self.mean_min, self.mean_max
         )
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }

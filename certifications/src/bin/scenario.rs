@@ -3,7 +3,7 @@ use std::{
     path::Path,
     sync::{Arc, Barrier},
 };
-use sun_observations::certifications::{certify, fact, CountRule};
+use sun_observations::certifications::{certification, fact, CountRule};
 use sun_observations::*;
 use sun_observations_certifications::pair;
 
@@ -46,7 +46,7 @@ fn setup(directory: &Path) -> Arc<MemorySink> {
     engine.add_channel_sink("primary", memory.clone());
     engine.add_channel_sink(
         "primary",
-        Arc::new(JsonlSink::append(directory.join("events.jsonl")).unwrap()),
+        Arc::new(JsonlSink::open_append(directory.join("events.jsonl")).unwrap()),
     );
     memory
 }
@@ -68,7 +68,8 @@ fn threads() {
                 let _scope = start_scope(
                     ScopeConfig::new(&name)
                         .activate_namespace("cert")
-                        .override_policy::<Limited>(Policy::FirstN(257)),
+                        .unwrap()
+                        .override_policy::<Limited>(Policy::first_n(257).unwrap()),
                 );
                 barrier.wait();
                 let mut children = Vec::new();
@@ -97,7 +98,7 @@ fn threads() {
                 for child in children {
                     child.join().unwrap();
                 }
-                let mut c = certify(format!("thread {parent} context"));
+                let mut c = certification(format!("thread {parent} context"));
                 c.check_fact_expect(
                     "parent restored",
                     Context::capture().scope_name(),
@@ -131,8 +132,8 @@ fn concurrent() {
                 let _scope = start_scope(
                     ScopeConfig::new(format!("run-{parent}"))
                         .activate_all()
-                        .override_policy::<Limited>(Policy::MaxPerScope(431))
-                        .override_policy::<Sample>(Policy::EveryN(5)),
+                        .override_policy::<Limited>(Policy::first_n(431).unwrap())
+                        .override_policy::<Sample>(Policy::every_n(5).unwrap()),
                 );
                 barrier.wait();
                 let mut children = Vec::new();
@@ -173,9 +174,9 @@ fn rayon() {
         let _s = start_scope(
             ScopeConfig::new(name)
                 .activate_all()
-                .override_policy::<Limited>(Policy::FirstN(311)),
+                .override_policy::<Limited>(Policy::first_n(311).unwrap()),
         );
-        ContextThreadPool::new(4).unwrap()
+        ContextThreadPool::with_threads(std::num::NonZeroUsize::new(4).unwrap()).unwrap()
     };
     let a = make("rayon-a");
     let b = make("rayon-b");
@@ -204,7 +205,7 @@ fn rayon() {
             });
         }
     });
-    let mut c = certify("Rayon caller context");
+    let mut c = certification("Rayon caller context");
     c.check_fact_expect(
         "caller restored",
         Context::capture().scope_name(),
@@ -239,7 +240,7 @@ fn fanout(memory: &Arc<MemorySink>) {
         })
         .unwrap();
     }
-    let mut c = certify("channel fanout");
+    let mut c = certification("channel fanout");
     c.check_fact_expect("two matching channels", secondary.len(), 200);
     c.check_fact_expect("one primary delivery", memory.len(), 100);
     c.check_fact_expect("sibling namespace excluded", sibling.is_empty(), true);
@@ -289,11 +290,13 @@ fn roundtrip() {
     .unwrap();
 }
 fn runtime() {
-    let mut c = certify("runtime reconfiguration");
+    let mut c = certification("runtime reconfiguration");
     global().set_selection(
         Selection::new()
             .activate_tags(["detail"])
-            .exclude_tags(["excluded"]),
+            .unwrap()
+            .exclude_tags(["excluded"])
+            .unwrap(),
     );
     let extra = Arc::new(MemorySink::new());
     global()
@@ -304,8 +307,9 @@ fn runtime() {
         let scope = start_scope(
             ScopeConfig::new(format!("release-{parent}"))
                 .activate_namespace("cert")
-                .override_policy::<Limited>(Policy::FirstN(73))
-                .override_policy::<Sample>(Policy::EveryN(3)),
+                .unwrap()
+                .override_policy::<Limited>(Policy::first_n(73).unwrap())
+                .override_policy::<Sample>(Policy::every_n(3).unwrap()),
         );
         for phase in 0..2 {
             let mut children = Vec::new();
@@ -356,12 +360,20 @@ fn runtime() {
             }
             if phase == 0 {
                 global().clear_channel_sinks("overlap");
-                global().set_selection(Selection::new().activate_all().exclude_tags(["excluded"]));
+                global().set_selection(
+                    Selection::new()
+                        .activate_all()
+                        .exclude_tags(["excluded"])
+                        .unwrap(),
+                );
             }
         }
         {
             use ::rayon::prelude::*;
-            let pool = context::rayon::ContextThreadPool::new(3).unwrap();
+            let pool = context::rayon::ContextThreadPool::with_threads(
+                std::num::NonZeroUsize::new(3).unwrap(),
+            )
+            .unwrap();
             pool.install(|| {
                 (0..30).into_par_iter().for_each(|sequence| {
                     observe!(Event {
@@ -394,8 +406,8 @@ fn main() {
     let args: Vec<_> = std::env::args().collect();
     let directory = Path::new(&args[2]);
     if args[1] == "local-drop" {
-        let sink = JsonlSink::append(directory.join("events.jsonl")).unwrap();
-        let engine = ObservationEngine::new();
+        let sink = JsonlSink::open_append(directory.join("events.jsonl")).unwrap();
+        let engine = ObservationEngine::isolated();
         let memory = Arc::new(MemorySink::new());
         engine.set_selection(Selection::new().activate_all());
         engine.register_namespace_channel("cert", "memory").unwrap();

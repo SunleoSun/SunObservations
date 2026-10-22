@@ -4,20 +4,15 @@ use std::{io, sync::Arc};
 /// Immutable logical routing target. Only ObservationEngine mutates its sink graph.
 #[derive(Clone)]
 pub struct Channel {
-    name: String,
     pub(crate) sinks: Vec<Arc<dyn Sink>>,
     pub(crate) needs_render_text: bool,
 }
 impl Channel {
-    pub(crate) fn new(name: impl Into<String>) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            name: name.into(),
             sinks: Vec::new(),
             needs_render_text: false,
         }
-    }
-    pub fn name(&self) -> &str {
-        &self.name
     }
 }
 

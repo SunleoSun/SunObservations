@@ -27,9 +27,9 @@ impl<T> Clone for PreparedSource<'_, T> {
     }
 }
 pub fn source<T>(name: impl Into<Arc<str>>, value: &T) -> PreparedSource<'_, T> {
-    source_slice(name, std::slice::from_ref(value))
+    collection(name, std::slice::from_ref(value))
 }
-pub fn source_slice<T>(name: impl Into<Arc<str>>, values: &[T]) -> PreparedSource<'_, T> {
+pub fn collection<T>(name: impl Into<Arc<str>>, values: &[T]) -> PreparedSource<'_, T> {
     PreparedSource {
         name: name.into(),
         values,
@@ -62,7 +62,7 @@ impl<'a, T> PreparedSource<'a, T> {
     pub fn count(&self) -> Fact<usize> {
         fact(self.name(), self.values.len())
     }
-    pub fn select<V>(&self, project: impl FnOnce(&T) -> V) -> Fact<V> {
+    pub fn single_map<V>(&self, project: impl FnOnce(&T) -> V) -> Fact<V> {
         if self.values.len() != 1 {
             return try_fact(
                 self.name(),
@@ -113,14 +113,26 @@ impl<'a, T> PreparedSource<'a, T> {
             right: right.clone(),
         }
     }
-    pub fn lag_relation_by<R>(
+    pub fn lag_self(
+        &self,
+        projection: impl Fn(&T) -> (i64, f64),
+        config: LagConfig,
+    ) -> Fact<LagReport> {
+        self.lag_with(self, &projection, &projection, config)
+    }
+    pub fn lag_with<R>(
         &self,
         right: &PreparedSource<'_, R>,
         left: impl Fn(&T) -> (i64, f64),
         rp: impl Fn(&R) -> (i64, f64),
         config: LagConfig,
     ) -> Fact<LagReport> {
-        let result = lag_relation_by(self.values, right.values, left, rp, config);
+        let result =
+            lag_relation_by(self.values, right.values, left, rp, config).map(|mut report| {
+                report.left_source = Some(self.name().into());
+                report.right_source = Some(right.name().into());
+                report
+            });
         let details = result
             .as_ref()
             .map(|r| {
@@ -146,21 +158,14 @@ impl<'a, T, K: Ord + Clone> PreparedKeys<'a, T, K> {
     pub fn indices(&self) -> &[(K, usize)] {
         &self.keys
     }
-    pub fn compare_with<R>(
-        &self,
-        right: &PreparedKeys<'a, R, K>,
-    ) -> PreparedComparison<'a, T, R, K> {
+    pub fn compare_with<R>(&self, right: &PreparedKeys<'a, R, K>) -> PairedComparison<'a, T, R, K> {
         let joined = crate::certifications::join::merge(
             self.source.values,
             right.source.values,
             &self.keys,
             &right.keys,
         );
-        PreparedComparison {
-            left: self.source.clone(),
-            right: right.source.clone(),
-            joined,
-        }
+        PairedComparison::new(self.source.clone(), right.source.clone(), joined)
     }
 }
 /// Owned projections permit expensive field extraction once and cheap repeated analyses.
@@ -170,7 +175,7 @@ pub struct PreparedValues<T> {
 }
 impl<T> PreparedValues<T> {
     pub fn source(&self) -> PreparedSource<'_, T> {
-        source_slice(self.name.clone(), &self.values)
+        collection(self.name.clone(), &self.values)
     }
     pub fn values(&self) -> &[T] {
         &self.values
@@ -196,8 +201,8 @@ impl PreparedNumeric {
     pub fn quantile(&self, q: f64) -> Fact<f64> {
         try_fact(&*self.data.name, self.series().quantile(q))
     }
-    pub fn check(&self, rule: NumericRule) -> Fact<IntegrityReport> {
-        try_fact(&*self.data.name, self.series().check(rule))
+    pub fn expect(&self, rule: NumericRule) -> CheckResult<IntegrityReport> {
+        try_fact(&*self.data.name, self.series().integrity(rule)).expect_valid()
     }
     pub fn outliers(&self, config: OutlierConfig) -> Fact<OutlierReport> {
         try_fact(&*self.data.name, self.series().outliers(config))
@@ -216,60 +221,75 @@ impl<'a, L, R> ComparisonBuilder<'a, L, R> {
         self,
         left: impl Fn(&L) -> K,
         right: impl Fn(&R) -> K,
-    ) -> PreparedComparison<'a, L, R, K> {
+    ) -> PairedComparison<'a, L, R, K> {
         let joined = join_by(self.left.values, self.right.values, left, right);
-        PreparedComparison {
-            left: self.left,
-            right: self.right,
-            joined,
-        }
+        PairedComparison::new(self.left, self.right, joined)
     }
     pub fn on_u64(
         self,
         left: impl Fn(&L) -> u64,
         right: impl Fn(&R) -> u64,
-    ) -> PreparedComparison<'a, L, R, u64> {
+    ) -> PairedComparison<'a, L, R, u64> {
         let joined = join_u64_by(self.left.values, self.right.values, left, right);
-        PreparedComparison {
-            left: self.left,
-            right: self.right,
-            joined,
-        }
+        PairedComparison::new(self.left, self.right, joined)
     }
-    pub fn on_sorted<K: Ord + Clone>(
+    pub fn on_presorted<K: Ord + Clone>(
         self,
         left: impl Fn(&L) -> K,
         right: impl Fn(&R) -> K,
-    ) -> Result<PreparedComparison<'a, L, R, K>, JoinError> {
-        let joined = join_sorted_by(self.left.values, self.right.values, left, right)?;
-        Ok(PreparedComparison {
-            left: self.left,
-            right: self.right,
-            joined,
-        })
+    ) -> Result<PairedComparison<'a, L, R, K>, JoinError> {
+        let joined = join_presorted_by(self.left.values, self.right.values, left, right)?;
+        Ok(PairedComparison::new(self.left, self.right, joined))
     }
 }
 /// One sorted/indexed correspondence reused by all field comparisons and provenance lookups.
-pub struct PreparedComparison<'a, L, R, K> {
+pub struct PairedComparison<'a, L, R, K> {
     left: PreparedSource<'a, L>,
     right: PreparedSource<'a, R>,
     joined: Join<'a, L, R, K>,
 }
+impl<'a, L, R, K> PairedComparison<'a, L, R, K> {
+    fn new(
+        left: PreparedSource<'a, L>,
+        right: PreparedSource<'a, R>,
+        mut joined: Join<'a, L, R, K>,
+    ) -> Self {
+        joined.set_source_names(left.name(), right.name());
+        Self {
+            left,
+            right,
+            joined,
+        }
+    }
+}
 /// Bounded custom predicate evidence; full comparison remains on the prepared comparison.
 #[derive(Debug)]
 pub struct PairCheck<K> {
-    pub matched: usize,
-    pub failures: usize,
-    pub examples: Vec<K>,
+    pub(crate) matched: usize,
+    pub(crate) failures: usize,
+    pub(crate) examples: Vec<K>,
 }
-impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
+impl<K> PairCheck<K> {
+    pub fn matched(&self) -> usize {
+        self.matched
+    }
+    pub fn failures(&self) -> usize {
+        self.failures
+    }
+    pub fn examples(&self) -> &[K] {
+        &self.examples
+    }
+}
+impl<L, R, K: Clone + fmt::Debug> PairedComparison<'_, L, R, K> {
     pub fn name(&self) -> String {
         format!("{} -> {}", self.left.name(), self.right.name())
     }
     pub fn comparison(&self) -> &Comparison<K> {
         self.joined.comparison()
     }
-    pub fn pairs(&self) -> impl Iterator<Item = (&K, SourceEntry<'_, L>, SourceEntry<'_, R>)> {
+    pub fn matched_pairs(
+        &self,
+    ) -> impl Iterator<Item = (&K, SourceEntry<'_, L>, SourceEntry<'_, R>)> {
         self.comparison().matched.iter().map(|p| {
             (
                 &p.key,
@@ -278,9 +298,9 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             )
         })
     }
-    pub fn comparison_fact(&self) -> Fact<&Comparison<K>> {
+    pub fn paired_comparison_fact(&self) -> Fact<&Comparison<K>> {
         let a = self.comparison();
-        fact(self.name(),a).details(format!("left={} right={} matched={} missing left={} missing right={} duplicate left={} duplicate right={} examples: missing_left={} missing_right={} duplicates_left={} duplicates_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len(),bounded_debug(&a.missing_left,256),bounded_debug(&a.missing_right,256),bounded_debug(&a.duplicate_left,256),bounded_debug(&a.duplicate_right,256)))
+        fact(self.name(),a).details(format!("left={} right={} matched={} right_only={} left_only={} duplicate left={} duplicate right={} examples: right_only={} left_only={} duplicates_left={} duplicates_right={}", a.left_count,a.right_count,a.matched.len(),a.right_only.len(),a.left_only.len(),a.duplicate_left.len(),a.duplicate_right.len(),bounded_debug(&a.right_only,256),bounded_debug(&a.left_only,256),bounded_debug(&a.duplicate_left,256),bounded_debug(&a.duplicate_right,256)))
     }
     pub fn check_pairs(
         &self,
@@ -290,7 +310,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
         if !self.comparison().is_complete() {
             return try_fact(
                 self.name(),
-                Err::<PairCheck<K>, _>("incomplete comparison; inspect comparison_fact"),
+                Err::<PairCheck<K>, _>("incomplete comparison; inspect paired_comparison_fact"),
             );
         }
         let mut report = PairCheck {
@@ -299,7 +319,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             examples: Vec::new(),
         };
         let mut coordinates = String::new();
-        for (key, l, r) in self.pairs() {
+        for (key, l, r) in self.matched_pairs() {
             if !predicate(l.value, r.value) {
                 report.failures += 1;
                 if report.examples.len() < top.min(32) {
@@ -350,7 +370,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
     ) -> PreparedNumericComparison<'_, K> {
         let values = self
             .joined
-            .pairs()
+            .matched_pairs()
             .map(|(_, l, r)| (left(l), right(r)))
             .collect();
         PreparedNumericComparison {
@@ -362,14 +382,6 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             difference_cache: std::sync::OnceLock::new(),
             fit_cache: std::sync::OnceLock::new(),
         }
-    }
-    pub fn lag(
-        &self,
-        left: impl Fn(&L) -> (i64, f64),
-        right: impl Fn(&R) -> (i64, f64),
-        config: LagConfig,
-    ) -> Fact<LagReport> {
-        self.left.lag_relation_by(&self.right, left, right, config)
     }
 }
 #[cfg(test)]
@@ -395,7 +407,7 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
         if !self.comparison.is_complete() {
             return try_fact(
                 &self.name,
-                Err::<T, _>("incomplete comparison; inspect comparison_fact"),
+                Err::<T, _>("incomplete comparison; inspect paired_comparison_fact"),
             );
         }
         try_fact(&self.name, op())

@@ -38,6 +38,9 @@ struct Human {
     capabilities: AtomicUsize,
 }
 impl Sink for Human {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, _: &ObservationRecord) -> io::Result<()> {
         panic!("human delivery required")
     }
@@ -64,7 +67,7 @@ fn emit(engine: &ObservationEngine, counters: &[Arc<AtomicUsize>; 3]) -> bool {
 
 #[test]
 fn exact_render_laziness_and_real_structured_sink_isolation() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "exact render laziness and real structured sink isolation",
     );
     for (active, excluded, policy, memory, jsonl, humans) in [
@@ -80,7 +83,7 @@ fn exact_render_laziness_and_real_structured_sink_isolation() {
         (true, false, Policy::Always, false, false, 2),
         (true, false, Policy::Always, true, true, 2),
     ] {
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("records.jsonl");
         let capture = Arc::new(MemorySink::new());
@@ -88,7 +91,7 @@ fn exact_render_laziness_and_real_structured_sink_isolation() {
             engine.add_channel_sink("all", capture.clone());
         }
         if jsonl {
-            engine.add_channel_sink("all", Arc::new(JsonlSink::append(&path).unwrap()));
+            engine.add_channel_sink("all", Arc::new(JsonlSink::open_append(&path).unwrap()));
         }
         let human: Vec<_> = (0..humans).map(|_| Arc::new(Human::default())).collect();
         for sink in &human {
@@ -100,7 +103,7 @@ fn exact_render_laziness_and_real_structured_sink_isolation() {
             selection = selection.activate_all();
         }
         if excluded {
-            selection = selection.exclude_namespace("human");
+            selection = selection.exclude_namespace("human").unwrap();
         }
         engine.set_selection(selection);
         let _scope = start_scope(ScopeConfig::new("laziness").override_policy::<Event>(policy));
@@ -201,7 +204,7 @@ fn exact_render_laziness_and_real_structured_sink_isolation() {
 
 #[test]
 fn serialization_failure_never_renders_or_delivers_and_spans_never_render() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "serialization failure never renders or delivers and spans never render",
     );
     struct Bad(Arc<AtomicUsize>);
@@ -217,7 +220,7 @@ fn serialization_failure_never_renders_or_delivers_and_spans_never_render() {
             Some("must not render".into())
         }
     }
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("human", "all").unwrap();
     let human = Arc::new(Human::default());
@@ -275,6 +278,9 @@ fn serialization_failure_never_renders_or_delivers_and_spans_never_render() {
 fn attachment_capability_can_reenter_configuration_without_engine_or_scope_locks() {
     struct Reentrant(std::sync::Weak<ObservationEngine>);
     impl Sink for Reentrant {
+        fn flush(&self) -> std::io::Result<()> {
+            Ok(())
+        }
         fn write(&self, _: &ObservationRecord) -> io::Result<()> {
             Ok(())
         }
@@ -290,7 +296,7 @@ fn attachment_capability_can_reenter_configuration_without_engine_or_scope_locks
             true
         }
     }
-    let engine = Arc::new(ObservationEngine::new());
+    let engine = Arc::new(ObservationEngine::isolated());
     let sink = Arc::new(Reentrant(Arc::downgrade(&engine)));
     let (done, observed) = std::sync::mpsc::channel();
     let child = std::thread::spawn(move || {
@@ -305,18 +311,19 @@ fn attachment_capability_can_reenter_configuration_without_engine_or_scope_locks
 
 #[test]
 fn human_capability_is_cold_and_route_mutations_preserve_counting_policy() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "human capability is cold and route mutations preserve counting policy",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     let memory = Arc::new(MemorySink::new());
     engine.add_channel_sink("structured", memory.clone());
     engine
         .register_namespace_channel("human", "structured")
         .unwrap();
-    let _scope =
-        start_scope(ScopeConfig::new("mutation").override_policy::<Event>(Policy::EveryN(2)));
+    let _scope = start_scope(
+        ScopeConfig::new("mutation").override_policy::<Event>(Policy::every_n(2).unwrap()),
+    );
     let counters = std::array::from_fn(|_| Arc::new(AtomicUsize::new(0)));
     let human = Arc::new(Human::default());
     certification.check_fact_expect("emit(&engine, &counters)", emit(&engine, &counters), false);

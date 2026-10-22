@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 #[test]
 fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "retired sink can reenter context and configuration during generation eviction",
     );
     use std::sync::{
@@ -16,6 +16,9 @@ fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction
         dropped: Arc<AtomicBool>,
     }
     impl Sink for Reentrant {
+        fn flush(&self) -> std::io::Result<()> {
+            Ok(())
+        }
         fn write(&self, _: &ObservationRecord) -> std::io::Result<()> {
             Ok(())
         }
@@ -30,7 +33,7 @@ fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction
             self.dropped.store(true, Ordering::Release);
         }
     }
-    let engine = Arc::new(ObservationEngine::new());
+    let engine = Arc::new(ObservationEngine::isolated());
     engine.set_selection(Selection::new().activate_all());
     let dropped = Arc::new(AtomicBool::new(false));
     engine.add_channel_sink(
@@ -61,17 +64,17 @@ fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction
 struct Event<T: 'static>(T);
 #[test]
 fn tls_eviction_reuses_shared_plan_and_distinct_types_scopes_engines_do_not_alias() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "tls eviction reuses shared plan and distinct types scopes engines do not alias",
     );
-    let a = ObservationEngine::new();
-    let b = ObservationEngine::new();
+    let a = ObservationEngine::isolated();
+    let b = ObservationEngine::isolated();
     a.set_selection(Selection::new().activate_all());
     b.set_selection(Selection::new().activate_all());
     let _scope = start_scope(
         ScopeConfig::new("outer")
-            .override_policy::<Event<u8>>(Policy::FirstN(1))
-            .override_policy::<Event<u16>>(Policy::FirstN(1)),
+            .override_policy::<Event<u8>>(Policy::first_n(1).unwrap())
+            .override_policy::<Event<u16>>(Policy::first_n(1).unwrap()),
     );
     let original = (*context::cached_plan::<Event<u8>>(&a)).clone();
     certification.check_fact_expect("original.admit()", original.admit(), true);
@@ -96,8 +99,9 @@ fn tls_eviction_reuses_shared_plan_and_distinct_types_scopes_engines_do_not_alia
     certification.check_fact_expect("independent.active", independent.active, true);
     certification.check_fact_expect("independent.admit()", independent.admit(), false);
     {
-        let _inner =
-            start_scope(ScopeConfig::new("outer").override_policy::<Event<u8>>(Policy::FirstN(1)));
+        let _inner = start_scope(
+            ScopeConfig::new("outer").override_policy::<Event<u8>>(Policy::first_n(1).unwrap()),
+        );
         certification.check_fact_expect(
             "a.observe_if_active(|| Event(1u8)).unwrap()",
             a.observe_if_active(|| Event(1u8)).unwrap(),
@@ -137,19 +141,20 @@ mod admission {
     }
     #[test]
     fn mutations_invalidate_selection_routes_and_sink_snapshots_without_resetting_counters() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "mutations invalidate selection routes and sink snapshots without resetting counters",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let memory = Arc::new(MemorySink::new());
-        let _scope =
-            start_scope(ScopeConfig::new("mutation").override_policy::<Event>(Policy::EveryN(2)));
+        let _scope = start_scope(
+            ScopeConfig::new("mutation").override_policy::<Event>(Policy::every_n(2).unwrap()),
+        );
         certification.check_fact_expect(
             "engine.observe_if_active(|| Event { value: 0 }).unwrap()",
             engine.observe_if_active(|| Event { value: 0 }).unwrap(),
             false,
         );
-        engine.set_selection(Selection::new().activate_namespace("plans"));
+        engine.set_selection(Selection::new().activate_namespace("plans").unwrap());
         certification.check_fact_expect(
             "engine.observe_if_active(|| Event { value: 1 }).unwrap()",
             engine.observe_if_active(|| Event { value: 1 }).unwrap(),
@@ -193,7 +198,12 @@ mod admission {
             Arc::ptr_eq(&memory.shared_records()[1], &second.shared_records()[0]),
             true,
         );
-        engine.set_selection(Selection::new().activate_all().exclude_namespace("plans"));
+        engine.set_selection(
+            Selection::new()
+                .activate_all()
+                .exclude_namespace("plans")
+                .unwrap(),
+        );
         certification.check_fact_expect(
             "engine .observe_if_active::<Event, _>(|| panic!(\"new exclusion\")) .unwrap()",
             engine
@@ -206,10 +216,10 @@ mod admission {
 
     #[test]
     fn route_addition_attachment_and_detachment_each_invalidate_independently() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "route addition attachment and detachment each invalidate independently",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         engine.set_selection(Selection::new().activate_all());
         let a = Arc::new(MemorySink::new());
         let b = Arc::new(MemorySink::new());
@@ -233,10 +243,10 @@ mod admission {
 
     #[test]
     fn shared_cache_generation_changes_are_visible_to_already_warm_children() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "shared cache generation changes are visible to already warm children",
         );
-        let engine = Arc::new(ObservationEngine::new());
+        let engine = Arc::new(ObservationEngine::isolated());
         let memory = Arc::new(MemorySink::new());
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let _scope = start_scope(ScopeConfig::new("generation"));
@@ -257,7 +267,7 @@ mod admission {
             })
         });
         barrier.wait();
-        engine.set_selection(Selection::new().activate_tags(["detail"]));
+        engine.set_selection(Selection::new().activate_tags(["detail"]).unwrap());
         engine.add_channel_sink("new", memory.clone());
         engine.register_namespace_channel("plans", "new").unwrap();
         barrier.wait();
@@ -276,10 +286,10 @@ mod admission {
 
     #[test]
     fn same_sink_on_two_matching_channels_receives_shared_duplicate_deliveries() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "same sink on two matching channels receives shared duplicate deliveries",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let memory = Arc::new(MemorySink::new());
         engine.add_channel_sink("a", memory.clone());
         engine.add_channel_sink("b", memory.clone());
@@ -301,14 +311,15 @@ mod admission {
 
     #[test]
     fn engine_identity_and_nested_scope_cache_do_not_alias() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "engine identity and nested scope cache do not alias",
         );
-        let a = ObservationEngine::new();
-        let b = ObservationEngine::new();
+        let a = ObservationEngine::isolated();
+        let b = ObservationEngine::isolated();
         a.set_selection(Selection::new().activate_all());
-        let _outer =
-            start_scope(ScopeConfig::new("outer").override_policy::<Event>(Policy::FirstN(1)));
+        let _outer = start_scope(
+            ScopeConfig::new("outer").override_policy::<Event>(Policy::first_n(1).unwrap()),
+        );
         certification.check_fact_expect(
             "a.observe_if_active(|| Event { value: 1 }).unwrap()",
             a.observe_if_active(|| Event { value: 1 }).unwrap(),

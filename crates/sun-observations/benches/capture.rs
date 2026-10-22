@@ -10,8 +10,8 @@ use std::{
 use sun_observations::certifications::*;
 use sun_observations::evidence::*;
 use sun_observations::{
-    capture::ScopedCapture, observe, start_scope, MemorySink, MemorySinkConfig, Observation,
-    ObservationEngine, ObservationRecord, ScopeConfig, Selection, Sink,
+    observe, start_scope, MemorySink, MemorySinkConfig, Observation, ObservationEngine,
+    ObservationRecord, ScopeConfig, Selection, Sink,
 };
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "bench::capture", tags("evidence"))]
@@ -57,7 +57,7 @@ fn benchmark() {
     println!("operation,records,sample,milliseconds");
     for n in [1000usize, 10_000, 100_000, 1_000_000] {
         for sample in 0..3 {
-            let engine = ObservationEngine::new();
+            let engine = ObservationEngine::isolated();
             let memory = Arc::new(MemorySink::new());
             engine.add_channel_sink("bench", memory.clone());
             engine.register_namespace_channel("bench", "bench").unwrap();
@@ -78,26 +78,24 @@ fn benchmark() {
             assert_eq!(memory.len(), n);
             drop(memory);
             drop(engine);
-            let run =
-                capture_observations(CaptureConfig::new().activate_tags(["evidence"]), || {
+            let run = capture_observations(
+                CaptureConfig::new().activate_tags(["evidence"]).unwrap(),
+                || {
                     let start = Instant::now();
                     emit(n);
                     start.elapsed()
-                });
+                },
+            );
             row("scoped_capture_emission", n, sample, *run.result());
             assert_eq!(run.dataset().records().len(), n);
             assert!(run.status().is_complete());
             drop(run);
-            let guard =
-                ScopedCapture::new(Selection::new().activate_all(), MemorySinkConfig::default());
-            emit(n);
-            let (dataset, status) = measure("capture_finalize_dataset", n, sample, || {
-                let (records, status) = guard.finish();
-                (ObservationDataset::from_shared(records), status)
+            let run = measure("capture_execution", n, sample, || {
+                capture_observations(CaptureConfig::new().activate_all(), || emit(n))
             });
-            assert!(status.is_complete());
-            assert_eq!(dataset.records().len(), n);
-            drop(dataset);
+            assert!(run.status().is_complete());
+            assert_eq!(run.dataset().records().len(), n);
+            drop(run);
             let input = record();
             for (name, capacity) in [
                 ("memory_below_limit", n),
@@ -141,8 +139,8 @@ fn benchmark() {
             .map(|(row, v)| (*row, 2. * v + 3.))
             .rev()
             .collect();
-        let a = source_slice("input", &left);
-        let b = source_slice("output", &right);
+        let a = collection("input", &left);
+        let b = collection("output", &right);
         let pair = a.compare_with(&b).on(|v| v.0, |v| v.0);
         for sample in 0..3 {
             let numeric = pair.numeric(|v| v.1, |v| v.1);

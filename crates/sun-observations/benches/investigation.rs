@@ -164,6 +164,9 @@ fn borrowed<'a, D: ?Sized>(base: &'a ObservationRecord, data: &'a D) -> Envelope
 }
 struct Discard;
 impl Sink for Discard {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, r: &ObservationRecord) -> io::Result<()> {
         black_box(r);
         Ok(())
@@ -173,14 +176,26 @@ impl Sink for Discard {
         Ok(())
     }
 }
-struct QueueDiscard(Sender<Arc<ObservationRecord>>);
+enum QueueDiscardMessage {
+    Record(Arc<ObservationRecord>),
+    Flush(Sender<()>),
+}
+struct QueueDiscard(Sender<QueueDiscardMessage>);
 impl Sink for QueueDiscard {
+    fn flush(&self) -> std::io::Result<()> {
+        let (tx, rx) = unbounded();
+        self.0
+            .send(QueueDiscardMessage::Flush(tx))
+            .map_err(|e| io::Error::other(e.to_string()))?;
+        rx.recv().map_err(|e| io::Error::other(e.to_string()))
+    }
     fn write(&self, _: &ObservationRecord) -> io::Result<()> {
         unreachable!()
     }
     fn write_shared(&self, r: Arc<ObservationRecord>) -> io::Result<()> {
-        self.0.send(r).unwrap();
-        Ok(())
+        self.0
+            .send(QueueDiscardMessage::Record(r))
+            .map_err(|e| io::Error::other(e.to_string()))
     }
 }
 thread_local! {
@@ -455,7 +470,7 @@ fn api(sample: usize) {
     bench("api.rejected", sample, || {
         black_box(observe!(event(123456)).unwrap());
     });
-    global().set_selection(Selection::new().activate_namespace("bench"));
+    global().set_selection(Selection::new().activate_namespace("bench").unwrap());
     bench("api.unit_no_sink", sample, || {
         black_box(observe!(Unit).unwrap());
     });
@@ -486,14 +501,20 @@ fn api(sample: usize) {
     drop(memory);
     let (tx, rx) = unbounded();
     let consumer = std::thread::spawn(move || {
-        for r in rx {
-            black_box(r);
+        for message in rx {
+            match message {
+                QueueDiscardMessage::Record(record) => {
+                    black_box(record);
+                }
+                QueueDiscardMessage::Flush(reply) => reply.send(()).unwrap(),
+            }
         }
     });
     global().add_channel_sink("investigation", Arc::new(QueueDiscard(tx)));
     bench("api.queue_discard", sample, || {
         black_box(observe!(event(123456)).unwrap());
     });
+    global().flush_channels().unwrap();
     // Scope/plan caches own sink Arcs: release scope and bump generation before joining.
     global().clear_channel_sinks("investigation");
     drop(scope);
@@ -505,7 +526,7 @@ fn api(sample: usize) {
     for threads in [1, 4] {
         let dir = support::tempdir().unwrap();
         let path = dir.path().join("api.jsonl");
-        let sink = Arc::new(JsonlSink::append(&path).unwrap());
+        let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
         global().add_channel_sink("investigation", sink.clone());
         let scope = start_scope(ScopeConfig::new(SCOPE));
         black_box(observe!(event(123456)).unwrap());
@@ -573,9 +594,9 @@ fn service(file: bool, unique: bool, engine_refs: bool, sample: usize) {
     let dir = support::tempdir().unwrap();
     let path = dir.path().join("service.jsonl");
     let sink = if file {
-        JsonlSink::append(&path).unwrap()
+        JsonlSink::open_append(&path).unwrap()
     } else {
-        JsonlSink::new(io::sink())
+        JsonlSink::from_writer(io::sink())
     };
     sink.write_shared(Arc::new(fixture())).unwrap();
     sink.flush().unwrap();

@@ -25,8 +25,8 @@ struct Rich {
 fn run(producers: usize, rich: bool, sample: usize) {
     let directory = support::tempdir().unwrap();
     let path = directory.path().join("batch.jsonl");
-    let engine = ObservationEngine::new();
-    let sink = Arc::new(JsonlSink::append(&path).unwrap());
+    let engine = ObservationEngine::isolated();
+    let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("batch", "file").unwrap();
     engine.add_channel_sink("file", sink.clone());

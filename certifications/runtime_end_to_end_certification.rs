@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
-use sun_observations_certifications::{certify as capture, pair};
+use sun_observations_certifications::{pair, run_scenario as capture};
 #[test]
 fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutation() {
-    use sun_observations::certifications::{certify as proof, *};
+    use sun_observations::certifications::{certification as proof, *};
     let records = capture(env!("CARGO_BIN_EXE_scenario"), "runtime");
     let points = 510;
     let mut c = proof("runtime production contract");
@@ -93,7 +93,7 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
     )
     .check(
         "forbidden namespace absent",
-        source_slice("artifact", &records)
+        collection("artifact", &records)
             .matching_count(|r| r["namespace"] == "cert::blocked")
             .expect(0),
     )

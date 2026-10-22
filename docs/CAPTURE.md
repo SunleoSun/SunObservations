@@ -12,7 +12,7 @@ Persisted FORMAT v1 is unchanged; human rendering is never analysis data.
 
 ## Scoped real-production capture
 
-Use capture_observations(CaptureConfig::new().activate_tags(["evidence"]), || production_call()).
+Use capture_observations(CaptureConfig::new().activate_tags(["evidence"]).unwrap(), || production_call()).
 Production emits typed observe!/observe_span! through the process-global lazy engine, with no
 injected engine. Config wraps canonical Selection (activate_all, singular/plural namespace/tag
 activation and exclusions), plus retention(MemorySinkConfig). No channel/sink/route is required.
@@ -22,11 +22,11 @@ child scopes and explicit Context/thread/Rayon propagation retain attachment. Gu
 prior context on return/Result/?/unwind. Join workers and finish spans inside the closure.
 
 CapturedRun<T>::result() -> &T preserves application Result as ordinary data; dataset() returns
-a fixed ObservationDataset; typed::<O>() strictly decodes a TypedView; status() returns
-CaptureStatus{retention,emission_errors,unfinished_contexts}. run.certify(name) constructs a
+a fixed ObservationDataset; to_typed::<O>() strictly decodes a TypedView; status() returns
+CaptureStatus{retention,emission_errors,unfinished_contexts}. run.certification(name) constructs a
 generic Certification and automatically records EvaluationError if completeness is unprovable
 (eviction, ignored serialization errors, escaped contexts/spans/workers). Healthy capture is
-silent. Always start Observation-backed proof from run.certify, not a standalone root over
+silent. Always start Observation-backed proof from run.certification, not a standalone root over
 possibly incomplete retained records. TypedView decoding is explicit: prepare once and reuse.
 
 Runtime MemorySink defaults to 1,000,000 records with 10% oldest-batch eviction in VecDeque.
@@ -37,20 +37,11 @@ fails closed on escaped owners; FORMAT v1 is unchanged.
 
 ## Snapshot, query, decode
 
-`ObservationDataset::from_memory(&sink)` takes fixed membership/order over shared
-canonical records, not cloned JSON payloads. `from_shared(Vec<Arc<ObservationRecord>>)`
-accepts already loaded records. `records()` borrows the canonical shared slice;
-dataset clones share that array. Append/drain cannot mutate an existing snapshot.
-Load persisted JSONL fallibly using BufRead lines plus serde_json::from_str::<ObservationRecord>,
-wrap each in Arc and pass to from_shared; do not silently ignore malformed lines.
+`ObservationDataset::try_from_memory(&sink)` or `try_from_records(Vec<Arc<ObservationRecord>>)` validates external FORMAT v1 records before taking fixed shared-record membership. Both return Result<Self,IngestionError>; errors retain the source index. `records()` borrows the shared slice; clones share membership and later append/drain cannot change it. JSONL loading must deserialize every physical line fallibly and pass the collected Arc records to try_from_records. Unmatched span halves remain valid retained evidence.
 
-`query(EnvelopeQuery { ..Default::default() })` gives a lazy RecordView over a fixed
-snapshot, with AND selectors namespace, namespace_subtree, proc, level, scope, phase,
-span. Optional scope/phase/span selectors distinguish unrestricted None, absent
-Some(None), and present Some(Some(value)); namespace subtrees respect segment boundaries.
-RecordView::iter yields (original dataset index, &Arc<ObservationRecord>).
+`query(ObservationsQuery::new())` is unrestricted. Independent dimensions compose with AND: `namespace(...)` or `namespace_subtree(...)`, `scope(...)` or `without_scope()`, `level(...)`, `points()/span_starts()/span_ends()`, `span(...)/without_span()`, `process(...)`. Later namespace/lifecycle intent replaces incompatible earlier intent. RecordView::iter yields (original dataset index, &Arc<ObservationRecord>).
 
-`dataset.typed::<T>()` or `selected.typed::<T>()` requires Observation+DeserializeOwned.
+`dataset.to_typed::<T>()` or `selected.to_typed::<T>()` requires Observation+DeserializeOwned.
 Matching namespace points and span starts decode strictly once; lifecycle ends have
 null payload and are excluded. DecodeError retains target type, message and SourceContext
 (dataset_index/namespace/proc/scope/span/phase/ts/proc_ms). Do not treat a malformed
@@ -76,16 +67,16 @@ in typed domain keys. Never join cross-owner events by insertion order.
 use sun_observations::certifications::try_fact;
 use serde::{Deserialize, Serialize};
 use sun_observations::{observe, Observation};
-use sun_observations::evidence::{capture_observations, CaptureConfig, EnvelopeQuery};
+use sun_observations::evidence::{capture_observations, CaptureConfig, ObservationsQuery};
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "module::boundary")]
 struct Boundary { row:u64 }
-let run=capture_observations(CaptureConfig::new().activate_namespace("module"), || observe!(Boundary { row: 1 }));
+let run=capture_observations(CaptureConfig::new().activate_namespace("module").unwrap(), || observe!(Boundary { row: 1 }));
 let snapshot=run.dataset();
-let selected=snapshot.query(EnvelopeQuery { namespace_subtree:Some("module"), ..Default::default() });
-let typed=selected.typed::<Boundary>()?;
-run.certify("production boundary")
+let selected=snapshot.query(ObservationsQuery::new().namespace_subtree("module"));
+let typed=selected.to_typed::<Boundary>()?;
+run.certification("production boundary")
     .check("production call", try_fact("emission", run.result().as_ref().map(|_| true)).expect(true))
     .check("count",typed.source("boundary").count().expect(1usize))
     .assert_certify();
@@ -97,13 +88,9 @@ run.certify("production boundary")
 Count/integrity, uniqueness/contiguity, joins/comparison, numeric/robust summaries,
 relations/differences/residuals, grouping, outliers/jumps, lag, expectations and proof
 aggregation all live in **sun_observations::certifications**. Import those types/functions there.
-Adapter convenience methods numeric/group_by/join_by/join_sorted_by/join_u64_by/
-lag_relation_by delegate to that owner; they are not parallel algorithms. Lazy numeric
-conveniences can replay selectors; prefer source().numeric() for cached expensive projection.
-Group iteration yields generic SourceEntry, not TypedEntry; preserve the typed
-view when resolving original provenance.
+TypedView owns only materialization and provenance. Its `.source(name)` bridge provides the generic PreparedSource operations, including cached numeric projections, grouping, paired comparison and lag. SourceEntry uses source-local indices; retain TypedView to resolve original provenance.
 
-Use a PreparedComparison for one typed composite-key comparison reused across fields,
+Use a PairedComparison for one typed composite-key comparison reused across fields,
 and a cached numeric field pair for several metrics. Direct generic analysis remains
 available without asserting; scenario acceptance belongs in a CheckResult/Certification.
 

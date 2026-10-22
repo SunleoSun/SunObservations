@@ -1,8 +1,8 @@
 use crate::certifications::{
-    checked, finite, quantile_sorted, Comparison, Join, NumericError, NumericSeries, Summary,
+    checked, finite, quantile_sorted, NumericError, NumericSeries, Summary,
 };
 use serde::{Deserialize, Serialize};
-use std::{cmp::Ordering, collections::BinaryHeap, error::Error, fmt};
+use std::{cmp::Ordering, collections::BinaryHeap};
 
 /// A mathematically undefined metric is explicit rather than NaN or JSON null.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -266,13 +266,7 @@ pub(crate) fn largest_pairs<'a, K: Clone + 'a>(
         .map(|p| p.evidence)
         .collect())
 }
-/// Difference metrics plus a caller-bounded list of largest disagreements.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "analysis_kind", rename = "difference")]
-pub struct DifferenceReport<K> {
-    pub summary: DifferenceSummary,
-    pub largest: Vec<PairEvidence<K>>,
-}
+
 /// Relation metrics contain no domain acceptance decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RelationMetrics {
@@ -292,82 +286,6 @@ pub fn numeric_relation<I: Iterator<Item = (f64, f64)> + Clone>(
         spearman: spearman(pairs.clone())?,
         difference: difference_summary(pairs)?,
     })
-}
-/// Complete comparison, numerical metrics, and source-keyed disagreements.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "analysis_kind", rename = "relation")]
-pub struct RelationReport<K> {
-    pub comparison: Comparison<K>,
-    pub observed: RelationMetrics,
-    pub largest_disagreements: Vec<PairEvidence<K>>,
-}
-/// Hard comparison/numeric failure, distinct from a failed statistical expectation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub enum RelationError<K> {
-    Comparison(Box<Comparison<K>>),
-    Numeric {
-        comparison: Box<Comparison<K>>,
-        error: NumericError,
-    },
-}
-impl<K> fmt::Display for RelationError<K> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Comparison(a) => write!(f, "incomplete relation comparison: left={}, right={}, matched={}, missing_left={}, missing_right={}, duplicate_left={}, duplicate_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len()),
-            Self::Numeric { comparison,error } => write!(f, "relation over {} pairs: {error}",comparison.matched.len()),
-        }
-    }
-}
-impl<K: fmt::Debug> Error for RelationError<K> {}
-impl<L, R, K: Clone> Join<'_, L, R, K> {
-    fn numeric_error(&self, error: NumericError) -> RelationError<K> {
-        RelationError::Numeric {
-            comparison: Box::new(self.comparison.clone()),
-            error,
-        }
-    }
-    pub fn difference(
-        &self,
-        left: impl Fn(&L) -> f64,
-        right: impl Fn(&R) -> f64,
-        top: usize,
-    ) -> Result<DifferenceReport<K>, RelationError<K>> {
-        self.require_complete()
-            .map_err(|a| RelationError::Comparison(Box::new(a.clone())))?;
-        let summary = difference_summary(self.pairs().map(|(_, a, b)| (left(a), right(b))))
-            .map_err(|error| self.numeric_error(error))?;
-        let largest = self
-            .largest(left, right, top)
-            .map_err(|error| self.numeric_error(error))?;
-        Ok(DifferenceReport { summary, largest })
-    }
-    fn largest(
-        &self,
-        left: impl Fn(&L) -> f64,
-        right: impl Fn(&R) -> f64,
-        top: usize,
-    ) -> Result<Vec<PairEvidence<K>>, NumericError> {
-        largest_pairs(self.pairs().map(|(k, a, b)| (k, left(a), right(b))), top)
-    }
-    pub fn numeric_relation(
-        &self,
-        left: impl Fn(&L) -> f64 + Clone,
-        right: impl Fn(&R) -> f64 + Clone,
-        top: usize,
-    ) -> Result<RelationReport<K>, RelationError<K>> {
-        self.require_complete()
-            .map_err(|a| RelationError::Comparison(Box::new(a.clone())))?;
-        let observed = numeric_relation(self.pairs().map(|(_, a, b)| (left(a), right(b))))
-            .map_err(|error| self.numeric_error(error))?;
-        let largest_disagreements = self
-            .largest(left, right, top)
-            .map_err(|error| self.numeric_error(error))?;
-        Ok(RelationReport {
-            comparison: self.comparison.clone(),
-            observed,
-            largest_disagreements,
-        })
-    }
 }
 
 /// A metric that a consuming certification may constrain independently.
@@ -389,61 +307,56 @@ pub enum RelationMeasure {
 /// Inclusive bounds on composite relation measures; undefined evidence prevents evaluation.
 pub type RelationConstraint = crate::certifications::MetricConstraint<RelationMeasure>;
 /// Scenario-owned expectations, not properties of production evidence types.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct RelationExpectation {
-    pub constraints: Vec<RelationConstraint>,
-}
-/// Structured statistical failure retaining the full expected and observed evidence.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "analysis_kind", rename = "relation_expectation_failure")]
-pub struct RelationFailure<K> {
-    pub expected: RelationExpectation,
-    pub violated: Vec<RelationConstraint>,
-    pub observed: RelationReport<K>,
-    pub analysis_error: Option<crate::certifications::AnalysisError>,
+#[serde(try_from = "RelationExpectationInput")]
+pub struct RelationExpectation {
+    pub(super) constraints: Vec<RelationConstraint>,
 }
-impl<K: fmt::Debug> fmt::Display for RelationFailure<K> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Some(error) = &self.analysis_error {
-            return write!(f, "relation evaluation: {}", error.message);
+
+#[derive(Deserialize)]
+struct RelationExpectationInput {
+    constraints: Vec<RelationConstraint>,
+}
+impl TryFrom<RelationExpectationInput> for RelationExpectation {
+    type Error = NumericError;
+    fn try_from(input: RelationExpectationInput) -> Result<Self, Self::Error> {
+        if input.constraints.is_empty() {
+            return Err(NumericError::InvalidParameter {
+                name: "empty expectation".into(),
+                value: 0.0.into(),
+            });
         }
-        write!(
-            f,
-            "{} relation constraints failed for {} pairs",
-            self.violated.len(),
-            self.observed.observed.linear.count
-        )
+        Ok(Self {
+            constraints: input.constraints,
+        })
     }
 }
-impl<K: fmt::Debug> Error for RelationFailure<K> {}
 impl RelationExpectation {
-    pub fn positive(min_spearman: f64) -> Result<Self, NumericError> {
-        if !(min_spearman > 0.0 && min_spearman <= 1.0) {
-            return Err(NumericError::InvalidParameter {
-                name: "positive minimum Spearman".into(),
-                value: min_spearman.into(),
-            });
-        }
-        Self::default().bound(RelationMeasure::Spearman, Some(min_spearman), None)
+    pub fn spearman_at_least(min: f64) -> Result<Self, NumericError> {
+        Self::with_bound(RelationMeasure::Spearman, Some(min), None)
     }
-    pub fn negative(max_spearman: f64) -> Result<Self, NumericError> {
-        if !(-1.0..0.0).contains(&max_spearman) {
-            return Err(NumericError::InvalidParameter {
-                name: "negative maximum Spearman".into(),
-                value: max_spearman.into(),
-            });
-        }
-        Self::default().bound(RelationMeasure::Spearman, None, Some(max_spearman))
+    pub fn spearman_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(RelationMeasure::Spearman, None, Some(max))
     }
+    pub fn with_bound(
+        measure: RelationMeasure,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Self, NumericError> {
+        Self {
+            constraints: Vec::new(),
+        }
+        .bound(measure, min, max)
+    }
+
     pub fn bound(
         mut self,
         measure: RelationMeasure,
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        crate::certifications::numerical::validate_bounds(min, max)?;
         self.constraints
-            .push(RelationConstraint { measure, min, max });
+            .push(RelationConstraint::new(measure, min, max)?);
         Ok(self)
     }
     pub(crate) fn violations(
@@ -451,27 +364,6 @@ impl RelationExpectation {
         observed: &RelationMetrics,
     ) -> Result<Vec<RelationConstraint>, crate::certifications::AnalysisError> {
         crate::certifications::numerical::assess(&self.constraints, |m| measure(observed, *m))
-    }
-    pub fn evaluate<K>(
-        &self,
-        observed: RelationReport<K>,
-    ) -> Result<RelationReport<K>, Box<RelationFailure<K>>> {
-        let assessment = crate::certifications::Expectation::assess(self, &observed);
-        match assessment {
-            Ok(violated) if violated.is_empty() => Ok(observed),
-            result => {
-                let (violated, analysis_error) = match result {
-                    Ok(v) => (v, None),
-                    Err(e) => (Vec::new(), Some(e)),
-                };
-                Err(Box::new(RelationFailure {
-                    expected: self.clone(),
-                    violated,
-                    observed,
-                    analysis_error,
-                }))
-            }
-        }
     }
 }
 fn measure(report: &RelationMetrics, measure: RelationMeasure) -> Option<f64> {

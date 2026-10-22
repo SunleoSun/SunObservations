@@ -8,10 +8,10 @@ use std::sync::Arc;
 struct Event;
 #[test]
 fn independent_pools_keep_construction_context_and_exact_nested_parallel_budgets() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "independent pools keep construction context and exact nested parallel budgets",
     );
-    let engine = Arc::new(ObservationEngine::new());
+    let engine = Arc::new(ObservationEngine::isolated());
     let memory = Arc::new(MemorySink::new());
     engine
         .register_namespace_channel("pools", "memory")
@@ -21,13 +21,13 @@ fn independent_pools_keep_construction_context_and_exact_nested_parallel_budgets
         let _scope = start_scope(
             ScopeConfig::new(name)
                 .activate_all()
-                .override_policy::<Event>(Policy::MaxPerScope(333)),
+                .override_policy::<Event>(Policy::first_n(333).unwrap()),
         );
-        ContextThreadPool::new(4).unwrap()
+        ContextThreadPool::with_threads(std::num::NonZeroUsize::new(4).unwrap()).unwrap()
     };
     let a = make("pool-a");
     let b = make("pool-b");
-    let empty = ContextThreadPool::new(2).unwrap();
+    let empty = ContextThreadPool::with_threads(std::num::NonZeroUsize::new(2).unwrap()).unwrap();
     let _caller = start_scope(ScopeConfig::new("caller").activate_all());
     let pools_started = std::sync::Barrier::new(2);
     std::thread::scope(|threads| {
@@ -148,7 +148,7 @@ mod propagation {
 
     #[test]
     fn dedicated_pools_inherit_each_parent_for_nested_parallel_iterations() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "dedicated pools inherit each parent for nested parallel iterations",
         );
         let sink = capture(global(), "rayon_tests::parallel");
@@ -159,9 +159,13 @@ mod propagation {
                 let barrier = barrier.clone();
                 std::thread::spawn(move || {
                     let scope = start_scope(
-                        ScopeConfig::new(name).activate_namespace("rayon_tests::parallel"),
+                        ScopeConfig::new(name)
+                            .activate_namespace("rayon_tests::parallel")
+                            .unwrap(),
                     );
-                    let pool = ContextThreadPool::new(3).unwrap();
+                    let pool =
+                        ContextThreadPool::with_threads(std::num::NonZeroUsize::new(3).unwrap())
+                            .unwrap();
                     drop(scope);
                     barrier.wait();
                     let workers = pool.install(|| {
@@ -216,16 +220,18 @@ mod propagation {
 
     #[test]
     fn pool_workers_share_policy_state_and_pool_binding_is_immutable() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "pool workers share policy state and pool binding is immutable",
         );
         let sink = capture(global(), "rayon_tests::limit");
         let scope = start_scope(
             ScopeConfig::new("bound")
                 .activate_namespace("rayon_tests::limit")
-                .override_policy::<Limited>(Policy::MaxPerScope(17)),
+                .unwrap()
+                .override_policy::<Limited>(Policy::first_n(17).unwrap()),
         );
-        let pool = ContextThreadPool::new(4).unwrap();
+        let pool =
+            ContextThreadPool::with_threads(std::num::NonZeroUsize::new(4).unwrap()).unwrap();
         drop(scope);
         let _other = start_scope(ScopeConfig::new("caller"));
         pool.install(|| {
@@ -250,9 +256,11 @@ mod propagation {
 
     #[test]
     fn empty_pool_context_masks_callers_scope() {
-        let mut certification =
-            sun_observations::certifications::certify("empty pool context masks callers scope");
-        let pool = ContextThreadPool::new(2).unwrap();
+        let mut certification = sun_observations::certifications::certification(
+            "empty pool context masks callers scope",
+        );
+        let pool =
+            ContextThreadPool::with_threads(std::num::NonZeroUsize::new(2).unwrap()).unwrap();
         let _scope = start_scope(ScopeConfig::new("caller"));
         let scopes = pool.install(|| {
             (0..30)

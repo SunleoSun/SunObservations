@@ -3,48 +3,128 @@ use std::{error::Error, fmt, sync::Arc};
 use sun_observations::certifications::*;
 use sun_observations::{MemorySink, Observation, ObservationLevel, ObservationRecord, Phase};
 
+/// Rejected external record and its input position.
+#[derive(Debug)]
+pub struct IngestionError {
+    pub index: usize,
+    pub error: sun_observations::record::RecordValidationError,
+}
+impl fmt::Display for IngestionError {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "record {}: {}", self.index, self.error)
+    }
+}
+impl Error for IngestionError {}
+
 /// Fixed membership and order over shared immutable canonical records.
 #[derive(Clone, Debug)]
 pub struct ObservationDataset {
     records: Arc<[Arc<ObservationRecord>]>,
 }
 impl ObservationDataset {
-    pub fn from_shared(records: Vec<Arc<ObservationRecord>>) -> Self {
+    pub(crate) fn from_shared(records: Vec<Arc<ObservationRecord>>) -> Self {
         Self {
             records: records.into(),
         }
     }
-    pub fn from_memory(memory: &MemorySink) -> Self {
-        Self::from_shared(memory.shared_records())
+    pub fn try_from_records(records: Vec<Arc<ObservationRecord>>) -> Result<Self, IngestionError> {
+        for (index, record) in records.iter().enumerate() {
+            record
+                .validate()
+                .map_err(|error| IngestionError { index, error })?;
+        }
+        Ok(Self::from_shared(records))
+    }
+    pub fn try_from_memory(memory: &MemorySink) -> Result<Self, IngestionError> {
+        Self::try_from_records(memory.shared_records())
     }
     pub fn records(&self) -> &[Arc<ObservationRecord>] {
         &self.records
     }
-    pub fn query<'a>(&'a self, query: EnvelopeQuery<'a>) -> RecordView<'a> {
+    pub fn query<'a>(&'a self, query: ObservationsQuery<'a>) -> RecordView<'a> {
         RecordView {
             dataset: self,
             query,
         }
     }
-    pub fn typed<T: Observation + DeserializeOwned>(&self) -> Result<TypedView<T>, DecodeError> {
-        self.query(EnvelopeQuery::default()).typed()
+    pub fn to_typed<T: Observation + DeserializeOwned>(&self) -> Result<TypedView<T>, DecodeError> {
+        self.query(ObservationsQuery::default()).to_typed()
     }
 }
 
-/// Optional envelope selectors combine with AND; namespace trees respect segment boundaries.
+/// Observation selectors combine with AND; namespace trees respect segment boundaries.
+/// Builders replace earlier intent for the same selector, including incompatible point/span intent.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct EnvelopeQuery<'a> {
-    pub namespace: Option<&'a str>,
-    pub namespace_subtree: Option<&'a str>,
+pub struct ObservationsQuery<'a> {
+    namespace: Option<&'a str>,
+    namespace_subtree: Option<&'a str>,
     /// Some(None) selects records outside a scope; None leaves scope unrestricted.
-    pub scope: Option<Option<&'a str>>,
-    pub level: Option<ObservationLevel>,
+    scope: Option<Option<&'a str>>,
+    level: Option<ObservationLevel>,
     /// Some(None) selects point records.
-    pub phase: Option<Option<Phase>>,
-    pub span: Option<Option<&'a str>>,
-    pub proc: Option<&'a str>,
+    phase: Option<Option<Phase>>,
+    span: Option<Option<&'a str>>,
+    proc: Option<&'a str>,
 }
-impl EnvelopeQuery<'_> {
+impl<'a> ObservationsQuery<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn namespace(mut self, namespace: &'a str) -> Self {
+        self.namespace = Some(namespace);
+        self.namespace_subtree = None;
+        self
+    }
+    pub fn namespace_subtree(mut self, namespace: &'a str) -> Self {
+        self.namespace_subtree = Some(namespace);
+        self.namespace = None;
+        self
+    }
+    pub fn scope(mut self, scope: &'a str) -> Self {
+        self.scope = Some(Some(scope));
+        self
+    }
+    pub fn without_scope(mut self) -> Self {
+        self.scope = Some(None);
+        self
+    }
+    pub fn level(mut self, level: ObservationLevel) -> Self {
+        self.level = Some(level);
+        self
+    }
+    pub fn points(mut self) -> Self {
+        self.phase = Some(None);
+        self.span = Some(None);
+        self
+    }
+    pub fn span_starts(mut self) -> Self {
+        self.phase = Some(Some(Phase::Start));
+        if self.span == Some(None) {
+            self.span = None;
+        }
+        self
+    }
+    pub fn span_ends(mut self) -> Self {
+        self.phase = Some(Some(Phase::End));
+        if self.span == Some(None) {
+            self.span = None;
+        }
+        self
+    }
+    pub fn span(mut self, span: &'a str) -> Self {
+        self.span = Some(Some(span));
+        if self.phase == Some(None) {
+            self.phase = None;
+        }
+        self
+    }
+    pub fn without_span(self) -> Self {
+        self.points()
+    }
+    pub fn process(mut self, process: &'a str) -> Self {
+        self.proc = Some(process);
+        self
+    }
     fn matches(&self, r: &ObservationRecord) -> bool {
         self.namespace.is_none_or(|s| s == r.namespace)
             && self
@@ -61,7 +141,7 @@ impl EnvelopeQuery<'_> {
 /// A lazy envelope selection, preserving original dataset indices and shared identity.
 pub struct RecordView<'a> {
     dataset: &'a ObservationDataset,
-    query: EnvelopeQuery<'a>,
+    query: ObservationsQuery<'a>,
 }
 impl RecordView<'_> {
     pub fn iter(&self) -> impl Iterator<Item = (usize, &Arc<ObservationRecord>)> + Clone {
@@ -72,7 +152,7 @@ impl RecordView<'_> {
             .filter(|(_, r)| self.query.matches(r))
     }
     /// Decodes points and span starts of T's namespace; lifecycle ends have no typed payload.
-    pub fn typed<T: Observation + DeserializeOwned>(&self) -> Result<TypedView<T>, DecodeError> {
+    pub fn to_typed<T: Observation + DeserializeOwned>(&self) -> Result<TypedView<T>, DecodeError> {
         let mut values = Vec::new();
         let mut sources = Vec::new();
         for (index, record) in self
@@ -166,69 +246,14 @@ impl<T> TypedView<T> {
         }
     }
     pub fn source(&self, name: impl Into<Arc<str>>) -> PreparedSource<'_, T> {
-        source_slice(name, &self.values).with_provenance(self)
+        collection(name, &self.values).with_provenance(self)
     }
-    pub fn group_by<K: Ord>(&self, key: impl Fn(&T) -> K) -> GroupedView<'_, T, K> {
-        self.source("observations").group_by(key)
-    }
-    pub fn lag_relation_by<R: Observation>(
-        &self,
-        right: &TypedView<R>,
-        left: impl Fn(&T) -> (i64, f64),
-        rp: impl Fn(&R) -> (i64, f64),
-        config: LagConfig,
-    ) -> Result<LagReport, LagError>
-    where
-        T: Observation,
-    {
-        let mut report = lag_relation_by(self.values(), right.values(), left, rp, config)?;
-        report.left_source = Some(T::NAMESPACE.into());
-        report.right_source = Some(R::NAMESPACE.into());
-        Ok(report)
-    }
+
     pub fn values(&self) -> &[T] {
         &self.values
     }
     pub fn sources(&self) -> &[(usize, Arc<ObservationRecord>)] {
         &self.sources
-    }
-    pub fn numeric<'a, F: Fn(&T) -> f64 + Clone + 'a>(
-        &'a self,
-        project: F,
-    ) -> NumericSeries<impl Iterator<Item = f64> + Clone + 'a> {
-        NumericSeries::new(self.values.iter().map(project))
-    }
-}
-impl<T: Observation> TypedView<T> {
-    pub fn join_by<'a, R: Observation, K: Ord + Clone>(
-        &'a self,
-        right: &'a TypedView<R>,
-        left_key: impl Fn(&T) -> K,
-        right_key: impl Fn(&R) -> K,
-    ) -> Join<'a, T, R, K> {
-        let mut joined = join_by(&self.values, &right.values, left_key, right_key);
-        joined.set_source_names(T::NAMESPACE, R::NAMESPACE);
-        joined
-    }
-    pub fn join_u64_by<'a, R: Observation>(
-        &'a self,
-        right: &'a TypedView<R>,
-        left_key: impl Fn(&T) -> u64,
-        right_key: impl Fn(&R) -> u64,
-    ) -> Join<'a, T, R, u64> {
-        let mut joined = join_u64_by(&self.values, &right.values, left_key, right_key);
-        joined.set_source_names(T::NAMESPACE, R::NAMESPACE);
-        joined
-    }
-    pub fn join_sorted_by<'a, R: Observation, K: Ord + Clone>(
-        &'a self,
-        right: &'a TypedView<R>,
-        left_key: impl Fn(&T) -> K,
-        right_key: impl Fn(&R) -> K,
-    ) -> Result<Join<'a, T, R, K>, JoinError> {
-        let mut joined = join_sorted_by(&self.values, &right.values, left_key, right_key)?;
-        joined.set_source_names(T::NAMESPACE, R::NAMESPACE);
-        Ok(joined)
     }
 }
 

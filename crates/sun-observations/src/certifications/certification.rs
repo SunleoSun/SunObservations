@@ -71,17 +71,35 @@ pub struct CheckFailure {
     pub class: CheckClass,
     pub diagnostic: String,
 }
-/// Collected proof status. Successful checks retain no measured report or trace.
+/// Immutable proof status; success requires at least one check and no failures.
+///
+/// ```compile_fail
+/// use sun_observations::certifications::*;
+/// let mut report = certification("proof").report();
+/// report.checks = 1;
+/// ```
 #[derive(Clone, Debug)]
 pub struct CertificationReport {
-    pub name: String,
-    pub checks: usize,
-    pub failed: usize,
-    pub failures: Vec<CheckFailure>,
+    pub(crate) name: String,
+    pub(crate) checks: usize,
+    pub(crate) failed: usize,
+    pub(crate) failures: Vec<CheckFailure>,
 }
 impl CertificationReport {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn checks(&self) -> usize {
+        self.checks
+    }
+    pub fn failed(&self) -> usize {
+        self.failed
+    }
+    pub fn failures(&self) -> &[CheckFailure] {
+        &self.failures
+    }
     pub fn is_pass(&self) -> bool {
-        self.failed == 0
+        self.checks > 0 && self.failed == 0
     }
     #[track_caller]
     pub fn assert_certify(&self) {
@@ -131,7 +149,7 @@ pub struct Certification {
     path: String,
     limits: DiagnosticLimits,
 }
-pub fn certify(name: impl Into<String>) -> Certification {
+pub fn certification(name: impl Into<String>) -> Certification {
     Certification {
         report: CertificationReport {
             name: bounded_display(&name.into(), 512),
@@ -160,7 +178,7 @@ impl Certification {
         name: impl Into<std::sync::Arc<str>>,
         values: &'a [T],
     ) -> PreparedSource<'a, T> {
-        source_slice(name, values)
+        collection(name, values)
     }
     pub fn check_fact_expect<T: fmt::Debug, E: crate::certifications::Expectation<T>>(
         &mut self,
@@ -214,7 +232,7 @@ impl Certification {
         name: impl Into<String>,
         checks: impl FnOnce(&mut Certification),
     ) -> &mut Self {
-        let mut child = certify(self.report.name.clone());
+        let mut child = certification(self.report.name.clone());
         child.limits = DiagnosticLimits {
             failures: self
                 .limits
@@ -232,7 +250,7 @@ impl Certification {
         self.report.failures.extend(child.report.failures);
         self
     }
-    pub fn certify(&self) -> CertificationReport {
+    pub fn report(&self) -> CertificationReport {
         self.report.clone()
     }
     #[track_caller]

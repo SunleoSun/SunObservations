@@ -3,7 +3,7 @@ use crate::certifications::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 fn config(start: i64, end: i64, measure: LagMeasure) -> LagConfig {
     LagConfig {
-        range: LagRange { start, end },
+        range: LagRange::new(start, end).unwrap(),
         measure,
     }
 }
@@ -36,7 +36,9 @@ fn explicit_positive_zero_negative_shifts_and_negative_relations_ignore_insertio
                     128
                 );
                 assert_eq!(report.zero_lag().unwrap().lag, 0);
-                LagExpectation { best_lag: d }.evaluate(report).unwrap();
+                assert!(fact("lag", report)
+                    .expect(LagExpectation { best_lag: d })
+                    .is_pass());
             }
         }
     }
@@ -56,17 +58,19 @@ fn truncated_boundaries_are_reported_but_do_not_fail_known_alignment() {
             ..Default::default()
         }
     );
-    LagExpectation { best_lag: 2 }.evaluate(report).unwrap();
+    assert!(fact("lag", report)
+        .expect(LagExpectation { best_lag: 2 })
+        .is_pass());
 }
 #[test]
 fn interior_gaps_are_visible_and_expectations_fail_closed() {
     let a: Vec<_> = (0..100).map(|k| (k, signal(k))).collect();
     let b: Vec<_> = a.iter().copied().filter(|(k, _)| *k != 42).collect();
     let report = run(&a, &b, config(0, 0, LagMeasure::Pearson));
-    assert_eq!(report.candidates[0].alignment.missing_right, 1);
+    assert_eq!(report.candidates[0].alignment.left_only, 1);
     assert_eq!(report.candidates[0].alignment.pair_count, 99);
-    let failure = LagExpectation { best_lag: 0 }.evaluate(report).unwrap_err();
-    assert_eq!(failure.violated, [LagViolation::InteriorMissingKeys]);
+    let failure = fact("lag", report).expect(LagExpectation { best_lag: 0 });
+    assert_eq!(failure.violations, [LagViolation::InteriorMissingKeys]);
 }
 #[test]
 fn duplicate_keys_fail_with_original_side_indices_even_outside_candidate_overlap() {
@@ -127,10 +131,9 @@ fn empty_singleton_disjoint_and_constant_inputs_remain_explicitly_undefined() {
             assert_eq!(report.candidates[0].relation, Metric::Undefined(reason));
             assert!(report.best.is_none());
             assert_eq!(
-                LagExpectation { best_lag: 0 }
-                    .evaluate(report)
-                    .unwrap_err()
-                    .violated,
+                fact("lag", report)
+                    .expect(LagExpectation { best_lag: 0 })
+                    .violations,
                 [LagViolation::NoDefinedCandidate]
             );
         }
@@ -167,14 +170,8 @@ fn exact_ties_prefer_smallest_absolute_then_smallest_signed_lag() {
 fn bounded_ranges_nonfinite_values_and_numeric_overflow_are_hard_errors() {
     for (start, end) in [(2, 1), (i64::MIN, i64::MAX), (0, MAX_LAG_CANDIDATES as i64)] {
         assert!(matches!(
-            lag_relation_by::<(i64, f64), (i64, f64)>(
-                &[],
-                &[],
-                |v| *v,
-                |v| *v,
-                config(start, end, LagMeasure::Pearson)
-            ),
-            Err(LagError::InvalidRange(_))
+            LagRange::new(start, end),
+            Err(LagError::InvalidRange { .. })
         ));
     }
     let a = [(0, 1.), (1, f64::INFINITY)];
@@ -227,22 +224,19 @@ fn extreme_i64_keys_shift_without_wrap_and_project_only_once() {
     );
 }
 #[test]
-fn structured_expected_observed_zero_lag_and_display_evidence_roundtrip() {
+fn failed_lag_expectation_retains_observed_report_and_roundtrip() {
     let a: Vec<_> = (0..30).map(|k| (k, signal(k))).collect();
     let b: Vec<_> = a.iter().map(|(k, v)| (k + 2, *v)).collect();
-    let report = run(&a, &b, config(-3, 3, LagMeasure::Pearson));
-    let failure = LagExpectation { best_lag: 0 }.evaluate(report).unwrap_err();
-    assert_eq!(failure.violated, [LagViolation::UnexpectedBestLag]);
-    let json = serde_json::to_value(&failure).unwrap();
-    assert_eq!(json["analysis_kind"], "lag_expectation_failure");
-    assert_eq!(json["expected"]["best_lag"], 0);
-    assert_eq!(json["observed"]["best"]["lag"], 2);
-    assert!(failure.observed.zero_lag().is_some());
+    let result = fact("lag", run(&a, &b, config(-3, 3, LagMeasure::Pearson)))
+        .expect(LagExpectation { best_lag: 0 });
+    assert_eq!(result.violations, [LagViolation::UnexpectedBestLag]);
+    let report = result.observed.unwrap();
+    assert_eq!(report.best.as_ref().unwrap().lag, 2);
+    assert!(report.zero_lag().is_some());
     assert_eq!(
-        serde_json::from_value::<LagFailure>(json).unwrap(),
-        *failure
+        serde_json::from_value::<LagReport>(serde_json::to_value(&report).unwrap()).unwrap(),
+        report
     );
-    assert!(!failure.to_string().is_empty());
 }
 #[test]
 fn sparse_unordered_optimized_search_matches_independent_exhaustive_domain_reference() {
@@ -288,11 +282,11 @@ fn sparse_unordered_optimized_search_matches_independent_exhaustive_domain_refer
             assert_eq!(candidate.alignment.boundary_left, boundary_a);
             assert_eq!(candidate.alignment.boundary_right, boundary_b);
             assert_eq!(
-                candidate.alignment.missing_right,
+                candidate.alignment.left_only,
                 a.len() - pairs.len() - boundary_a
             );
             assert_eq!(
-                candidate.alignment.missing_left,
+                candidate.alignment.right_only,
                 b.len() - pairs.len() - boundary_b
             );
             if pairs.len() < 2 {

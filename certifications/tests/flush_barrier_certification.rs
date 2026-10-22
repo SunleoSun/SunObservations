@@ -38,7 +38,7 @@ impl Write for FileProbe {
 }
 #[test]
 fn real_file_engine_barrier_cannot_overtake_prior_bounded_chunks() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "real file engine barrier cannot overtake prior bounded chunks",
     );
     let directory = tempfile::tempdir().unwrap();
@@ -55,11 +55,11 @@ fn real_file_engine_barrier_cannot_overtake_prior_bounded_chunks() {
                 first: Some(first),
                 release: resume,
             },
-            JsonlConfig::new().flush_ms(60000),
+            JsonlConfig::new().flush_interval_ms(60000).unwrap(),
         )
         .unwrap(),
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine
         .register_namespace_channel("barrier", "primary")

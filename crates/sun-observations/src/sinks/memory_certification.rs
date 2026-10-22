@@ -4,7 +4,7 @@ use sun_observations::certifications::*;
 #[test]
 fn bounded_oldest_batch_retention_preserves_identity_order_and_lifetime_stats() {
     let memory = MemorySink::with_config(MemorySinkConfig::new(10, 0.3).unwrap());
-    let mut c = certify("bounded memory history");
+    let mut c = certification("bounded memory history");
     for i in 0..30 {
         let mut r = record("memory::event");
         r.proc_ms = i;
@@ -62,7 +62,7 @@ fn concurrent_retention_is_bounded_with_exact_accounting() {
         }
     });
     let stats = memory.stats();
-    certify("concurrent bounded retention")
+    certification("concurrent bounded retention")
         .check_fact_expect("bound", stats.retained <= 127, true)
         .check_fact_expect("accounting", stats.retained as u64 + stats.evicted, 8000u64)
         .check_fact_expect("batch accounting", stats.evicted, stats.compactions * 13)
@@ -71,7 +71,7 @@ fn concurrent_retention_is_bounded_with_exact_accounting() {
 }
 #[test]
 fn retention_configuration_rejects_invalid_bounds() {
-    let mut c = certify("validated retention");
+    let mut c = certification("validated retention");
     for (max, fraction) in [
         (0, 0.1),
         (1, 0.0),
@@ -101,7 +101,7 @@ mod snapshots {
 
     #[test]
     fn concurrent_writes_and_independent_snapshots() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "concurrent writes and independent snapshots",
         );
         let memory = Arc::new(MemorySink::new());

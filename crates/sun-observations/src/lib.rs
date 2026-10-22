@@ -1,9 +1,9 @@
 #![doc = include_str!("../README.md")]
 extern crate self as sun_observations;
 
-pub mod capture;
+mod capture;
 pub mod certifications;
-pub mod channel;
+mod channel;
 pub mod context;
 pub mod engine;
 pub mod evidence;
@@ -24,7 +24,7 @@ pub mod span;
 #[cfg(test)]
 mod test_support;
 
-pub use channel::Channel;
+pub(crate) use channel::Channel;
 pub use context::{Context, ContextGuard};
 pub use engine::{global, observe_if_active, ObservationEngine, ObservationError};
 pub use level::ObservationLevel;

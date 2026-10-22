@@ -28,6 +28,40 @@ pub struct ObservationRecord {
     pub span: Option<String>,
 }
 
+/// FORMAT v1 envelope or per-record lifecycle violation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecordValidationError {
+    Timestamp,
+    Namespace(crate::namespace::InvalidNamespace),
+    Lifecycle,
+}
+impl std::fmt::Display for RecordValidationError {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(out, "invalid Observation record: {self:?}")
+    }
+}
+impl std::error::Error for RecordValidationError {}
+impl ObservationRecord {
+    pub fn validate(&self) -> Result<(), RecordValidationError> {
+        let ts = self.ts.as_bytes();
+        if ts.len() != 24
+            || ts[19] != b'.'
+            || ts[23] != b'Z'
+            || !ts[20..23].iter().all(u8::is_ascii_digit)
+            || chrono::DateTime::parse_from_rfc3339(&self.ts).is_err()
+        {
+            return Err(RecordValidationError::Timestamp);
+        }
+        crate::namespace::validate_namespace(&self.namespace)
+            .map_err(RecordValidationError::Namespace)?;
+        match (self.phase, self.span.as_ref()) {
+            (None, None) | (Some(Phase::Start), Some(_)) => Ok(()),
+            (Some(Phase::End), Some(_)) if self.data.is_null() && self.message.is_none() => Ok(()),
+            _ => Err(RecordValidationError::Lifecycle),
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "record_certification.rs"]
 mod certification;

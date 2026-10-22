@@ -32,22 +32,54 @@ pub struct MatchedKey<K> {
     pub left_index: usize,
     pub right_index: usize,
 }
-/// Typed-key correspondence sorted by key, including missing and duplicate evidence.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Read-only typed-key correspondence produced by joining real inputs, including one-sided and duplicate evidence.
+///
+/// ```compile_fail
+/// use sun_observations::certifications::Comparison;
+/// let _: Comparison<u64> = serde_json::from_str("{}").unwrap();
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Comparison<K> {
-    pub left_source: Option<String>,
-    pub right_source: Option<String>,
-    pub left_count: usize,
-    pub right_count: usize,
-    pub matched: Vec<MatchedKey<K>>,
+    pub(crate) left_source: Option<String>,
+    pub(crate) right_source: Option<String>,
+    pub(crate) left_count: usize,
+    pub(crate) right_count: usize,
+    pub(crate) matched: Vec<MatchedKey<K>>,
     /// Keys present on the right but absent on the left.
-    pub missing_left: Vec<KeyGroup<K>>,
+    pub(crate) right_only: Vec<KeyGroup<K>>,
     /// Keys present on the left but absent on the right.
-    pub missing_right: Vec<KeyGroup<K>>,
-    pub duplicate_left: Vec<KeyGroup<K>>,
-    pub duplicate_right: Vec<KeyGroup<K>>,
+    pub(crate) left_only: Vec<KeyGroup<K>>,
+    pub(crate) duplicate_left: Vec<KeyGroup<K>>,
+    pub(crate) duplicate_right: Vec<KeyGroup<K>>,
 }
 impl<K> Comparison<K> {
+    pub fn left_source(&self) -> Option<&str> {
+        self.left_source.as_deref()
+    }
+    pub fn right_source(&self) -> Option<&str> {
+        self.right_source.as_deref()
+    }
+    pub fn left_count(&self) -> usize {
+        self.left_count
+    }
+    pub fn right_count(&self) -> usize {
+        self.right_count
+    }
+    pub fn matched(&self) -> &[MatchedKey<K>] {
+        &self.matched
+    }
+    pub fn left_only(&self) -> &[KeyGroup<K>] {
+        &self.left_only
+    }
+    pub fn right_only(&self) -> &[KeyGroup<K>] {
+        &self.right_only
+    }
+    pub fn duplicate_left(&self) -> &[KeyGroup<K>] {
+        &self.duplicate_left
+    }
+    pub fn duplicate_right(&self) -> &[KeyGroup<K>] {
+        &self.duplicate_right
+    }
     fn new(left_count: usize, right_count: usize) -> Self {
         Self {
             left_source: None,
@@ -55,15 +87,17 @@ impl<K> Comparison<K> {
             left_count,
             right_count,
             matched: Vec::with_capacity(left_count.min(right_count)),
-            missing_left: Vec::new(),
-            missing_right: Vec::new(),
+            right_only: Vec::new(),
+            left_only: Vec::new(),
             duplicate_left: Vec::new(),
             duplicate_right: Vec::new(),
         }
     }
     pub fn is_complete(&self) -> bool {
-        self.missing_left.is_empty()
-            && self.missing_right.is_empty()
+        self.matched.len() == self.left_count
+            && self.matched.len() == self.right_count
+            && self.right_only.is_empty()
+            && self.left_only.is_empty()
             && self.duplicate_left.is_empty()
             && self.duplicate_right.is_empty()
     }
@@ -82,7 +116,7 @@ impl<'a, L, R, K> Join<'a, L, R, K> {
     pub fn comparison(&self) -> &Comparison<K> {
         &self.comparison
     }
-    pub fn pairs(&self) -> impl Iterator<Item = (&K, &L, &R)> + Clone {
+    pub fn matched_pairs(&self) -> impl Iterator<Item = (&K, &L, &R)> + Clone {
         self.comparison
             .matched
             .iter()
@@ -139,7 +173,7 @@ pub fn join_by<'a, L, R, K: Ord + Clone>(
     merge(left, right, &a, &b)
 }
 /// Validates both input orders, then uses the same linear merge and duplicate semantics.
-pub fn join_sorted_by<'a, L, R, K: Ord + Clone>(
+pub fn join_presorted_by<'a, L, R, K: Ord + Clone>(
     left: &'a [L],
     right: &'a [R],
     left_key: impl Fn(&L) -> K,
@@ -180,12 +214,10 @@ pub(crate) fn merge<'a, L, R, K: Ord + Clone>(
                 .push(key_group(b, br.start, br.end));
         }
         if br.is_empty() {
-            comparison
-                .missing_right
-                .push(key_group(a, ar.start, ar.end));
+            comparison.left_only.push(key_group(a, ar.start, ar.end));
         }
         if ar.is_empty() {
-            comparison.missing_left.push(key_group(b, br.start, br.end));
+            comparison.right_only.push(key_group(b, br.start, br.end));
         }
         if ar.len() == 1 && br.len() == 1 {
             comparison.matched.push(MatchedKey {
@@ -247,11 +279,11 @@ pub fn join_u64_by<'a, L, R>(
                         left_index: i,
                         right_index: j,
                     }),
-                    (true, false) => comparison.missing_right.push(KeyGroup {
+                    (true, false) => comparison.left_only.push(KeyGroup {
                         key,
                         indices: vec![i],
                     }),
-                    (false, true) => comparison.missing_left.push(KeyGroup {
+                    (false, true) => comparison.right_only.push(KeyGroup {
                         key,
                         indices: vec![j],
                     }),

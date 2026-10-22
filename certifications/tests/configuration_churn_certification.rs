@@ -9,14 +9,16 @@ struct Event {
 }
 #[test]
 fn warm_workers_switch_each_configuration_generation_without_resetting_counter() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "warm workers switch each configuration generation without resetting counter",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let a = Arc::new(MemorySink::new());
     let b = Arc::new(MemorySink::new());
     let barrier = Barrier::new(9);
-    let _scope = start_scope(ScopeConfig::new("churn").override_policy::<Event>(Policy::EveryN(3)));
+    let _scope = start_scope(
+        ScopeConfig::new("churn").override_policy::<Event>(Policy::every_n(3).unwrap()),
+    );
     let context = Context::capture();
     engine.add_channel_sink("route", a.clone());
     std::thread::scope(|threads| {

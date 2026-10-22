@@ -25,12 +25,12 @@ fn view(folds: &[u64]) -> TypedView<Sample> {
             })
             .collect(),
     )
-    .typed()
+    .to_typed()
     .unwrap()
 }
 #[test]
 fn empty_single_and_repeated_groups_retain_every_member_in_key_then_source_order() {
-    let mut c = certify("group membership and Observation provenance");
+    let mut c = certification("group membership and Observation provenance");
     for folds in [vec![], vec![7], vec![7; 20], vec![9, 3, 9, 1, 3, 9]] {
         let view = view(&folds);
         let source = view.source("samples");
@@ -98,7 +98,7 @@ fn unordered_many_groups_and_summaries_equal_independent_member_analysis() {
     let groups = source.group_by(|v| v.fold);
     let projection = groups.numeric(|v| v.value);
     let report = projection.summaries_with_robust();
-    let mut c = certify("per-group numerical oracle");
+    let mut c = certification("per-group numerical oracle");
     c.check("all groups", fact("groups", report.groups.len()).expect(79));
     for (key, group) in report.groups.iter().enumerate() {
         let expected: Vec<_> = view
@@ -138,7 +138,7 @@ fn grouped_numeric_failures_retain_group_identity_without_hiding_healthy_groups(
     let report = groups
         .numeric(|v| if v.fold == 1 { f64::NAN } else { v.value })
         .summaries();
-    let mut c = certify("bad subgroup isolation");
+    let mut c = certification("bad subgroup isolation");
     c.check(
         "healthy group available",
         fact("group 0", report.groups[0].summary.is_ok()).expect(true),
@@ -166,11 +166,7 @@ fn grouped_numeric_failures_retain_group_identity_without_hiding_healthy_groups(
         "robust opt-in",
         fact("groups", report.groups.iter().all(|g| g.robust.is_none())).expect(true),
     );
-    let result = fact("groups", report).expect(GroupExpectation {
-        minimum_count: 1,
-        mean_min: 0.,
-        mean_max: 10.,
-    });
+    let result = fact("groups", report).expect(GroupExpectation::new(1, 0., 10.).unwrap());
     c.check(
         "unavailable required statistic is error",
         fact("acceptance", result.class).expect(CheckClass::EvaluationError),
@@ -183,7 +179,7 @@ fn nonclone_composite_group_keys_need_no_hashing_or_value_cloning() {
     struct Key(u64, u64);
     let view = view(&[3, 2, 3, 2]);
     let groups = view.source("samples").group_by(|v| Key(v.fold, v.row % 2));
-    certify("typed nonclone grouping identity")
+    certification("typed nonclone grouping identity")
         .check(
             "membership",
             fact(

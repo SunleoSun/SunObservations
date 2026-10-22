@@ -9,13 +9,13 @@ struct Event {
 }
 #[test]
 fn real_file_multi_producer_integrity_preserves_each_producer_order() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "real file multi producer integrity preserves each producer order",
     );
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("fifo.jsonl");
-    let engine = ObservationEngine::new();
-    let sink = Arc::new(JsonlSink::append(&path).unwrap());
+    let engine = ObservationEngine::isolated();
+    let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("fifo", "file").unwrap();
     engine.add_channel_sink("file", sink.clone());

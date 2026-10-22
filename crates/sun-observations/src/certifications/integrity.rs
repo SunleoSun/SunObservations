@@ -1,6 +1,6 @@
 use crate::certifications::{
-    finite, group_end, key_group, key_indices, sort_indices, KeyGroup, NumericError, NumericSeries,
-    NumericValue,
+    finite, group_end, key_group, key_indices, sort_indices, validate_bounds, KeyGroup,
+    NumericError, NumericSeries, NumericValue,
 };
 use serde::{Deserialize, Serialize};
 
@@ -11,11 +11,40 @@ pub enum CountRule {
     Minimum(usize),
     NonEmpty,
 }
+/// Finite, inclusive numeric range validated before evidence analysis.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "(f64, f64)", into = "(f64, f64)")]
+pub struct NumericRange {
+    min: f64,
+    max: f64,
+}
+impl NumericRange {
+    pub fn new(min: f64, max: f64) -> Result<Self, NumericError> {
+        validate_bounds(Some(min), Some(max))?;
+        Ok(Self { min, max })
+    }
+}
+impl TryFrom<(f64, f64)> for NumericRange {
+    type Error = NumericError;
+    fn try_from((min, max): (f64, f64)) -> Result<Self, Self::Error> {
+        Self::new(min, max)
+    }
+}
+impl From<NumericRange> for (f64, f64) {
+    fn from(range: NumericRange) -> Self {
+        (range.min, range.max)
+    }
+}
+impl NumericRule {
+    pub fn between(min: f64, max: f64) -> Result<Self, NumericError> {
+        Ok(Self::Range(NumericRange::new(min, max)?))
+    }
+}
 /// Finite numeric constraints, with inclusive range bounds.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum NumericRule {
     Finite,
-    Range { min: f64, max: f64 },
+    Range(NumericRange),
     Positive,
     NonNegative,
 }
@@ -148,19 +177,7 @@ pub fn check_contiguous<T>(
     report
 }
 impl<I: Iterator<Item = f64> + Clone> NumericSeries<I> {
-    pub fn check(&self, expected: NumericRule) -> Result<IntegrityReport, NumericError> {
-        if let NumericRule::Range { min, max } = expected {
-            if !min.is_finite() || !max.is_finite() || min > max {
-                return Err(NumericError::InvalidParameter {
-                    name: "range bounds".into(),
-                    value: if !min.is_finite() {
-                        min.into()
-                    } else {
-                        max.into()
-                    },
-                });
-            }
-        }
+    pub fn integrity(&self, expected: NumericRule) -> Result<IntegrityReport, NumericError> {
         let mut report = IntegrityReport {
             record_count: 0,
             issues: Vec::new(),
@@ -170,7 +187,7 @@ impl<I: Iterator<Item = f64> + Clone> NumericSeries<I> {
             let valid = finite(value, index).is_ok()
                 && match expected {
                     NumericRule::Finite => true,
-                    NumericRule::Range { min, max } => value >= min && value <= max,
+                    NumericRule::Range(NumericRange { min, max }) => value >= min && value <= max,
                     NumericRule::Positive => value > 0.0,
                     NumericRule::NonNegative => value >= 0.0,
                 };

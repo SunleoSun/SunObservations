@@ -60,13 +60,8 @@ pub struct ObservationEngine {
     sink_errors: AtomicU64,
 }
 pub(crate) type Admission = Arc<ResolvedPlan>;
-impl Default for ObservationEngine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 impl ObservationEngine {
-    pub fn new() -> Self {
+    pub fn isolated() -> Self {
         Self {
             id: next_identity(),
             process: format!("{}_{}", std::process::id(), Uuid::new_v4().simple()),
@@ -303,7 +298,7 @@ impl Drop for ObservationEngine {
 }
 pub fn global() -> &'static ObservationEngine {
     static ENGINE: OnceLock<ObservationEngine> = OnceLock::new();
-    ENGINE.get_or_init(ObservationEngine::new)
+    ENGINE.get_or_init(ObservationEngine::isolated)
 }
 #[inline]
 pub fn observe_if_active<T: Observation, F: FnOnce() -> T>(

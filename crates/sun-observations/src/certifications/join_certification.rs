@@ -1,4 +1,16 @@
 use super::*;
+
+#[test]
+fn cardinality_mismatch_cannot_report_complete_correspondence() {
+    let left = [1u64, 2];
+    let right = [1u64, 2];
+    let mut comparison = join_by(&left, &right, |v| *v, |v| *v).comparison().clone();
+    assert!(comparison.is_complete());
+    comparison.matched.pop();
+    assert!(!comparison.is_complete());
+    comparison.matched.clear();
+    assert!(!comparison.is_complete());
+}
 use crate::certifications::test_support::shuffle;
 use std::collections::BTreeMap;
 
@@ -18,8 +30,8 @@ fn reference(left: &[u64], right: &[u64]) -> Comparison<u64> {
         left_count: left.len(),
         right_count: right.len(),
         matched: Vec::new(),
-        missing_left: Vec::new(),
-        missing_right: Vec::new(),
+        right_only: Vec::new(),
+        left_only: Vec::new(),
         duplicate_left: Vec::new(),
         duplicate_right: Vec::new(),
     };
@@ -38,7 +50,7 @@ fn reference(left: &[u64], right: &[u64]) -> Comparison<u64> {
                     right_index: other[0],
                 })
             }
-            None => report.missing_right.push(KeyGroup {
+            None => report.left_only.push(KeyGroup {
                 key,
                 indices: indices.clone(),
             }),
@@ -53,7 +65,7 @@ fn reference(left: &[u64], right: &[u64]) -> Comparison<u64> {
             });
         }
         if !a.contains_key(&key) {
-            report.missing_left.push(KeyGroup {
+            report.right_only.push(KeyGroup {
                 key,
                 indices: indices.clone(),
             });
@@ -69,8 +81,8 @@ fn missing_and_duplicate_keys_never_form_false_pairs() {
     let joined = join_by(&left, &right, |v| *v, |v| *v);
     let a = joined.comparison();
     assert!(a.matched.is_empty());
-    assert_eq!(a.missing_left[0].key, 3);
-    assert_eq!(a.missing_right[0].key, 1);
+    assert_eq!(a.right_only[0].key, 3);
+    assert_eq!(a.left_only[0].key, 1);
     assert_eq!(
         a.duplicate_left[0],
         KeyGroup {
@@ -87,11 +99,10 @@ fn missing_and_duplicate_keys_never_form_false_pairs() {
     );
     assert!(joined.require_complete().is_err());
     let json = serde_json::to_string(a).unwrap();
-    assert_eq!(serde_json::from_str::<Comparison<u64>>(&json).unwrap(), *a);
-    assert!(matches!(
-        joined.numeric_relation(|v| *v as f64, |v| *v as f64, 1),
-        Err(crate::certifications::RelationError::Comparison(_))
-    ));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&json).unwrap()["left_count"],
+        left.len()
+    );
 }
 
 #[test]
@@ -99,34 +110,34 @@ fn sorted_order_contract_checks_both_sides_and_empty_inputs() {
     let sorted = [1, 2, 3];
     let unordered = [2, 1, 3];
     assert_eq!(
-        join_sorted_by(&unordered, &sorted, |v| *v, |v| *v).err(),
+        join_presorted_by(&unordered, &sorted, |v| *v, |v| *v).err(),
         Some(JoinError {
             side: Side::Left,
             index: 1
         })
     );
     assert_eq!(
-        join_sorted_by(&sorted, &unordered, |v| *v, |v| *v).err(),
+        join_presorted_by(&sorted, &unordered, |v| *v, |v| *v).err(),
         Some(JoinError {
             side: Side::Right,
             index: 1
         })
     );
-    assert!(join_sorted_by::<u64, u64, u64>(&[], &[], |v| *v, |v| *v)
+    assert!(join_presorted_by::<u64, u64, u64>(&[], &[], |v| *v, |v| *v)
         .unwrap()
         .comparison()
         .is_complete());
     assert_eq!(
         join_by(&sorted, &[], |v| *v, |v: &u64| *v)
             .comparison()
-            .missing_right
+            .left_only
             .len(),
         3
     );
     assert_eq!(
         join_by(&[], &sorted, |v: &u64| *v, |v| *v)
             .comparison()
-            .missing_left
+            .right_only
             .len(),
         3
     );
@@ -145,7 +156,7 @@ fn generic_and_sorted_merges_match_independent_map_reference_with_omissions_and_
         assert_eq!(*joined.comparison(), reference(&left, &right));
         left.sort_unstable();
         right.sort_unstable();
-        let sorted = join_sorted_by(&left, &right, |v| *v, |v| *v).unwrap();
+        let sorted = join_presorted_by(&left, &right, |v| *v, |v| *v).unwrap();
         assert_eq!(*sorted.comparison(), reference(&left, &right));
         assert_eq!(
             *sorted.comparison(),
@@ -204,7 +215,7 @@ fn generic_keys_and_key_order_not_insertion_order_define_comparison() {
     let joined = join_by(&left, &right, |v| v.0, |v| v.0);
     assert_eq!(
         joined
-            .pairs()
+            .matched_pairs()
             .map(|(k, l, r)| (*k, l.1, r.1))
             .collect::<Vec<_>>(),
         vec![("a", 1., 10.), ("b", 2., 20.)]
@@ -215,9 +226,9 @@ fn generic_keys_and_key_order_not_insertion_order_define_comparison() {
 fn large_duplicate_run_and_disjoint_tail_preserve_linear_merge_evidence() {
     let left: Vec<_> = (0..100_000).collect();
     let right = vec![100_001; 100_000];
-    let joined = join_sorted_by(&left, &right, |v| *v, |v| *v).unwrap();
-    assert_eq!(joined.comparison().missing_right.len(), 100_000);
-    assert_eq!(joined.comparison().missing_left[0].indices.len(), 100_000);
+    let joined = join_presorted_by(&left, &right, |v| *v, |v| *v).unwrap();
+    assert_eq!(joined.comparison().left_only.len(), 100_000);
+    assert_eq!(joined.comparison().right_only[0].indices.len(), 100_000);
     assert_eq!(
         joined.comparison().duplicate_right[0].indices.len(),
         100_000

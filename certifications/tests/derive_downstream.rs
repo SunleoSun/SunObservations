@@ -35,27 +35,27 @@ fn main() {
     assert_eq!(memory.len(), 3);
     assert_eq!(memory.records()[0].namespace, "downstream::stable");
     let ordinary = [1u32, 2];
-    let mut proof = certify("ordinary values");
-    proof.check("count", source_slice("ordinary", &ordinary).count().expect(2usize));
+    let mut proof = certification("ordinary values");
+    proof.check("count", collection("ordinary", &ordinary).count().expect(2usize));
     proof.assert_certify();
-    let run = capture_observations(CaptureConfig::new().activate_namespace("downstream"), || {
-        let pool = sdk::context::rayon::ContextThreadPool::new(2).unwrap();
+    let run = capture_observations(CaptureConfig::new().activate_namespace("downstream").unwrap(), || {
+        let pool = sdk::context::rayon::ContextThreadPool::with_threads(std::num::NonZeroUsize::new(2).unwrap()).unwrap();
         pool.install(|| {
             sdk::observe!(Renamed { value: 1u32 }).unwrap();
             sdk::observe!(Renamed { value: 2u32 }).unwrap();
         });
         [2u32, 1]
     });
-    let typed = run.typed::<Renamed<u32>>().unwrap();
-    let mut proof = run.certify("captured Rayon transfer");
+    let typed = run.to_typed::<Renamed<u32>>().unwrap();
+    let mut proof = run.certification("captured Rayon transfer");
     let left = typed.source("emitted");
     let right = proof.collection("returned", run.result());
     let pair = left.compare_with(&right).on(|row| row.value, |row| *row);
-    proof.check("keys", pair.comparison_fact().expect_valid());
+    proof.check("keys", pair.paired_comparison_fact().expect_valid());
     proof.check("values", pair.equal(|row| row.value, |row| *row, 2).expect_valid());
     let numbers = pair.numeric(|row| row.value as f64, |row| *row as f64);
-    proof.check("correlation", numbers.correlation().expect(CorrelationExpectation::positive(0.99).unwrap()));
-    proof.check("difference", numbers.difference().expect(DifferenceExpectation::default().max_absolute(0.0).unwrap()));
+    proof.check("correlation", numbers.correlation().expect(CorrelationExpectation::spearman_at_least(0.99).unwrap()));
+    proof.check("difference", numbers.difference().expect(DifferenceExpectation::max_absolute_at_most(0.0).unwrap()));
     proof.assert_certify();
 }
 "#;

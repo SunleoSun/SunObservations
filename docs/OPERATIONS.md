@@ -43,7 +43,7 @@ handles in the sink, not bytes/RSS: payload size and held snapshots matter.
 shared_records/drain_shared preserve Arc identity; records/drain make owned copies.
 Draining changes membership, not old snapshots or lifetime eviction counters.
 Append is synchronized and can contend at high concurrency. A snapshot alone never
-establishes complete evidence; scoped proofs must start with run.certify.
+establishes complete evidence; scoped proofs must start with run.certification.
 
 ## Asynchronous delivery and barriers
 
@@ -73,11 +73,11 @@ statics are not automatically dropped on process exit.
 
 ## File retention and framing
 
-JsonlSink::append(path) has unlimited append; with_config(path, config) adds settings.
-JsonlSink::new(writer) / writer_with_config accept owned Write + Send + 'static
+JsonlSink::open_append(path) has unlimited append; with_config(path, config) adds settings.
+JsonlSink::from_writer(writer) / writer_with_config accept owned Write + Send + 'static
 writers on the same asynchronous path, but reject file-retention limits.
 
-Default periodic flush is 1000 ms; retention is disabled by default. file_size_mb
+Default periodic flush is 1000 ms; retention is disabled by default. max_file_size_mb
 means MiB; max_file_size_bytes specifies exact bytes. Positive intervals/limits and
 finite trim_fraction strictly between 0 and 1 are required. Ensure parent directories
 exist and permissions allow replacement as well as append.
@@ -142,6 +142,7 @@ use sun_observations::{ObservationRecord, Sink};
 #[derive(Default)]
 struct DeliveryCounter(AtomicU64);
 impl Sink for DeliveryCounter {
+    fn flush(&self) -> std::io::Result<()> { Ok(()) }
     fn write(&self, _: &ObservationRecord) -> io::Result<()> {
         self.0.fetch_add(1, Ordering::Relaxed);
         Ok(())

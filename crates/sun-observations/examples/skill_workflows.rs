@@ -72,19 +72,20 @@ fn execute(request: &Request) -> Result<Vec<Output>, RunError> {
 
 pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let request = Request { count: 64 };
-    let run = capture_observations(CaptureConfig::new().activate_tag("evidence"), || {
-        execute(&request)
-    });
+    let run = capture_observations(
+        CaptureConfig::new().activate_tag("evidence").unwrap(),
+        || execute(&request),
+    );
     let output = run.result().as_ref().unwrap();
-    let predictions = run.typed::<Prediction>()?;
-    let mut c = run.certify("Harness evaluation");
+    let predictions = run.to_typed::<Prediction>()?;
+    let mut c = run.certification("Harness evaluation");
     let input = c.source("request", &request);
     let result = c.collection("result", output);
     let internal = predictions.source("encoder predictions");
     c.section("inputs", |c| {
         c.check(
             "nonempty request",
-            input.select(|v| v.count).expect(CountRule::NonEmpty),
+            input.single_map(|v| v.count).expect(CountRule::NonEmpty),
         );
     });
     let pair = internal
@@ -92,7 +93,10 @@ pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .on(|v| (v.fold, v.target, v.row), |v| (v.fold, v.target, v.row));
     let signals = pair.numeric(|v| v.signal, |v| v.signal);
     c.section("prediction -> decision", |c| {
-        c.check("comparison_fact", pair.comparison_fact().expect_valid());
+        c.check(
+            "paired_comparison_fact",
+            pair.paired_comparison_fact().expect_valid(),
+        );
         c.check(
             "strength preserved",
             pair.equal(|v| v.strength, |v| v.strength, 3).expect_valid(),
@@ -106,28 +110,30 @@ pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             "signal correlation",
             signals
                 .correlation()
-                .expect(CorrelationExpectation::positive(0.99).unwrap()),
+                .expect(CorrelationExpectation::spearman_at_least(0.99).unwrap()),
         );
         c.check(
             "difference fact",
             signals.difference().expect(criterion(
                 "positive mean difference",
-                CheckClass::StatisticalViolation,
+                ViolationClass::Statistical,
                 |v: &DifferenceSummary| v.signed.mean > 0.,
             )),
         );
         c.section("timing", |c| {
             c.check(
                 "causal lag",
-                pair.lag(
-                    |v| (v.row, v.signal),
-                    |v| (v.row, v.signal),
-                    LagConfig {
-                        range: LagRange { start: -2, end: 2 },
-                        measure: LagMeasure::Pearson,
-                    },
-                )
-                .expect(LagExpectation { best_lag: 0 }),
+                internal
+                    .lag_with(
+                        &result,
+                        |v| (v.row, v.signal),
+                        |v| (v.row, v.signal),
+                        LagConfig {
+                            range: LagRange::new(-2, 2).unwrap(),
+                            measure: LagMeasure::Pearson,
+                        },
+                    )
+                    .expect(LagExpectation { best_lag: 0 }),
             );
         });
     });
@@ -138,11 +144,7 @@ pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
             "folds",
             groups.numeric(|v| v.signal).summaries_with_robust(),
         )
-        .expect(GroupExpectation {
-            minimum_count: 16,
-            mean_min: 0.,
-            mean_max: 100.,
-        }),
+        .expect(GroupExpectation::new(16, 0., 100.).unwrap()),
     );
     c.section("final result", |c| {
         c.check(
@@ -162,9 +164,12 @@ pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 .expect(0),
         );
     });
-    c.check("slope", signals.linear_fit().slope().expect(close_to(2.)));
+    c.check(
+        "slope",
+        signals.linear_fit().slope().expect(close_to(2.).unwrap()),
+    );
     c.assert_certify();
-    let artifact = JsonlSink::append(path)?;
+    let artifact = JsonlSink::open_append(path)?;
     for record in run.dataset().records() {
         artifact.write_shared(record.clone())?;
     }
@@ -172,10 +177,10 @@ pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let direct = signals.pearson();
     let accepted = direct.expect(criterion(
         "Pearson >= 0.99",
-        CheckClass::StatisticalViolation,
+        ViolationClass::Statistical,
         |m: &Metric| m.value().is_some_and(|v| v >= 0.99),
     ));
-    certify("direct API")
+    certification("direct API")
         .check(
             "result inspection",
             fact("comparison", accepted.is_pass()).expect(true),
@@ -186,12 +191,13 @@ pub fn workflows(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn negative_workflow() {
     let request = Request { count: 0 };
-    let run = capture_observations(CaptureConfig::new().activate_namespace("pipeline"), || {
-        execute(&request)
-    });
-    let predictions = run.typed::<Prediction>().unwrap();
-    let rejected = run.typed::<Rejected>().unwrap();
-    run.certify("rejection at owning input boundary")
+    let run = capture_observations(
+        CaptureConfig::new().activate_namespace("pipeline").unwrap(),
+        || execute(&request),
+    );
+    let predictions = run.to_typed::<Prediction>().unwrap();
+    let rejected = run.to_typed::<Rejected>().unwrap();
+    run.certification("rejection at owning input boundary")
         .check_fact_expect(
             "correct failure category",
             run.result().as_ref().err(),
@@ -209,7 +215,7 @@ pub fn negative_workflow() {
             "diagnostic category",
             rejected
                 .source("rejection")
-                .select(|v| v.reason.clone())
+                .single_map(|v| v.reason.clone())
                 .expect("empty request"),
         )
         .assert_certify();

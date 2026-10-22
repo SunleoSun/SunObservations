@@ -21,7 +21,7 @@ fn scoped_capture_reuses_runtime_lazy_policy_and_span_lifecycle() {
     let run = capture_observations(config(), || {
         let _scope = start_scope(
             ScopeConfig::new("budget")
-                .override_policy::<Event>(sun_observations::Policy::FirstN(2)),
+                .override_policy::<Event>(sun_observations::Policy::first_n(2).unwrap()),
         );
         for row in 0..10 {
             observe!(Event {
@@ -38,30 +38,30 @@ fn scoped_capture_reuses_runtime_lazy_policy_and_span_lifecycle() {
         let span = observe_span!(Event { run: 1, row: 1 }).unwrap();
         span.finish().unwrap();
     });
-    run.certify("canonical capture admission")
+    run.certification("canonical capture admission")
         .check_fact_expect("lazy policy builds", built.get(), 2u64)
         .check_fact_expect(
             "policy records",
-            run.typed::<Event>().unwrap().values().len(),
+            run.to_typed::<Event>().unwrap().values().len(),
             2usize,
         )
         .check_fact_expect("complete span", span.status().is_complete(), true)
         .check_fact_expect("both span halves", span.dataset().records().len(), 2usize)
         .check_fact_expect(
             "only start decodes",
-            span.typed::<Event>().unwrap().values().len(),
+            span.to_typed::<Event>().unwrap().values().len(),
             1usize,
         )
         .assert_certify();
 }
 fn config() -> CaptureConfig {
-    CaptureConfig::new().activate_tag("evidence")
+    CaptureConfig::new().activate_tag("evidence").unwrap()
 }
 #[test]
 fn capture_preserves_results_and_canonical_selection_with_exclusions() {
     let run = capture_observations(config(), || execute(7, 64));
-    let typed = run.typed::<Event>().unwrap();
-    let mut c = run.certify("ordinary production capture");
+    let typed = run.to_typed::<Event>().unwrap();
+    let mut c = run.certification("ordinary production capture");
     c.check_fact_expect("result", *run.result().as_ref().unwrap(), 64u64);
     c.check("count", typed.source("events").count().expect(64usize));
     c.check(
@@ -73,33 +73,35 @@ fn capture_preserves_results_and_canonical_selection_with_exclusions() {
     );
     c.check_fact_expect(
         "no noisy health check",
-        run.certify("health").certify().checks,
+        run.certification("health").report().checks,
         0usize,
     );
     for selection in [
-        CaptureConfig::new().activate_namespace("capture"),
+        CaptureConfig::new().activate_namespace("capture").unwrap(),
         CaptureConfig::new()
             .activate_namespaces(["other", "capture::event"])
-            .activate_tags(["other"]),
+            .unwrap()
+            .activate_tags(["other"])
+            .unwrap(),
     ] {
         let selected = capture_observations(selection, || execute(1, 1));
         c.check_fact_expect(
             "canonical namespace",
-            selected.typed::<Event>().unwrap().values().len(),
+            selected.to_typed::<Event>().unwrap().values().len(),
             1usize,
         );
     }
     for selection in [
-        config().exclude_namespace("capture"),
-        config().exclude_namespaces(["capture::event"]),
-        config().exclude_tag("evidence"),
-        config().exclude_tags(["evidence"]),
-        CaptureConfig::new().activate_namespace("cap"),
+        config().exclude_namespace("capture").unwrap(),
+        config().exclude_namespaces(["capture::event"]).unwrap(),
+        config().exclude_tag("evidence").unwrap(),
+        config().exclude_tags(["evidence"]).unwrap(),
+        CaptureConfig::new().activate_namespace("cap").unwrap(),
     ] {
         let excluded = capture_observations(selection, || execute(1, 1));
         c.check_fact_expect(
             "canonical exclusion/boundary",
-            excluded.typed::<Event>().unwrap().values().len(),
+            excluded.to_typed::<Event>().unwrap().values().len(),
             0usize,
         );
     }
@@ -117,8 +119,8 @@ fn parallel_propagated_captures_never_mix_evidence() {
                     let child = sun_observations::context::thread::spawn(move || execute(id, 128));
                     child.join().unwrap().unwrap()
                 });
-                let typed = run.typed::<Event>().unwrap();
-                run.certify("parallel capture")
+                let typed = run.to_typed::<Event>().unwrap();
+                run.certification("parallel capture")
                     .check_fact_expect("result", *run.result(), 128u64)
                     .check("count", typed.source("events").count().expect(128usize))
                     .check(
@@ -142,19 +144,19 @@ fn nested_capture_is_exclusive_and_child_scopes_inherit_attachment() {
         execute(1, 1).unwrap();
         let inner = capture_observations(config(), || execute(2, 3));
         inner
-            .certify("inner")
+            .certification("inner")
             .check_fact_expect(
                 "only inner",
-                inner.typed::<Event>().unwrap().values().len(),
+                inner.to_typed::<Event>().unwrap().values().len(),
                 3usize,
             )
             .assert_certify();
         let _scope = start_scope(ScopeConfig::new("child"));
         execute(1, 2).unwrap();
     });
-    let typed = outer.typed::<Event>().unwrap();
+    let typed = outer.to_typed::<Event>().unwrap();
     outer
-        .certify("outer")
+        .certification("outer")
         .check_fact_expect("own evidence", typed.values().len(), 3usize)
         .check(
             "no nested evidence",
@@ -178,7 +180,7 @@ fn capture_cleans_up_on_error_and_unwind_without_assertion() {
         })
     });
     let next = capture_observations(config(), || execute(3, 1));
-    next.certify("RAII cleanup")
+    next.certification("RAII cleanup")
         .check_fact_expect(
             "application preserved",
             error.result().as_ref().err().copied(),
@@ -187,7 +189,7 @@ fn capture_cleans_up_on_error_and_unwind_without_assertion() {
         .check_fact_expect("panic propagated", panic.is_err(), true)
         .check_fact_expect(
             "clean next capture",
-            next.typed::<Event>().unwrap().values()[0].run,
+            next.to_typed::<Event>().unwrap().values()[0].run,
             3u64,
         )
         .assert_certify();
@@ -199,22 +201,22 @@ fn eviction_and_escaped_contexts_automatically_block_proof() {
         || execute(1, 40),
     );
     let report = run
-        .certify("evicted proof")
+        .certification("evicted proof")
         .check_fact_expect(
             "retained semantics",
-            run.typed::<Event>()
+            run.to_typed::<Event>()
                 .unwrap()
                 .values()
                 .iter()
                 .all(|v| v.run == 1),
             true,
         )
-        .certify();
+        .report();
     let escaped = capture_observations(config(), sun_observations::Context::capture);
     let span = capture_observations(config(), || {
         observe_span!(Event { run: 1, row: 1 }).unwrap()
     });
-    certify("capture completeness prerequisites")
+    certification("capture completeness prerequisites")
         .check_fact_expect("eviction count", run.status().retention.evicted, 30u64)
         .check_fact_expect(
             "failed despite valid retained records",
@@ -229,19 +231,19 @@ fn eviction_and_escaped_contexts_automatically_block_proof() {
         .check_fact_expect("bounded diagnostics", report.to_string().len() < 4096, true)
         .check_fact_expect(
             "escaped context",
-            escaped.certify("escape").certify().is_pass(),
+            escaped.certification("escape").report().is_pass(),
             false,
         )
         .check_fact_expect(
             "escaped span",
-            span.certify("span").certify().is_pass(),
+            span.certification("span").report().is_pass(),
             false,
         )
         .assert_certify();
 }
 #[test]
 fn concurrent_completion_cannot_hide_eviction_at_the_capture_boundary() {
-    let mut c = certify("concurrent capture finalization");
+    let mut c = certification("concurrent capture finalization");
     for _ in 0..128 {
         let barrier = Arc::new(Barrier::new(2));
         let mut worker = None;
@@ -258,7 +260,7 @@ fn concurrent_completion_cannot_hide_eviction_at_the_capture_boundary() {
             },
         );
         worker.unwrap().join().unwrap();
-        let report = run.certify("racing completion").certify();
+        let report = run.certification("racing completion").report();
         c.check_fact_expect("incomplete evidence never passes", report.is_pass(), false);
         c.check_fact_expect(
             "evaluation error",
@@ -288,7 +290,7 @@ fn serialization_failure_is_charged_to_the_frozen_admission_context() {
         let _ = observe!(Switch(guard.clone()));
         drop(guard.borrow_mut().take());
     });
-    certify("frozen emission health")
+    certification("frozen emission health")
         .check_fact_expect(
             "original capture failure",
             run.status().emission_errors,
@@ -296,7 +298,7 @@ fn serialization_failure_is_charged_to_the_frozen_admission_context() {
         )
         .check_fact_expect(
             "proof blocked",
-            run.certify("failed").certify().is_pass(),
+            run.certification("failed").report().is_pass(),
             false,
         )
         .assert_certify();
@@ -315,11 +317,11 @@ fn ignored_serialization_failure_still_blocks_capture_proof() {
     let run = capture_observations(CaptureConfig::new().activate_all(), || {
         let _ = observe!(Broken);
     });
-    certify("capture error accounting")
+    certification("capture error accounting")
         .check_fact_expect("emission failure", run.status().emission_errors, 1u64)
         .check_fact_expect(
             "cannot prove completeness",
-            run.certify("broken").certify().failures[0].class,
+            run.certification("broken").report().failures[0].class,
             CheckClass::EvaluationError,
         )
         .assert_certify();

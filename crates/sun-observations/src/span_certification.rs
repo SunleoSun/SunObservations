@@ -14,10 +14,10 @@ impl Observation for Work {
 }
 #[test]
 fn concurrent_pairs_freeze_scope_routing_and_budget_through_mutation_and_unwind() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "concurrent pairs freeze scope routing and budget through mutation and unwind",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let old = Arc::new(MemorySink::new());
     let new = Arc::new(MemorySink::new());
     engine.register_namespace_channel("spans", "route").unwrap();
@@ -25,7 +25,7 @@ fn concurrent_pairs_freeze_scope_routing_and_budget_through_mutation_and_unwind(
     let scope = start_scope(
         ScopeConfig::new("origin")
             .activate_all()
-            .override_policy::<Work>(Policy::FirstN(101)),
+            .override_policy::<Work>(Policy::first_n(101).unwrap()),
     );
     let context = Context::capture();
     let active = std::thread::scope(|threads| {
@@ -59,7 +59,7 @@ fn concurrent_pairs_freeze_scope_routing_and_budget_through_mutation_and_unwind(
     );
     engine.clear_channel_sinks("route");
     engine.add_channel_sink("route", new.clone());
-    engine.set_selection(Selection::new().exclude_namespace("spans"));
+    engine.set_selection(Selection::new().exclude_namespace("spans").unwrap());
     drop(scope);
     last.finish().unwrap();
     certification.check_fact_expect("new.is_empty()", new.is_empty(), true);
@@ -113,6 +113,9 @@ fn concurrent_pairs_freeze_scope_routing_and_budget_through_mutation_and_unwind(
 }
 struct EndFailure;
 impl Sink for EndFailure {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, record: &ObservationRecord) -> io::Result<()> {
         if record.phase == Some(Phase::End) {
             Err(io::Error::other("end"))
@@ -123,10 +126,10 @@ impl Sink for EndFailure {
 }
 #[test]
 fn explicit_end_failure_consumes_one_end_and_one_checked_error() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "explicit end failure consumes one end and one checked error",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let memory = Arc::new(MemorySink::new());
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("spans", "route").unwrap();
@@ -169,12 +172,16 @@ mod lifecycle {
 
     #[test]
     fn start_end_share_identity_scope_and_frozen_routing() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "start end share identity scope and frozen routing",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = capture(&engine, "span_tests");
-        let scope = start_scope(ScopeConfig::new("fit-run").activate_namespace("span_tests"));
+        let scope = start_scope(
+            ScopeConfig::new("fit-run")
+                .activate_namespace("span_tests")
+                .unwrap(),
+        );
         let span = engine.span_if_active(|| Fit { samples: 42 }).unwrap();
         certification.check_fact_expect("span.is_active()", span.is_active(), true);
         certification.check_fact_expect("sink.len()", &(sink.len()), &(1));
@@ -215,10 +222,10 @@ mod lifecycle {
 
     #[test]
     fn rejected_spans_are_lazy_and_have_no_partial_lifecycle() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "rejected spans are lazy and have no partial lifecycle",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = capture(&engine, "span_tests");
         let calls = AtomicUsize::new(0);
         let build = || Fit {
@@ -233,6 +240,7 @@ mod lifecycle {
             let _scope = start_scope(
                 ScopeConfig::new("never")
                     .activate_namespace("span_tests")
+                    .unwrap()
                     .override_policy::<Fit>(Policy::Never),
             );
             certification.check_fact_expect(
@@ -245,7 +253,9 @@ mod lifecycle {
             let _scope = start_scope(
                 ScopeConfig::new("excluded")
                     .activate_namespace("span_tests")
-                    .exclude_namespace("span_tests"),
+                    .unwrap()
+                    .exclude_namespace("span_tests")
+                    .unwrap(),
             );
             certification.check_fact_expect(
                 "engine.span_if_active(build).unwrap().is_active()",
@@ -264,11 +274,15 @@ mod lifecycle {
 
     #[test]
     fn macro_spans_have_distinct_ids_and_end_during_unwind() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "macro spans have distinct ids and end during unwind",
         );
         let sink = capture(global(), "span_tests::fit");
-        let _scope = start_scope(ScopeConfig::new("unwind").activate_namespace("span_tests"));
+        let _scope = start_scope(
+            ScopeConfig::new("unwind")
+                .activate_namespace("span_tests")
+                .unwrap(),
+        );
         let result = std::panic::catch_unwind(|| {
             let _a = observe_span!(Fit { samples: 1 }).unwrap();
             let _b = observe_span!(Fit { samples: 2 }).unwrap();
@@ -294,15 +308,16 @@ mod lifecycle {
 
     #[test]
     fn policy_counts_one_span_not_its_lifecycle_records() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "policy counts one span not its lifecycle records",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = capture(&engine, "span_tests");
         let _scope = start_scope(
             ScopeConfig::new("policy")
                 .activate_namespace("span_tests")
-                .override_policy::<Fit>(Policy::EveryN(2)),
+                .unwrap()
+                .override_policy::<Fit>(Policy::every_n(2).unwrap()),
         );
         for accepted in [false, true, false, true] {
             let span = engine.span_if_active(|| Fit { samples: 10 }).unwrap();
@@ -324,11 +339,14 @@ mod lifecycle {
 
     #[test]
     fn explicit_finish_reports_end_error_and_never_retries() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "explicit finish reports end error and never retries",
         );
         struct FailEnd(AtomicUsize);
         impl Sink for FailEnd {
+            fn flush(&self) -> std::io::Result<()> {
+                Ok(())
+            }
             fn write(&self, _: &crate::ObservationRecord) -> std::io::Result<()> {
                 if self.0.fetch_add(1, Ordering::Relaxed) == 0 {
                     Ok(())
@@ -337,7 +355,7 @@ mod lifecycle {
                 }
             }
         }
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = Arc::new(FailEnd(AtomicUsize::new(0)));
         engine.add_channel_sink("end", sink.clone());
         engine

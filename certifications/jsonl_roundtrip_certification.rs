@@ -1,12 +1,12 @@
 use sun_observations::certifications::*;
-use sun_observations_certifications::{certify as run_scenario, pair, validate};
+use sun_observations_certifications::{pair, run_scenario, validate};
 #[test]
 fn independent_v1_consumer_validates_diverse_payloads_and_lifecycle() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "roundtrip");
-    let mut c = certify("independent v1 consumer");
+    let mut c = certification("independent v1 consumer");
     c.check(
         "record count",
-        source_slice("persisted records", &records)
+        collection("persisted records", &records)
             .count()
             .expect(1004usize),
     );
@@ -19,7 +19,7 @@ fn independent_v1_consumer_validates_diverse_payloads_and_lifecycle() {
             let next = r["proc_ms"].as_u64().unwrap();
             c.check(
                 "monotonic clock",
-                fact("elapsed milliseconds", next).expect(Criterion::AtLeast(elapsed)),
+                fact("elapsed milliseconds", next).expect(Criterion::at_least(elapsed).unwrap()),
             );
             elapsed = next;
         }

@@ -34,20 +34,26 @@ impl JsonlConfig {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn flush_ms(mut self, ms: u64) -> Self {
+    pub fn flush_interval_ms(mut self, ms: u64) -> io::Result<Self> {
         self.interval = Duration::from_millis(ms);
-        self
+        self.validate()?;
+        Ok(self)
     }
-    pub fn file_size_mb(self, mib: u64) -> Self {
-        self.max_file_size_bytes(mib.saturating_mul(1024 * 1024))
+    pub fn max_file_size_mb(self, mib: u64) -> io::Result<Self> {
+        let bytes = mib
+            .checked_mul(1024 * 1024)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "MiB limit overflow"))?;
+        self.max_file_size_bytes(bytes)
     }
-    pub fn max_file_size_bytes(mut self, bytes: u64) -> Self {
+    pub fn max_file_size_bytes(mut self, bytes: u64) -> io::Result<Self> {
         self.max_bytes = Some(bytes);
-        self
+        self.validate()?;
+        Ok(self)
     }
-    pub fn trim_fraction(mut self, fraction: f64) -> Self {
+    pub fn trim_fraction(mut self, fraction: f64) -> io::Result<Self> {
         self.trim = fraction;
-        self
+        self.validate()?;
+        Ok(self)
     }
     fn validate(&self) -> io::Result<()> {
         if self.interval.is_zero()
@@ -59,7 +65,7 @@ impl JsonlConfig {
             || self.trim <= 0.0
             || self.trim >= 1.0
         {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "flush_ms and file size must be positive; trim_fraction must be finite and between 0 and 1"));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "flush_interval_ms and file size must be positive; trim_fraction must be finite and between 0 and 1"));
         }
         Ok(())
     }
@@ -151,7 +157,7 @@ pub struct JsonlSink {
     status: Arc<Status>,
 }
 impl JsonlSink {
-    pub fn append(path: impl AsRef<Path>) -> io::Result<Self> {
+    pub fn open_append(path: impl AsRef<Path>) -> io::Result<Self> {
         Self::with_config(path, JsonlConfig::default())
     }
     /// Validates configuration only. File open/permission errors surface asynchronously via flush.
@@ -159,7 +165,7 @@ impl JsonlSink {
         Self::create(Destination::File(path.as_ref().to_owned()), config)
     }
     /// Custom writers use the same asynchronous path; size retention only applies to files.
-    pub fn new(writer: impl Write + Send + 'static) -> Self {
+    pub fn from_writer(writer: impl Write + Send + 'static) -> Self {
         Self::writer_with_config(writer, JsonlConfig::default()).expect("valid default config")
     }
     pub fn writer_with_config(
@@ -175,7 +181,6 @@ impl JsonlSink {
         Self::create(Destination::Writer(Box::new(writer)), config)
     }
     fn create(destination: Destination, config: JsonlConfig) -> io::Result<Self> {
-        config.validate()?;
         Ok(Self {
             destination: Mutex::new(Some(destination)),
             config,

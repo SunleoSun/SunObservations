@@ -1,7 +1,7 @@
-use crate::namespace::{is_normalized_segment, prefixes, validate_namespace};
+use crate::namespace::{prefixes, validate_namespace, validate_tag, InvalidNamespace, InvalidTag};
 use std::collections::HashSet;
 
-/// Empty selection disables everything. Builder methods panic on invalid metadata.
+/// Empty selection disables everything; dynamic identities are validated at construction.
 #[derive(Clone, Debug, Default)]
 pub struct Selection {
     all: bool,
@@ -19,41 +19,47 @@ impl Selection {
         self.all = true;
         self
     }
-    pub fn activate_namespace(mut self, namespace: impl Into<String>) -> Self {
+    pub fn activate_namespace(
+        mut self,
+        namespace: impl Into<String>,
+    ) -> Result<Self, InvalidNamespace> {
         let namespace = namespace.into();
-        validate_namespace(&namespace).expect("invalid activation namespace");
+        validate_namespace(&namespace)?;
         self.namespaces.insert(namespace);
-        self
+        Ok(self)
     }
-    pub fn exclude_namespace(mut self, namespace: impl Into<String>) -> Self {
+    pub fn exclude_namespace(
+        mut self,
+        namespace: impl Into<String>,
+    ) -> Result<Self, InvalidNamespace> {
         let namespace = namespace.into();
-        validate_namespace(&namespace).expect("invalid exclusion namespace");
+        validate_namespace(&namespace)?;
         self.excluded_namespaces.insert(namespace);
-        self
+        Ok(self)
     }
-    pub fn activate_tags<I, S>(mut self, tags: I) -> Self
+    pub fn activate_tags<I, S>(mut self, tags: I) -> Result<Self, InvalidTag>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
         for tag in tags {
             let tag = tag.into();
-            assert!(is_normalized_segment(&tag), "invalid tag");
+            validate_tag(&tag)?;
             self.tags.insert(tag);
         }
-        self
+        Ok(self)
     }
-    pub fn exclude_tags<I, S>(mut self, tags: I) -> Self
+    pub fn exclude_tags<I, S>(mut self, tags: I) -> Result<Self, InvalidTag>
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
     {
         for tag in tags {
             let tag = tag.into();
-            assert!(is_normalized_segment(&tag), "invalid tag");
+            validate_tag(&tag)?;
             self.excluded_tags.insert(tag);
         }
-        self
+        Ok(self)
     }
     pub fn activates(&self, namespace: &str, tags: &[&str]) -> bool {
         self.all

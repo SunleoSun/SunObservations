@@ -32,7 +32,7 @@ fn main() {
         }
         sink.flush().unwrap();
     } else {
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         engine.set_selection(Selection::new().activate_all());
         engine
             .register_namespace_channel("console", "human")

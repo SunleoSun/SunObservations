@@ -27,7 +27,7 @@ fn assert_rejected<T: Debug, V: Debug>(
             "{name}"
         );
     }
-    let mut c = certify(name);
+    let mut c = certification(name);
     c.limits(DiagnosticLimits {
         failures: 1,
         characters_per_failure: 512,
@@ -36,7 +36,7 @@ fn assert_rejected<T: Debug, V: Debug>(
         c.check(name, result);
     });
     c.check_fact_expect("independent healthy path", true, true);
-    let report = c.certify();
+    let report = c.report();
     assert!(!report.is_pass(), "{name}");
     assert_eq!(
         (report.checks, report.failed, report.failures.len()),
@@ -81,13 +81,11 @@ fn ordinary_and_custom_expectations_fail_only_at_final_boundaries() {
     assert_rejected("explicit equality", fact("value", 1).expect(Equal(2)), hard);
     assert_rejected("inequality", fact("value", 1).expect(NotEqual(1)), hard);
     for rule in [
-        Criterion::Equal(2),
-        Criterion::NotEqual(1),
-        Criterion::Greater(1),
-        Criterion::AtLeast(2),
-        Criterion::Less(1),
-        Criterion::AtMost(0),
-        Criterion::Range { min: 2, max: 3 },
+        Criterion::greater_than(1).unwrap(),
+        Criterion::at_least(2).unwrap(),
+        Criterion::less_than(1).unwrap(),
+        Criterion::at_most(0).unwrap(),
+        Criterion::between(2, 3).unwrap(),
     ] {
         assert_rejected(
             &format!("criterion {rule:?}"),
@@ -95,16 +93,23 @@ fn ordinary_and_custom_expectations_fail_only_at_final_boundaries() {
             hard,
         );
     }
-    for class in [hard, CheckClass::StatisticalViolation] {
+    for class in [ViolationClass::Hard, ViolationClass::Statistical] {
         assert_rejected(
             "custom predicate",
             fact("value", 1).expect(criterion("positive", class, |v: &i32| *v > 1)),
-            class,
+            class.into(),
         );
     }
     assert_rejected(
         "proximity",
-        fact("value", 2.).expect(close_to(1.).absolute(0.01).relative(0.)),
+        fact("value", 2.).expect(
+            close_to(1.)
+                .unwrap()
+                .absolute_tolerance(0.01)
+                .unwrap()
+                .relative_tolerance(0.)
+                .unwrap(),
+        ),
         hard,
     );
     for rule in [
@@ -120,7 +125,7 @@ fn ordinary_and_custom_expectations_fail_only_at_final_boundaries() {
     }
     for (value, rule) in [
         (f64::NAN, NumericRule::Finite),
-        (2., NumericRule::Range { min: 0., max: 1. }),
+        (2., NumericRule::between(0., 1.).unwrap()),
         (0., NumericRule::Positive),
         (-1., NumericRule::NonNegative),
     ] {
@@ -136,8 +141,8 @@ fn ordinary_and_custom_expectations_fail_only_at_final_boundaries() {
 fn structural_expectations_and_pair_diagnostics_reach_final_boundaries() {
     let rows = [(0u64, 1.), (1, 2.), (2, 3.)];
     let other = [(0u64, 10.), (1, 20.), (2, 30.)];
-    let a = source_slice("producer", &rows);
-    let b = source_slice("consumer", &other);
+    let a = collection("producer", &rows);
+    let b = collection("consumer", &other);
     let pair = a.compare_with(&b).on(|v| v.0, |v| v.0);
     assert_rejected(
         "duplicate keys",
@@ -162,11 +167,11 @@ fn structural_expectations_and_pair_diagnostics_reach_final_boundaries() {
         pair.check_pairs(|l, r| l.1 > r.1, 1).expect_valid(),
         CheckClass::HardViolation,
     );
-    let b = source_slice("incomplete consumer", &other[..2]);
+    let b = collection("incomplete consumer", &other[..2]);
     let incomplete = a.compare_with(&b).on(|v| v.0, |v| v.0);
     assert_rejected(
         "incomplete comparison",
-        incomplete.comparison_fact().expect_valid(),
+        incomplete.paired_comparison_fact().expect_valid(),
         CheckClass::HardViolation,
     );
     assert_rejected(
@@ -179,7 +184,7 @@ fn structural_expectations_and_pair_diagnostics_reach_final_boundaries() {
         incomplete
             .numeric(|v| v.1, |v| v.1)
             .correlation()
-            .expect(CorrelationExpectation::positive(0.9).unwrap()),
+            .expect(CorrelationExpectation::spearman_at_least(0.9).unwrap()),
         CheckClass::EvaluationError,
     );
 }
@@ -187,7 +192,7 @@ fn structural_expectations_and_pair_diagnostics_reach_final_boundaries() {
 #[test]
 fn each_correlation_measure_independently_fails_final_proof() {
     let values = [(1., 9.), (2., 7.), (3., 5.), (4., 3.)];
-    let a = source_slice("left", &values);
+    let a = collection("left", &values);
     let pair = a.compare_with(&a).on(|v| v.0 as u64, |v| v.0 as u64);
     let numeric = pair.numeric(|v| v.0, |v| v.1);
     for measure in [
@@ -204,11 +209,9 @@ fn each_correlation_measure_independently_fails_final_proof() {
         };
         assert_rejected(
             &format!("correlation {measure:?}"),
-            numeric.correlation().expect(
-                CorrelationExpectation::default()
-                    .bound(measure, min, max)
-                    .unwrap(),
-            ),
+            numeric
+                .correlation()
+                .expect(CorrelationExpectation::with_bound(measure, min, max).unwrap()),
             CheckClass::StatisticalViolation,
         );
     }
@@ -217,7 +220,7 @@ fn each_correlation_measure_independently_fails_final_proof() {
 #[test]
 fn each_fit_and_difference_measure_independently_fails_final_proof() {
     let values = [(1., 5.), (2., 10.), (3., 9.), (4., 16.)];
-    let a = source_slice("left", &values);
+    let a = collection("left", &values);
     let pair = a.compare_with(&a).on(|v| v.0 as u64, |v| v.0 as u64);
     let numeric = pair.numeric(|v| v.0, |v| v.1);
     for measure in [
@@ -229,11 +232,9 @@ fn each_fit_and_difference_measure_independently_fails_final_proof() {
     ] {
         assert_rejected(
             &format!("fit {measure:?}"),
-            numeric.linear_fit().expect(
-                LinearFitExpectation::default()
-                    .bound(measure, None, Some(-1.))
-                    .unwrap(),
-            ),
+            numeric
+                .linear_fit()
+                .expect(LinearFitExpectation::with_bound(measure, None, Some(-1.)).unwrap()),
             CheckClass::StatisticalViolation,
         );
     }
@@ -244,23 +245,20 @@ fn each_fit_and_difference_measure_independently_fails_final_proof() {
     ] {
         assert_rejected(
             &format!("difference {measure:?}"),
-            numeric.difference().expect(
-                DifferenceExpectation::default()
-                    .bound(measure, None, Some(-1.))
-                    .unwrap(),
-            ),
+            numeric
+                .difference()
+                .expect(DifferenceExpectation::with_bound(measure, None, Some(-1.)).unwrap()),
             CheckClass::StatisticalViolation,
         );
     }
 }
 
 #[test]
-fn every_composite_relation_measure_fails_for_metrics_and_owned_reports() {
+fn every_composite_relation_measure_fails_for_prepared_metrics() {
     let values = [(1., 19.), (2., 16.), (3., 11.), (4., 4.)];
-    let a = source_slice("left", &values);
+    let a = collection("left", &values);
     let pair = a.compare_with(&a).on(|v| v.0 as u64, |v| v.0 as u64);
     let numeric = pair.numeric(|v| v.0, |v| v.1);
-    let joined = join_by(&values, &values, |v| v.0 as u64, |v| v.0 as u64);
     for measure in [
         RelationMeasure::Pearson,
         RelationMeasure::Spearman,
@@ -284,17 +282,10 @@ fn every_composite_relation_measure_fails_for_metrics_and_owned_reports() {
             }
             _ => (None, Some(-1.)),
         };
-        let expected = RelationExpectation::default()
-            .bound(measure, min, max)
-            .unwrap();
+        let expected = RelationExpectation::with_bound(measure, min, max).unwrap();
         assert_rejected(
             &format!("relation metrics {measure:?}"),
             numeric.relation().expect(expected.clone()),
-            CheckClass::StatisticalViolation,
-        );
-        assert_rejected(
-            &format!("relation report {measure:?}"),
-            try_fact("owned report", joined.numeric_relation(|v| v.0, |v| v.1, 1)).expect(expected),
             CheckClass::StatisticalViolation,
         );
     }
@@ -303,7 +294,7 @@ fn every_composite_relation_measure_fails_for_metrics_and_owned_reports() {
 #[test]
 fn anomaly_jump_and_group_failures_cannot_silently_pass() {
     let values = [0., 0., 0., 10.];
-    let a = source_slice("anomalies", &values);
+    let a = collection("anomalies", &values);
     assert_rejected(
         "outliers",
         a.numeric(|v| *v)
@@ -314,26 +305,14 @@ fn anomaly_jump_and_group_failures_cannot_silently_pass() {
     assert_rejected(
         "jumps",
         a.numeric(|v| *v)
-            .jumps(JumpConfig {
-                absolute_threshold: Some(1.),
-                relative_threshold: None,
-                denominator_floor: 1.,
-            })
+            .jumps(JumpConfig::new(Some(1.), None, 1.).unwrap())
             .expect(AtMostAnomalies(0)),
         CheckClass::StatisticalViolation,
     );
     let groups = a.group_by(|_| "group");
     for expectation in [
-        GroupExpectation {
-            minimum_count: 5,
-            mean_min: 0.,
-            mean_max: 10.,
-        },
-        GroupExpectation {
-            minimum_count: 1,
-            mean_min: 0.,
-            mean_max: 1.,
-        },
+        GroupExpectation::new(5, 0., 10.).unwrap(),
+        GroupExpectation::new(1, 0., 1.).unwrap(),
     ] {
         assert_rejected(
             "group violation",
@@ -347,7 +326,7 @@ fn anomaly_jump_and_group_failures_cannot_silently_pass() {
 fn every_lag_failure_reason_reaches_final_boundaries() {
     let values = [(0, 0.), (1, 1.), (2, 4.), (3, 9.)];
     let config = LagConfig {
-        range: LagRange { start: 0, end: 0 },
+        range: LagRange::new(0, 0).unwrap(),
         measure: LagMeasure::Pearson,
     };
     let full = lag_relation_by(&values, &values, |v| *v, |v| *v, config).unwrap();
@@ -379,13 +358,9 @@ fn every_lag_failure_reason_reaches_final_boundaries() {
         CheckClass::StatisticalViolation,
     );
     assert_rejected(
-        "direct lag evaluation",
-        try_fact("lag", LagExpectation { best_lag: 1 }.evaluate(full)).expect(criterion(
-            "available",
-            CheckClass::HardViolation,
-            |_: &LagReport| true,
-        )),
-        CheckClass::EvaluationError,
+        "lag expectation",
+        fact("lag", full).expect(LagExpectation { best_lag: 1 }),
+        CheckClass::StatisticalViolation,
     );
 }
 
@@ -394,8 +369,8 @@ fn unavailable_invalid_and_undefined_evidence_fails_closed_at_final_boundaries()
     let error = CheckClass::EvaluationError;
     assert_rejected(
         "empty scalar selection",
-        source_slice::<usize>("empty", &[])
-            .select(|v| *v)
+        collection::<usize>("empty", &[])
+            .single_map(|v| *v)
             .expect(1usize),
         error,
     );
@@ -404,105 +379,92 @@ fn unavailable_invalid_and_undefined_evidence_fails_closed_at_final_boundaries()
         try_fact("artifact", Err::<usize, _>("missing artifact")).expect(1usize),
         error,
     );
-    assert_rejected(
-        "invalid criterion",
-        fact("value", 1).expect(Criterion::Range { min: 2, max: 1 }),
-        error,
-    );
+    assert!(Criterion::between(2, 1).is_err());
     assert_rejected(
         "incomparable",
-        fact("value", f64::NAN).expect(Criterion::Greater(0.)),
+        fact("value", f64::NAN).expect(Criterion::greater_than(0.).unwrap()),
         error,
     );
-    assert_rejected(
-        "invalid numeric bounds",
-        fact("value", 1.).expect(NumericRule::Range { min: 2., max: 1. }),
-        error,
-    );
+    assert!(NumericRule::between(2., 1.).is_err());
     assert_rejected(
         "nonfinite proximity",
-        fact("value", f64::INFINITY).expect(close_to(1.)),
+        fact("value", f64::INFINITY).expect(close_to(1.).unwrap()),
         error,
     );
-    assert_rejected(
-        "invalid predicate class",
-        fact("value", 1).expect(criterion("invalid", CheckClass::Pass, |_: &i32| true)),
-        error,
-    );
-    let a = source_slice("invalid data", &[f64::NAN]);
+
+    let a = collection("invalid data", &[f64::NAN]);
     assert_rejected(
         "invalid summary",
         a.numeric(|v| *v).summary().expect(criterion(
             "available",
-            CheckClass::HardViolation,
+            ViolationClass::Hard,
             |_: &Summary| true,
         )),
         error,
     );
     assert_rejected(
         "invalid group",
-        fact("groups", a.group_by(|_| 0).numeric(|v| *v).summaries()).expect(GroupExpectation {
-            minimum_count: 1,
-            mean_min: 0.,
-            mean_max: 1.,
-        }),
+        fact("groups", a.group_by(|_| 0).numeric(|v| *v).summaries())
+            .expect(GroupExpectation::new(1, 0., 1.).unwrap()),
         error,
     );
     let pairs = [(1., 2.), (1., 2.)];
     assert_rejected(
         "undefined correlation",
         try_fact("constant", correlation(pairs.into_iter()))
-            .expect(CorrelationExpectation::positive(0.9).unwrap()),
+            .expect(CorrelationExpectation::spearman_at_least(0.9).unwrap()),
         error,
     );
     assert_rejected(
         "undefined fit",
         try_fact("constant", linear_fit(pairs.into_iter()))
-            .expect(LinearFitExpectation::default().slope(0., 1.).unwrap()),
+            .expect(LinearFitExpectation::slope_between(0., 1.).unwrap()),
         error,
     );
     assert_rejected(
         "undefined scalar fit",
         try_fact("constant", linear_fit(pairs.into_iter()))
             .slope()
-            .expect(close_to(1.)),
+            .expect(close_to(1.).unwrap()),
         error,
     );
     assert_rejected(
         "undefined relation",
         try_fact("constant", numeric_relation(pairs.into_iter()))
-            .expect(RelationExpectation::positive(0.9).unwrap()),
+            .expect(RelationExpectation::spearman_at_least(0.9).unwrap()),
         error,
     );
     let rows = [(0, 1.), (1, 2.), (2, 3.)];
-    let joined = join_by(&rows, &rows, |v| v.0, |v| v.0);
-    let report = joined.numeric_relation(|v| v.1, |v| v.1, 1).unwrap();
-    let expected = RelationExpectation::negative(-0.9).unwrap();
+    let source = collection("rows", &rows);
+    let joined = source.compare_with(&source).on(|v| v.0, |v| v.0);
+    let report = joined
+        .numeric(|v| v.1, |v| v.1)
+        .relation()
+        .observed
+        .unwrap();
+    let expected = RelationExpectation::spearman_at_most(-0.9).unwrap();
     assert_rejected(
-        "direct relation evaluation",
-        try_fact("relation", expected.evaluate(report)).expect(criterion(
-            "available",
-            CheckClass::HardViolation,
-            |_: &RelationReport<i32>| true,
-        )),
-        error,
+        "relation expectation",
+        fact("relation", report).expect(expected),
+        CheckClass::StatisticalViolation,
     );
-    let mut incomplete = joined.numeric_relation(|v| v.1, |v| v.1, 1).unwrap();
-    incomplete.comparison = join_by(&rows, &rows[..2], |v| v.0, |v| v.0)
-        .comparison()
-        .clone();
+    let partial = collection("partial", &rows[..2]);
+    let incomplete = source.compare_with(&partial).on(|v| v.0, |v| v.0);
     assert_rejected(
-        "incomplete relation report",
-        fact("relation", incomplete).expect(RelationExpectation::positive(0.9).unwrap()),
+        "incomplete relation",
+        incomplete
+            .numeric(|v| v.1, |v| v.1)
+            .relation()
+            .expect(RelationExpectation::spearman_at_least(0.9).unwrap()),
         error,
     );
 }
 
 #[test]
 fn compact_failure_entrypoint_reaches_both_final_boundaries() {
-    let mut c = certify("compact acceptance");
+    let mut c = certification("compact acceptance");
     c.check_fact_expect("wrong value", 1, 2);
-    let report = c.certify();
+    let report = c.report();
     assert_eq!(
         (report.checks, report.failed, report.failures.len()),
         (1, 1, 1)
@@ -515,7 +477,7 @@ fn compact_failure_entrypoint_reaches_both_final_boundaries() {
 
 #[test]
 fn positive_final_assertions_are_silent_for_both_boundaries() {
-    let mut c = certify("healthy proof");
+    let mut c = certification("healthy proof");
     c.check_fact_expect("ordinary", 1, 1);
     c.check(
         "statistical",
@@ -523,9 +485,9 @@ fn positive_final_assertions_are_silent_for_both_boundaries() {
             "relation",
             correlation([(1., 2.), (2., 4.), (3., 6.)].into_iter()),
         )
-        .expect(CorrelationExpectation::positive(0.9).unwrap()),
+        .expect(CorrelationExpectation::spearman_at_least(0.9).unwrap()),
     );
-    let report = c.certify();
+    let report = c.report();
     assert!(report.is_pass());
     assert_eq!(
         (report.checks, report.failed, report.failures.len()),

@@ -14,6 +14,27 @@ impl fmt::Display for InvalidNamespace {
 }
 impl Error for InvalidNamespace {}
 
+/// Invalid dynamic single-segment tag identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InvalidTag(pub String);
+impl fmt::Display for InvalidTag {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            out,
+            "invalid tag {:?}: expected one normalized segment",
+            self.0
+        )
+    }
+}
+impl Error for InvalidTag {}
+pub fn validate_tag(value: &str) -> Result<(), InvalidTag> {
+    if is_normalized_segment(value) {
+        Ok(())
+    } else {
+        Err(InvalidTag(value.into()))
+    }
+}
+
 pub fn is_normalized_segment(value: &str) -> bool {
     let mut bytes = value.bytes();
     bytes.next().is_some_and(|c| c.is_ascii_lowercase())

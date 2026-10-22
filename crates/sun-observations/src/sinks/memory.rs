@@ -112,6 +112,9 @@ impl MemorySink {
     }
 }
 impl Sink for MemorySink {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, record: &ObservationRecord) -> io::Result<()> {
         self.write_shared(Arc::new(record.clone()))
     }

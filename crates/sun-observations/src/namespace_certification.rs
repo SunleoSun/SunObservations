@@ -12,10 +12,10 @@ struct Child;
 struct Sibling;
 #[test]
 fn explicit_identity_selection_and_routes_share_segment_boundaries() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "explicit identity selection and routes share segment boundaries",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let sink = Arc::new(MemorySink::new());
     engine.add_channel_sink("train", sink.clone());
     engine
@@ -42,7 +42,11 @@ fn explicit_identity_selection_and_routes_share_segment_boundaries() {
         &(engine.generation()),
         &(attached_generation),
     );
-    engine.set_selection(Selection::new().activate_namespace("compute::train"));
+    engine.set_selection(
+        Selection::new()
+            .activate_namespace("compute::train")
+            .unwrap(),
+    );
     certification.check_fact_expect(
         "engine.observe_if_active(|| Renamed).unwrap()",
         engine.observe_if_active(|| Renamed).unwrap(),
@@ -88,7 +92,7 @@ mod grammar {
     #[test]
     fn lowercase_segment_contract() {
         let mut certification =
-            sun_observations::certifications::certify("lowercase segment contract");
+            sun_observations::certifications::certification("lowercase segment contract");
         for valid in ["a", "alpha_2", "alpha::beta2::gamma_3"] {
             certification.check_fact_expect(
                 "validate_namespace(valid).is_ok()",
@@ -120,7 +124,7 @@ mod grammar {
     #[test]
     fn subtree_is_segment_aware() {
         let mut certification =
-            sun_observations::certifications::certify("subtree is segment aware");
+            sun_observations::certifications::certification("subtree is segment aware");
         certification.check_fact_expect(
             "matches_subtree(\"compute::train\", \"compute::train\")",
             matches_subtree("compute::train", "compute::train"),

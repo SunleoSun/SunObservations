@@ -7,16 +7,19 @@ use std::sync::{
 
 #[test]
 fn admitted_sink_failure_consumes_budget_and_serialization_failure_reaches_no_sink() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "admitted sink failure consumes budget and serialization failure reaches no sink",
     );
     struct Failure;
     impl Sink for Failure {
+        fn flush(&self) -> std::io::Result<()> {
+            Ok(())
+        }
         fn write(&self, _: &ObservationRecord) -> std::io::Result<()> {
             Err(std::io::Error::other("sink"))
         }
     }
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let memory = Arc::new(MemorySink::new());
     engine.set_selection(Selection::new().activate_all());
     engine
@@ -24,8 +27,9 @@ fn admitted_sink_failure_consumes_budget_and_serialization_failure_reaches_no_si
         .unwrap();
     engine.add_channel_sink("sinks", Arc::new(Failure));
     engine.add_channel_sink("sinks", memory.clone());
-    let _scope =
-        start_scope(ScopeConfig::new("budget").override_policy::<Event>(Policy::FirstN(1)));
+    let _scope = start_scope(
+        ScopeConfig::new("budget").override_policy::<Event>(Policy::first_n(1).unwrap()),
+    );
     certification.check_fact_expect(
         "engine.observe_if_active(|| Event).is_err()",
         engine.observe_if_active(|| Event).is_err(),
@@ -66,10 +70,10 @@ fn admitted_sink_failure_consumes_budget_and_serialization_failure_reaches_no_si
 struct Event;
 #[test]
 fn activation_union_and_exclusion_veto_remain_lazy_at_every_boundary() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "activation union and exclusion veto remain lazy at every boundary",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     certification.check_fact_expect(
         "engine .observe_if_active::<Event, _>(|| panic!(\"empty\")) .unwrap()",
         engine
@@ -78,8 +82,8 @@ fn activation_union_and_exclusion_veto_remain_lazy_at_every_boundary() {
         false,
     );
     for global in [
-        Selection::new().activate_namespace("admission"),
-        Selection::new().activate_tags(["detail"]),
+        Selection::new().activate_namespace("admission").unwrap(),
+        Selection::new().activate_tags(["detail"]).unwrap(),
     ] {
         engine.set_selection(global);
         certification.check_fact_expect(
@@ -88,8 +92,10 @@ fn activation_union_and_exclusion_veto_remain_lazy_at_every_boundary() {
             true,
         );
         for local in [
-            ScopeConfig::new("veto").exclude_namespace("admission"),
-            ScopeConfig::new("veto").exclude_tags(["detail"]),
+            ScopeConfig::new("veto")
+                .exclude_namespace("admission")
+                .unwrap(),
+            ScopeConfig::new("veto").exclude_tags(["detail"]).unwrap(),
         ] {
             let _guard = start_scope(local);
             certification.check_fact_expect(
@@ -102,8 +108,10 @@ fn activation_union_and_exclusion_veto_remain_lazy_at_every_boundary() {
         }
     }
     for local in [
-        ScopeConfig::new("local").activate_namespace("admission"),
-        ScopeConfig::new("local").activate_tags(["detail"]),
+        ScopeConfig::new("local")
+            .activate_namespace("admission")
+            .unwrap(),
+        ScopeConfig::new("local").activate_tags(["detail"]).unwrap(),
     ] {
         engine.set_selection(Selection::new());
         let _guard = start_scope(local);
@@ -113,8 +121,8 @@ fn activation_union_and_exclusion_veto_remain_lazy_at_every_boundary() {
             true,
         );
         for global in [
-            Selection::new().exclude_namespace("admission"),
-            Selection::new().exclude_tags(["detail"]),
+            Selection::new().exclude_namespace("admission").unwrap(),
+            Selection::new().exclude_tags(["detail"]).unwrap(),
         ] {
             engine.set_selection(global);
             certification.check_fact_expect(
@@ -151,13 +159,14 @@ impl Observation for Probe {
 }
 #[test]
 fn admitted_failures_consume_policy_but_rejections_do_not_and_sinkless_callbacks_run() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "admitted failures consume policy but rejections do not and sinkless callbacks run",
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let calls = Arc::new(AtomicUsize::new(0));
-    let _scope =
-        start_scope(ScopeConfig::new("budget").override_policy::<Probe>(Policy::FirstN(2)));
+    let _scope = start_scope(
+        ScopeConfig::new("budget").override_policy::<Probe>(Policy::first_n(2).unwrap()),
+    );
     certification.check_fact_expect(
         "engine .observe_if_active::<Probe, _>(|| panic!(\"selection\")) .unwrap()",
         engine
@@ -203,12 +212,12 @@ fn admitted_failures_consume_policy_but_rejections_do_not_and_sinkless_callbacks
 }
 #[test]
 fn engine_recreation_cannot_reuse_retired_tls_identity() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "engine recreation cannot reuse retired tls identity",
     );
     let mut identities = std::collections::HashSet::new();
     for i in 0..100 {
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         certification.check_fact_expect(
             "identities.insert(engine.process_id().to_owned())",
             identities.insert(engine.process_id().to_owned()),
@@ -241,29 +250,36 @@ mod admission {
 
     #[test]
     fn global_and_scope_selectors_union_but_either_exclusion_vetoes() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "global and scope selectors union but either exclusion vetoes",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = capture(&engine, "engine_tests");
-        engine.set_selection(Selection::new().activate_tags(["detail"]));
+        engine.set_selection(Selection::new().activate_tags(["detail"]).unwrap());
         certification.check_fact_expect(
             "engine.observe_if_active(|| Event { epoch: 1 }).unwrap()",
             engine.observe_if_active(|| Event { epoch: 1 }).unwrap(),
             true,
         );
         {
-            let _scope =
-                start_scope(ScopeConfig::new("exclude").exclude_namespace("engine_tests::train"));
+            let _scope = start_scope(
+                ScopeConfig::new("exclude")
+                    .exclude_namespace("engine_tests::train")
+                    .unwrap(),
+            );
             certification.check_fact_expect(
                 "engine.observe_if_active(|| Event { epoch: 2 }).unwrap()",
                 engine.observe_if_active(|| Event { epoch: 2 }).unwrap(),
                 false,
             );
         }
-        engine.set_selection(Selection::new().exclude_tags(["detail"]));
+        engine.set_selection(Selection::new().exclude_tags(["detail"]).unwrap());
         {
-            let _scope = start_scope(ScopeConfig::new("active").activate_namespace("engine_tests"));
+            let _scope = start_scope(
+                ScopeConfig::new("active")
+                    .activate_namespace("engine_tests")
+                    .unwrap(),
+            );
             certification.check_fact_expect(
                 "engine.observe_if_active(|| Event { epoch: 3 }).unwrap()",
                 engine.observe_if_active(|| Event { epoch: 3 }).unwrap(),
@@ -272,8 +288,11 @@ mod admission {
         }
         engine.set_selection(Selection::new());
         {
-            let _scope =
-                start_scope(ScopeConfig::new("scope-only").activate_namespace("engine_tests"));
+            let _scope = start_scope(
+                ScopeConfig::new("scope-only")
+                    .activate_namespace("engine_tests")
+                    .unwrap(),
+            );
             certification.check_fact_expect(
                 "engine.observe_if_active(|| Event { epoch: 4 }).unwrap()",
                 engine.observe_if_active(|| Event { epoch: 4 }).unwrap(),
@@ -298,14 +317,14 @@ mod admission {
 
     #[test]
     fn namespace_routing_fans_out_and_envelope_uses_engine_identity_and_clocks() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "namespace routing fans out and envelope uses engine identity and clocks",
         );
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let all = capture(&engine, "engine_tests");
         let train = capture(&engine, "engine_tests::train");
         let sibling = capture(&engine, "engine_tests::infer");
-        engine.set_selection(Selection::new().activate_namespace("engine_tests"));
+        engine.set_selection(Selection::new().activate_namespace("engine_tests").unwrap());
         engine.observe_if_active(|| Event { epoch: 7 }).unwrap();
         let record = all.records().pop().unwrap();
         certification.check_fact_expect("record.proc", record.proc.as_str(), engine.process_id());
@@ -334,7 +353,9 @@ mod admission {
         certification.check_fact_expect(
             "engine.process_id()",
             &(engine.process_id()),
-            sun_observations::certifications::NotEqual(&(ObservationEngine::new().process_id())),
+            sun_observations::certifications::NotEqual(
+                &(ObservationEngine::isolated().process_id()),
+            ),
         );
         certification.assert_certify();
     }
@@ -342,8 +363,8 @@ mod admission {
     #[test]
     fn warn_does_not_bypass_selection() {
         let mut certification =
-            sun_observations::certifications::certify("warn does not bypass selection");
-        let engine = ObservationEngine::new();
+            sun_observations::certifications::certification("warn does not bypass selection");
+        let engine = ObservationEngine::isolated();
         certification.check_fact_expect(
             "engine .observe_if_active::<Event, _>(|| panic!(\"must stay lazy\")) .unwrap()",
             engine
@@ -356,7 +377,7 @@ mod admission {
 
     #[test]
     fn serialization_failure_is_returned_without_writing_a_record() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "serialization failure is returned without writing a record",
         );
         struct Bad;
@@ -368,7 +389,7 @@ mod admission {
         impl Observation for Bad {
             const NAMESPACE: &'static str = "engine_tests::bad";
         }
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = capture(&engine, "engine_tests");
         engine.set_selection(Selection::new().activate_all());
         certification.check_fact_expect(
@@ -385,7 +406,7 @@ mod admission {
 
     #[test]
     fn message_works_without_registration_and_policy_defaults_to_always() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "message works without registration and policy defaults to always",
         );
         #[derive(Serialize)]
@@ -398,7 +419,7 @@ mod admission {
                 Some(self.text)
             }
         }
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = capture(&engine, "engine_tests");
         engine.set_selection(Selection::new().activate_all());
         certification.check_fact_expect(
@@ -451,7 +472,7 @@ mod admission {
 
     #[test]
     fn sinkless_admission_still_serializes_and_calls_message() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "sinkless admission still serializes and calls message",
         );
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -476,7 +497,7 @@ mod admission {
                 Some("message")
             }
         }
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         engine.set_selection(Selection::new().activate_all());
         let calls = Arc::new(AtomicUsize::new(0));
         certification.check_fact_expect(
@@ -515,7 +536,7 @@ mod admission {
 
     #[test]
     fn flush_barrier_visits_shared_sinks_once_even_without_routes() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "flush barrier visits shared sinks once even without routes",
         );
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -529,7 +550,7 @@ mod admission {
                 Ok(())
             }
         }
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let sink = Arc::new(Flushed(AtomicUsize::new(0)));
         engine.add_channel_sink("a", sink.clone());
         engine.add_channel_sink("b", sink.clone());
@@ -544,7 +565,7 @@ mod admission {
 
     #[test]
     fn sink_failures_are_counted_and_other_channels_still_receive() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "sink failures are counted and other channels still receive",
         );
         struct Broken;
@@ -556,7 +577,7 @@ mod admission {
                 Err(io::Error::other("broken"))
             }
         }
-        let engine = ObservationEngine::new();
+        let engine = ObservationEngine::isolated();
         let memory = Arc::new(MemorySink::new());
         engine.add_channel_sink("broken", Arc::new(Broken));
         engine.add_channel_sink("healthy", memory.clone());

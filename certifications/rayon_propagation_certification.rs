@@ -13,10 +13,15 @@ fn scoped_parallel_captures_follow_rayon_context_without_cross_talk() {
         .map(|id| {
             std::thread::spawn(move || {
                 let run = sun_observations::evidence::capture_observations(
-                    sun_observations::evidence::CaptureConfig::new().activate_tag("evidence"),
+                    sun_observations::evidence::CaptureConfig::new()
+                        .activate_tag("evidence")
+                        .unwrap(),
                     || {
                         let pool =
-                            sun_observations::context::rayon::ContextThreadPool::new(2).unwrap();
+                            sun_observations::context::rayon::ContextThreadPool::with_threads(
+                                std::num::NonZeroUsize::new(2).unwrap(),
+                            )
+                            .unwrap();
                         pool.install(|| {
                             (0..512u64).into_par_iter().for_each(|row| {
                                 sun_observations::observe!(Captured { run: id, row }).unwrap();
@@ -24,8 +29,8 @@ fn scoped_parallel_captures_follow_rayon_context_without_cross_talk() {
                         });
                     },
                 );
-                let events = run.typed::<Captured>().unwrap();
-                run.certify("Rayon capture isolation")
+                let events = run.to_typed::<Captured>().unwrap();
+                run.certification("Rayon capture isolation")
                     .check("count", events.source("events").count().expect(512usize))
                     .check(
                         "own execution",
@@ -47,20 +52,20 @@ fn scoped_parallel_captures_follow_rayon_context_without_cross_talk() {
     }
 }
 
-use sun_observations_certifications::certify as run_scenario;
+use sun_observations_certifications::run_scenario;
 
 #[test]
 fn public_nested_parallel_work_persists_pool_construction_scope() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "rayon");
-    let all = source_slice("rayon observations", &records);
-    let mut proof = certify("nested parallel work preserves pool construction scope");
+    let all = collection("rayon observations", &records);
+    let mut proof = certification("nested parallel work preserves pool construction scope");
     proof.check("record count", all.count().expect(2 * (1024 + 311)));
     for (parent, expected_scope) in [(0, "rayon-a"), (1, "rayon-b")] {
         let own: Vec<_> = records
             .iter()
             .filter(|r| r["data"]["parent"] == parent)
             .collect();
-        let own = source_slice(format!("parent {parent}"), &own);
+        let own = collection(format!("parent {parent}"), &own);
         proof.section(format!("parent {parent}"), |c| {
             c.check(
                 "scope",

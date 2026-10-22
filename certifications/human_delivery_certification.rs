@@ -15,6 +15,9 @@ use sun_observations::{
 #[derive(Default)]
 struct Legacy(Mutex<Vec<ObservationRecord>>);
 impl Sink for Legacy {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, record: &ObservationRecord) -> io::Result<()> {
         self.0.lock().unwrap().push(record.clone());
         Ok(())
@@ -23,6 +26,9 @@ impl Sink for Legacy {
 #[derive(Default)]
 struct Human(Mutex<Vec<ObservationDelivery>>);
 impl Sink for Human {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, _: &ObservationRecord) -> io::Result<()> {
         panic!("expected delivery")
     }
@@ -74,7 +80,7 @@ fn public_table_stream_shares_render_and_record_without_changing_v1_or_legacy_si
     let directory = tempfile::tempdir().unwrap();
     let jsonl = directory.path().join("machine.jsonl");
     let text = directory.path().join("human.txt");
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("table", "all").unwrap();
     let legacy = Arc::new(Legacy::default());
@@ -82,7 +88,7 @@ fn public_table_stream_shares_render_and_record_without_changing_v1_or_legacy_si
     let humans = [Arc::new(Human::default()), Arc::new(Human::default())];
     engine.add_channel_sink("all", legacy.clone());
     engine.add_channel_sink("all", memory.clone());
-    engine.add_channel_sink("all", Arc::new(JsonlSink::append(&jsonl).unwrap()));
+    engine.add_channel_sink("all", Arc::new(JsonlSink::open_append(&jsonl).unwrap()));
     engine.add_channel_sink(
         "all",
         Arc::new(ConsoleSink::new(std::fs::File::create(&text).unwrap())),
@@ -142,7 +148,7 @@ fn public_table_stream_shares_render_and_record_without_changing_v1_or_legacy_si
         "Epoch | Loss{newline}------+-------{newline}{:>5} | {:.4}{newline}{:>5} | {:.4}{newline}------+-------{newline}",
         1, 0.25, 2, 0.125
     );
-    certify("human rendering preserves structured evidence and shared delivery identity")
+    certification("human rendering preserves structured evidence and shared delivery identity")
         .check("render once per row", fact("renderer", rendered).expect(2))
         .check(
             "human text",
@@ -191,7 +197,7 @@ fn custom_human_sink_receives_absent_renderer_and_span_lifecycle_without_invente
     struct Plain {
         value: u64,
     }
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("table", "all").unwrap();
     let human = Arc::new(Human::default());
@@ -203,8 +209,8 @@ fn custom_human_sink_receives_absent_renderer_and_span_lifecycle_without_invente
         .finish()
         .unwrap();
     let records = human.0.lock().unwrap();
-    let evidence = source_slice("human deliveries", records.as_slice());
-    certify("human sink does not invent render text for points or span lifecycle")
+    let evidence = collection("human deliveries", records.as_slice());
+    certification("human sink does not invent render text for points or span lifecycle")
         .check("delivery count", evidence.count().expect(3))
         .check(
             "render text absent",

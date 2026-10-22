@@ -25,7 +25,7 @@ fn sample(name: &str, n: usize, mut op: impl FnMut()) {
         );
     }
 }
-fn field_check(pair: &PreparedComparison<'_, Row, Row, (u64, u64, u64)>, field: usize) {
+fn field_check(pair: &PairedComparison<'_, Row, Row, (u64, u64, u64)>, field: usize) {
     match field {
         0 => {
             black_box(pair.equal(|v| v.signal, |v| v.signal, 5).expect_valid());
@@ -90,12 +90,12 @@ fn main() {
                 })
             })
             .collect();
-        let dataset = ObservationDataset::from_shared(records);
-        let typed = dataset.typed::<Row>().unwrap();
-        let a = source_slice("ordinary", &left);
-        let b = source_slice("reference", &right);
+        let dataset = ObservationDataset::try_from_records(records).unwrap();
+        let typed = dataset.to_typed::<Row>().unwrap();
+        let a = collection("ordinary", &left);
+        let b = collection("reference", &right);
         sample("ordinary_source", n, || {
-            black_box(source_slice("ordinary", black_box(&left)));
+            black_box(collection("ordinary", black_box(&left)));
         });
         sample("observation_source", n, || {
             black_box(typed.source("observed"));
@@ -107,14 +107,14 @@ fn main() {
             black_box(typed.source("observed").numeric(|v| v.signal));
         });
         sample("observation_decode", n, || {
-            black_box(dataset.typed::<Row>().unwrap());
+            black_box(dataset.to_typed::<Row>().unwrap());
         });
         sample("scalar_criteria_1000", n, || {
             for i in 0..1000 {
                 black_box(
                     source("returned row", black_box(&left[i % n]))
-                        .select(|v| v.signal)
-                        .expect(Criterion::AtLeast(0.)),
+                        .single_map(|v| v.signal)
+                        .expect(Criterion::at_least(0.).unwrap()),
                 );
             }
         });
@@ -136,7 +136,7 @@ fn main() {
         let pair = a.compare_with(&b).on(key, key);
         let numeric = pair.numeric(|v| v.signal, |v| v.signal);
         sample("same_keys", n, || {
-            black_box(pair.comparison_fact().expect_valid());
+            black_box(pair.paired_comparison_fact().expect_valid());
         });
         sample("equality", n, || {
             black_box(pair.equal(|v| v.signal, |v| v.signal, 5).expect_valid());
@@ -164,23 +164,16 @@ fn main() {
             black_box(signal.outliers(OutlierConfig::default()));
         });
         sample("jumps", n, || {
-            black_box(signal.jumps(JumpConfig {
-                absolute_threshold: Some(1000.),
-                relative_threshold: None,
-                denominator_floor: 1.,
-            }));
+            black_box(signal.jumps(JumpConfig::new(Some(1000.), None, 1.).unwrap()));
         });
         for window in [2, 8, 32] {
             sample(&format!("lag_pm{window}"), n, || {
-                black_box(a.lag_relation_by(
+                black_box(a.lag_with(
                     &b,
                     |v| (v.row as i64, v.signal),
                     |v| (v.row as i64, v.signal),
                     LagConfig {
-                        range: LagRange {
-                            start: -window,
-                            end: window,
-                        },
+                        range: LagRange::new(-window, window).unwrap(),
                         measure: LagMeasure::Pearson,
                     },
                 ));
@@ -199,24 +192,24 @@ fn main() {
             }
         });
         sample("success_aggregation_100", n, || {
-            let mut c = certify("success");
+            let mut c = certification("success");
             for _ in 0..100 {
                 c.check("count", a.count().expect(n));
             }
-            black_box(c.certify());
+            black_box(c.report());
         });
         sample("multiple_failures_100", n, || {
-            let mut c = certify("failed");
+            let mut c = certification("failed");
             for _ in 0..100 {
                 c.check("count", a.count().expect(0));
             }
-            black_box(c.certify());
+            black_box(c.report());
         });
-        let mut c = certify("million-record failure");
+        let mut c = certification("million-record failure");
         for _ in 0..10 {
             c.check("count", a.count().expect(0));
         }
-        let report = c.certify();
+        let report = c.report();
         sample("bounded_formatting", n, || {
             black_box(report.to_string());
         });

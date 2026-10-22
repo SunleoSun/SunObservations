@@ -26,7 +26,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scope = start_scope(
         ScopeConfig::new("fit-42")
             .activate_namespace("encoder")
-            .override_policy::<Fit>(Policy::FirstN(1)),
+            .unwrap()
+            .override_policy::<Fit>(Policy::first_n(1).unwrap()),
     );
     let span = observe_span!(Fit { samples: 128 })?;
     assert!(span.is_active());

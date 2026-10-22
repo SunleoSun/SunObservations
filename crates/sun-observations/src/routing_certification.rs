@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn routes_match_subtrees_and_fan_out_without_duplicate_channels() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "routes match subtrees and fan out without duplicate channels",
     );
     let mut routes = Routing::default();
@@ -14,7 +14,15 @@ fn routes_match_subtrees_and_fan_out_without_duplicate_channels() {
     let names: Vec<_> = routes
         .matching("compute::train::epoch")
         .iter()
-        .map(|c| c.name().to_owned())
+        .map(|c| {
+            routes
+                .channels
+                .iter()
+                .find(|(_, channel)| std::ptr::eq(*c, *channel))
+                .unwrap()
+                .0
+                .clone()
+        })
         .collect();
     certification.check_fact_expect(
         "names",

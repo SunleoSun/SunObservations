@@ -17,7 +17,7 @@ impl Routing {
         let channel = self
             .channels
             .entry(channel.to_owned())
-            .or_insert_with(|| Channel::new(channel));
+            .or_insert_with(Channel::new);
         channel.needs_render_text |= needs_render_text;
         channel.sinks.push(sink);
     }
@@ -34,7 +34,7 @@ impl Routing {
         validate_namespace(namespace)?;
         self.channels
             .entry(channel.to_owned())
-            .or_insert_with(|| Channel::new(channel));
+            .or_insert_with(Channel::new);
         let channels = self.routes.entry(namespace.to_owned()).or_default();
         if !channels.iter().any(|c| c == channel) {
             channels.push(channel.to_owned());

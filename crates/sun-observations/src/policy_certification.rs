@@ -1,8 +1,18 @@
 use super::*;
 
 #[test]
+fn counting_policy_construction_rejects_zero_instead_of_assigning_magic_behavior() {
+    let mut c = sun_observations::certifications::certification("positive policy counts");
+    c.check_fact_expect("zero first", Policy::first_n(0), None);
+    c.check_fact_expect("zero interval", Policy::every_n(0), None);
+    c.check_fact_expect("positive first", Policy::first_n(1).is_some(), true);
+    c.check_fact_expect("positive interval", Policy::every_n(1).is_some(), true);
+    c.assert_certify();
+}
+
+#[test]
 fn non_counting_policies_do_not_touch_counter_and_counting_never_wraps() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "non counting policies do not touch counter and counting never wraps",
     );
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,13 +34,13 @@ fn non_counting_policies_do_not_touch_counter_and_counting_never_wraps() {
     );
     counter.store(u64::MAX, Ordering::Relaxed);
     certification.check_fact_expect(
-        "Policy::FirstN(u64::MAX).admit_atomic(&counter)",
-        Policy::FirstN(u64::MAX).admit_atomic(&counter),
+        "Policy::first_n(u64::MAX).unwrap().admit_atomic(&counter)",
+        Policy::first_n(u64::MAX).unwrap().admit_atomic(&counter),
         true,
     );
     certification.check_fact_expect(
-        "Policy::EveryN(2).admit_atomic(&counter)",
-        Policy::EveryN(2).admit_atomic(&counter),
+        "Policy::every_n(2).unwrap().admit_atomic(&counter)",
+        Policy::every_n(2).unwrap().admit_atomic(&counter),
         false,
     );
     certification.check_fact_expect(
@@ -43,25 +53,25 @@ fn non_counting_policies_do_not_touch_counter_and_counting_never_wraps() {
 
 #[test]
 fn admission_sequences() {
-    let mut certification = sun_observations::certifications::certify("admission sequences");
+    let mut certification = sun_observations::certifications::certification("admission sequences");
     for (policy, expected) in [
         (Policy::Always, vec![true; 6]),
         (Policy::Never, vec![false; 6]),
         (
-            Policy::FirstN(2),
+            Policy::first_n(2).unwrap(),
             vec![true, true, false, false, false, false],
         ),
         (
-            Policy::MaxPerScope(2),
+            Policy::first_n(2).unwrap(),
             vec![true, true, false, false, false, false],
         ),
         (
-            Policy::EveryN(2),
+            Policy::every_n(2).unwrap(),
             vec![false, true, false, true, false, true],
         ),
-        (Policy::FirstN(0), vec![false; 6]),
-        (Policy::MaxPerScope(0), vec![false; 6]),
-        (Policy::EveryN(0), vec![false; 6]),
+        (Policy::Never, vec![false; 6]),
+        (Policy::Never, vec![false; 6]),
+        (Policy::Never, vec![false; 6]),
     ] {
         let counter = std::sync::atomic::AtomicU64::new(0);
         let actual: Vec<_> = (0..6).map(|_| policy.admit_atomic(&counter)).collect();

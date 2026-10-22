@@ -43,7 +43,7 @@ fn delivery(text: &str) -> ObservationDelivery {
 
 #[test]
 fn lazy_targets_default_format_and_literal_multiline_text() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "lazy targets default format and literal multiline text",
     );
     for sink in [ConsoleSink::stdout(), ConsoleSink::stderr()] {
@@ -85,7 +85,7 @@ fn lazy_targets_default_format_and_literal_multiline_text() {
 
 #[test]
 fn gated_backlog_fifo_flush_boundary_and_drop_drain_off_producer() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "gated backlog fifo flush boundary and drop drain off producer",
     );
     let capture = Arc::new(Mutex::new(Capture::default()));
@@ -157,7 +157,7 @@ fn gated_backlog_fifo_flush_boundary_and_drop_drain_off_producer() {
 
 #[test]
 fn concurrent_producers_preserve_each_producer_order_and_multiline_record_integrity() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "concurrent producers preserve each producer order and multiline record integrity",
     );
     let capture = Arc::new(Mutex::new(Capture::default()));
@@ -226,7 +226,7 @@ impl Write for Broken {
 }
 #[test]
 fn write_flush_and_panic_failures_are_sticky_and_release_all_barriers() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "write flush and panic failures are sticky and release all barriers",
     );
     for fault in [Fault::Write, Fault::Flush, Fault::Panic] {
@@ -242,8 +242,9 @@ fn write_flush_and_panic_failures_are_sticky_and_release_all_barriers() {
             let mut workers = Vec::new();
             for _ in 0..16 {
                 workers.push(scope.spawn(|| {
-                    let mut certification =
-                        sun_observations::certifications::certify("concurrent sticky failure");
+                    let mut certification = sun_observations::certifications::certification(
+                        "concurrent sticky failure",
+                    );
                     certification.check_fact_expect(
                         "sink.flush().unwrap_err().to_string()",
                         &(sink.flush().unwrap_err().to_string()),
@@ -257,7 +258,7 @@ fn write_flush_and_panic_failures_are_sticky_and_release_all_barriers() {
                             .to_string()),
                         &(first.to_string()),
                     );
-                    certification.certify()
+                    certification.report()
                 }));
             }
             workers
@@ -295,7 +296,7 @@ impl Write for GatedBroken {
 }
 #[test]
 fn failure_releases_concurrent_already_queued_public_flush_barriers() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "failure releases concurrent already queued public flush barriers",
     );
     for fault in [Fault::Write, Fault::Flush, Fault::Panic] {
@@ -336,10 +337,10 @@ fn failure_releases_concurrent_already_queued_public_flush_barriers() {
 
 #[test]
 fn failed_console_does_not_prevent_healthy_structured_fanout() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "failed console does not prevent healthy structured fanout",
     );
-    let engine = crate::ObservationEngine::new();
+    let engine = crate::ObservationEngine::isolated();
     engine.set_selection(crate::Selection::new().activate_all());
     let sink = Arc::new(ConsoleSink::new(Broken(Fault::Write)));
     let memory = Arc::new(crate::MemorySink::new());

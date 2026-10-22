@@ -33,8 +33,13 @@ pub struct ContextThreadPool {
 }
 
 impl ContextThreadPool {
-    /// Zero uses Rayon's default worker count. The pool remains bound to this scope.
-    pub fn new(threads: usize) -> Result<Self, ThreadPoolBuildError> {
+    pub fn new() -> Result<Self, ThreadPoolBuildError> {
+        Self::build(0)
+    }
+    pub fn with_threads(threads: std::num::NonZeroUsize) -> Result<Self, ThreadPoolBuildError> {
+        Self::build(threads.get())
+    }
+    fn build(threads: usize) -> Result<Self, ThreadPoolBuildError> {
         let context = Context::capture();
         let worker_context = context.clone();
         let workers = Workers::default();

@@ -45,7 +45,7 @@ impl Observation for TableEnd {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = global();
-    engine.set_selection(Selection::new().activate_namespace("example"));
+    engine.set_selection(Selection::new().activate_namespace("example").unwrap());
     engine.register_namespace_channel("example::status", "status")?;
     engine.register_namespace_channel("example::table", "table")?;
     engine.add_channel_sink("status", Arc::new(ConsoleSink::stderr()));

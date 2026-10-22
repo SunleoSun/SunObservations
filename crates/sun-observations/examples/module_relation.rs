@@ -31,33 +31,36 @@ fn execute(request: &Request) -> Result<Vec<Output>, ObservationError> {
 }
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let request = Request { count: 8 };
-    let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"]), || {
-        execute(&request)
-    });
+    let run = capture_observations(
+        CaptureConfig::new().activate_tags(["evidence"]).unwrap(),
+        || execute(&request),
+    );
     let output = run.result().as_ref().unwrap();
-    let predictions = run.typed::<Prediction>()?;
-    let mut c = run.certify("module semantic transfer");
+    let predictions = run.to_typed::<Prediction>()?;
+    let mut c = run.certification("module semantic transfer");
     let a = predictions.source("producer boundary");
     let b = c.collection("canonical output", output);
     let pair = a.compare_with(&b).on(|v| v.row, |v| v.row);
     let values = pair.numeric(|v| v.value, |v| v.value);
     c.check_fact_expect("result count", output.len(), request.count);
     c.section("prediction -> result", |c| {
-        c.check("comparison", pair.comparison_fact().expect_valid());
+        c.check("comparison", pair.paired_comparison_fact().expect_valid());
         c.check(
             "correlation",
             values
                 .correlation()
-                .expect(CorrelationExpectation::positive(0.99).unwrap()),
+                .expect(CorrelationExpectation::spearman_at_least(0.99).unwrap()),
         );
-        c.check("slope", values.linear_fit().slope().expect(close_to(2.)));
+        c.check(
+            "slope",
+            values.linear_fit().slope().expect(close_to(2.).unwrap()),
+        );
         c.check(
             "affine output",
             values.linear_fit().expect(
-                LinearFitExpectation::default()
-                    .intercept(2.99, 3.01)
+                LinearFitExpectation::intercept_between(2.99, 3.01)
                     .unwrap()
-                    .residual_max_absolute(1e-10)
+                    .and_residual_max_absolute_at_most(1e-10)
                     .unwrap(),
             ),
         );

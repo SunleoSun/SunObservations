@@ -3,10 +3,12 @@ use super::*;
 #[test]
 fn positives_are_namespace_or_any_tag() {
     let mut certification =
-        sun_observations::certifications::certify("positives are namespace or any tag");
+        sun_observations::certifications::certification("positives are namespace or any tag");
     let selection = Selection::new()
         .activate_namespace("compute::train")
-        .activate_tags(["detail", "costly"]);
+        .unwrap()
+        .activate_tags(["detail", "costly"])
+        .unwrap();
     certification.check_fact_expect(
         "selection.admits(\"compute::train::epoch\", &[])",
         selection.admits("compute::train::epoch", &[]),
@@ -38,12 +40,15 @@ fn positives_are_namespace_or_any_tag() {
 #[test]
 fn any_exclusion_vetoes_all_activations() {
     let mut certification =
-        sun_observations::certifications::certify("any exclusion vetoes all activations");
+        sun_observations::certifications::certification("any exclusion vetoes all activations");
     let selection = Selection::new()
         .activate_all()
         .activate_tags(["detail"])
+        .unwrap()
         .exclude_namespace("compute::train")
-        .exclude_tags(["costly"]);
+        .unwrap()
+        .exclude_tags(["costly"])
+        .unwrap();
     certification.check_fact_expect(
         "selection.admits(\"compute::train::epoch\", &[\"detail\"])",
         selection.admits("compute::train::epoch", &["detail"]),
@@ -63,13 +68,21 @@ fn any_exclusion_vetoes_all_activations() {
 }
 
 #[test]
-#[should_panic(expected = "invalid activation namespace")]
 fn runtime_selectors_reject_invalid_namespaces() {
-    let _ = Selection::new().activate_namespace("Upper");
+    assert_eq!(
+        Selection::new()
+            .activate_namespace(String::from("Upper"))
+            .unwrap_err(),
+        crate::namespace::InvalidNamespace("Upper".into())
+    );
 }
 
 #[test]
-#[should_panic(expected = "invalid tag")]
 fn runtime_selectors_reject_invalid_tags() {
-    let _ = Selection::new().activate_tags(["Bad Tag"]);
+    assert_eq!(
+        Selection::new()
+            .activate_tags([String::from("Bad Tag")])
+            .unwrap_err(),
+        crate::namespace::InvalidTag("Bad Tag".into())
+    );
 }

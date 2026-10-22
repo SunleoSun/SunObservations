@@ -16,7 +16,7 @@ The generic certification layer is independent of runtime concepts and state. Pr
 ```rust
 use sun_observations::certifications::*;
 let rows = [1u64, 2, 3];
-let mut proof = certify("exported rows");
+let mut proof = certification("exported rows");
 let source = proof.collection("output", &rows);
 proof.check("count", source.count().expect(3usize));
 proof.check("identity", source.unique(|id| *id).expect_valid());
@@ -41,17 +41,17 @@ fn execute() -> Result<u64, ObservationError> {
     observe!(Prepared { row: 1 })?;
     Ok(1)
 }
-let run = capture_observations(CaptureConfig::new().activate_tag("evidence"), execute);
-let typed = run.typed::<Prepared>()?;
-let mut proof = run.certify("production transfer");
+let run = capture_observations(CaptureConfig::new().activate_tag("evidence").unwrap(), execute);
+let typed = run.to_typed::<Prepared>()?;
+let mut proof = run.certification("production transfer");
 proof.check("result", try_fact("execute", run.result().as_ref().copied()).expect(1u64));
 proof.check("captured", typed.source("prepared").count().expect(1usize));
-proof.check("row", typed.source("prepared").select(|row| row.row).expect(1u64));
+proof.check("row", typed.source("prepared").single_map(|row| row.row).expect(1u64));
 proof.assert_certify();
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-Use `run.certify` for completeness-aware proofs: eviction, emission errors and unfinished contexts/workers/spans fail closed. Join workers and finish spans inside the capture closure.
+Use `run.certification` for completeness-aware proofs: eviction, emission errors and unfinished contexts/workers/spans fail closed. Join workers and finish spans inside the capture closure.
 
 ## Agent skills
 

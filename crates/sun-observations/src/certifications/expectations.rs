@@ -26,21 +26,39 @@ pub struct CloseTo {
     absolute: f64,
     relative: f64,
 }
-pub fn close_to(expected: f64) -> CloseTo {
-    CloseTo {
+pub fn close_to(expected: f64) -> Result<CloseTo, NumericError> {
+    if !expected.is_finite() {
+        return Err(NumericError::InvalidParameter {
+            name: "expected value".into(),
+            value: expected.into(),
+        });
+    }
+    Ok(CloseTo {
         expected,
         absolute: 1e-9,
         relative: 1e-9,
-    }
+    })
 }
 impl CloseTo {
-    pub fn absolute(mut self, tolerance: f64) -> Self {
-        self.absolute = tolerance;
-        self
+    fn validate_tolerance(&self) -> Result<(), NumericError> {
+        let tolerance = self.absolute + self.relative * self.expected.abs();
+        if !tolerance.is_finite() {
+            return Err(NumericError::InvalidParameter {
+                name: "combined tolerance".into(),
+                value: tolerance.into(),
+            });
+        }
+        Ok(())
     }
-    pub fn relative(mut self, tolerance: f64) -> Self {
-        self.relative = tolerance;
-        self
+    pub fn absolute_tolerance(mut self, tolerance: f64) -> Result<Self, NumericError> {
+        self.absolute = NonNegativeFinite::new(tolerance)?.get();
+        self.validate_tolerance()?;
+        Ok(self)
+    }
+    pub fn relative_tolerance(mut self, tolerance: f64) -> Result<Self, NumericError> {
+        self.relative = NonNegativeFinite::new(tolerance)?.get();
+        self.validate_tolerance()?;
+        Ok(self)
     }
 }
 impl Expectation<f64> for CloseTo {
@@ -48,15 +66,7 @@ impl Expectation<f64> for CloseTo {
     fn assess(&self, observed: &f64) -> Result<Vec<Violation>, AnalysisError> {
         let tolerance = self.absolute + self.relative * self.expected.abs();
         let delta = (observed - self.expected).abs();
-        if !observed.is_finite()
-            || !self.expected.is_finite()
-            || !self.absolute.is_finite()
-            || self.absolute < 0.0
-            || !self.relative.is_finite()
-            || self.relative < 0.0
-            || !tolerance.is_finite()
-            || !delta.is_finite()
-        {
+        if !observed.is_finite() || !delta.is_finite() {
             return Err(AnalysisError {
                 message:
                     "close_to requires finite evidence and nonnegative finite tolerances/arithmetic"

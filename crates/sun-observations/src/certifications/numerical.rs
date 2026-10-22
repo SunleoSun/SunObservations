@@ -63,12 +63,49 @@ impl Fact<LinearFitMetrics> {
 }
 /// Inclusive scenario bounds on one typed numerical measure.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    try_from = "MetricConstraintInput<M>",
+    bound(deserialize = "M: Deserialize<'de>")
+)]
 pub struct MetricConstraint<M> {
-    pub measure: M,
-    pub min: Option<f64>,
-    pub max: Option<f64>,
+    pub(crate) measure: M,
+    pub(crate) min: Option<f64>,
+    pub(crate) max: Option<f64>,
+}
+#[derive(Deserialize)]
+struct MetricConstraintInput<M> {
+    measure: M,
+    min: Option<f64>,
+    max: Option<f64>,
+}
+impl<M> TryFrom<MetricConstraintInput<M>> for MetricConstraint<M> {
+    type Error = NumericError;
+    fn try_from(input: MetricConstraintInput<M>) -> Result<Self, Self::Error> {
+        Self::new(input.measure, input.min, input.max)
+    }
+}
+impl<M> MetricConstraint<M> {
+    pub fn new(measure: M, min: Option<f64>, max: Option<f64>) -> Result<Self, NumericError> {
+        validate_bounds(min, max)?;
+        Ok(Self { measure, min, max })
+    }
+    pub fn measure(&self) -> &M {
+        &self.measure
+    }
+    pub fn min(&self) -> Option<f64> {
+        self.min
+    }
+    pub fn max(&self) -> Option<f64> {
+        self.max
+    }
 }
 pub(crate) fn validate_bounds(min: Option<f64>, max: Option<f64>) -> Result<(), NumericError> {
+    if min.is_none() && max.is_none() {
+        return Err(NumericError::InvalidParameter {
+            name: "empty expectation bounds".into(),
+            value: 0.0.into(),
+        });
+    }
     for value in [min, max].into_iter().flatten() {
         if !value.is_finite() {
             return Err(NumericError::InvalidParameter {
@@ -93,9 +130,6 @@ pub(crate) fn assess<M: Clone>(
 ) -> Result<Vec<MetricConstraint<M>>, AnalysisError> {
     let mut violations = Vec::new();
     for c in constraints {
-        validate_bounds(c.min, c.max).map_err(|e| AnalysisError {
-            message: e.to_string(),
-        })?;
         let v = value(&c.measure)
             .filter(|v| v.is_finite())
             .ok_or_else(|| AnalysisError {
@@ -115,45 +149,59 @@ pub enum CorrelationMeasure {
     AbsolutePearson,
     AbsoluteSpearman,
 }
-/// Scenario-owned correlation bounds, independent of production evidence.
-#[derive(Clone, Debug, Default)]
+/// Nonempty scenario-owned correlation bounds, independent of production evidence.
+///
+/// ```compile_fail
+/// use sun_observations::certifications::CorrelationExpectation;
+/// let _ = CorrelationExpectation::default();
+/// ```
+#[derive(Clone, Debug)]
 pub struct CorrelationExpectation {
     constraints: Vec<MetricConstraint<CorrelationMeasure>>,
 }
 impl CorrelationExpectation {
-    pub fn positive(min: f64) -> Result<Self, NumericError> {
-        if !(min > 0.0 && min <= 1.0) {
-            return Err(NumericError::InvalidParameter {
-                name: "positive minimum Spearman".into(),
-                value: min.into(),
-            });
-        }
-        Self::default().spearman(Some(min), None)
+    pub fn pearson_at_least(min: f64) -> Result<Self, NumericError> {
+        Self::with_bound(CorrelationMeasure::Pearson, Some(min), None)
     }
-    pub fn negative(max: f64) -> Result<Self, NumericError> {
-        if !(-1.0..0.0).contains(&max) {
-            return Err(NumericError::InvalidParameter {
-                name: "negative maximum Spearman".into(),
-                value: max.into(),
-            });
-        }
-        Self::default().spearman(None, Some(max))
+    pub fn spearman_at_least(min: f64) -> Result<Self, NumericError> {
+        Self::with_bound(CorrelationMeasure::Spearman, Some(min), None)
     }
+    pub fn spearman_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(CorrelationMeasure::Spearman, None, Some(max))
+    }
+    pub fn with_bound(
+        measure: CorrelationMeasure,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Self, NumericError> {
+        Self {
+            constraints: Vec::new(),
+        }
+        .bound(measure, min, max)
+    }
+
     pub fn bound(
         mut self,
         measure: CorrelationMeasure,
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        validate_bounds(min, max)?;
         self.constraints
-            .push(MetricConstraint { measure, min, max });
+            .push(MetricConstraint::new(measure, min, max)?);
         Ok(self)
     }
-    pub fn pearson(self, min: Option<f64>, max: Option<f64>) -> Result<Self, NumericError> {
+    pub fn and_pearson_bounds(
+        self,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Self, NumericError> {
         self.bound(CorrelationMeasure::Pearson, min, max)
     }
-    pub fn spearman(self, min: Option<f64>, max: Option<f64>) -> Result<Self, NumericError> {
+    pub fn and_spearman_bounds(
+        self,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Self, NumericError> {
         self.bound(CorrelationMeasure::Spearman, min, max)
     }
 }
@@ -170,8 +218,8 @@ impl Expectation<CorrelationMetrics> for CorrelationExpectation {
     fn describe(&self) -> String {
         bounded_debug(&self.constraints, 1024)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }
 /// Regression-only scenario measures.
@@ -184,35 +232,59 @@ pub enum LinearFitMeasure {
     ResidualMaxAbsolute,
 }
 /// Scenario-owned linear transformation and residual bounds.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct LinearFitExpectation {
     constraints: Vec<MetricConstraint<LinearFitMeasure>>,
 }
 impl LinearFitExpectation {
+    pub fn slope_between(min: f64, max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(LinearFitMeasure::Slope, Some(min), Some(max))
+    }
+    pub fn intercept_between(min: f64, max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(LinearFitMeasure::Intercept, Some(min), Some(max))
+    }
+    pub fn r_squared_at_least(min: f64) -> Result<Self, NumericError> {
+        Self::with_bound(LinearFitMeasure::RSquared, Some(min), None)
+    }
+    pub fn residual_mean_absolute_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(LinearFitMeasure::ResidualMeanAbsolute, None, Some(max))
+    }
+    pub fn residual_max_absolute_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(LinearFitMeasure::ResidualMaxAbsolute, None, Some(max))
+    }
+    pub fn with_bound(
+        measure: LinearFitMeasure,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Self, NumericError> {
+        Self {
+            constraints: Vec::new(),
+        }
+        .bound(measure, min, max)
+    }
     pub fn bound(
         mut self,
         measure: LinearFitMeasure,
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        validate_bounds(min, max)?;
         self.constraints
-            .push(MetricConstraint { measure, min, max });
+            .push(MetricConstraint::new(measure, min, max)?);
         Ok(self)
     }
-    pub fn slope(self, min: f64, max: f64) -> Result<Self, NumericError> {
+    pub fn and_slope_between(self, min: f64, max: f64) -> Result<Self, NumericError> {
         self.bound(LinearFitMeasure::Slope, Some(min), Some(max))
     }
-    pub fn intercept(self, min: f64, max: f64) -> Result<Self, NumericError> {
+    pub fn and_intercept_between(self, min: f64, max: f64) -> Result<Self, NumericError> {
         self.bound(LinearFitMeasure::Intercept, Some(min), Some(max))
     }
-    pub fn r_squared(self, min: f64) -> Result<Self, NumericError> {
+    pub fn and_r_squared_at_least(self, min: f64) -> Result<Self, NumericError> {
         self.bound(LinearFitMeasure::RSquared, Some(min), None)
     }
-    pub fn residual_mean_absolute(self, max: f64) -> Result<Self, NumericError> {
+    pub fn and_residual_mean_absolute_at_most(self, max: f64) -> Result<Self, NumericError> {
         self.bound(LinearFitMeasure::ResidualMeanAbsolute, None, Some(max))
     }
-    pub fn residual_max_absolute(self, max: f64) -> Result<Self, NumericError> {
+    pub fn and_residual_max_absolute_at_most(self, max: f64) -> Result<Self, NumericError> {
         self.bound(LinearFitMeasure::ResidualMaxAbsolute, None, Some(max))
     }
 }
@@ -230,8 +302,8 @@ impl Expectation<LinearFitMetrics> for LinearFitExpectation {
     fn describe(&self) -> String {
         bounded_debug(&self.constraints, 1024)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }
 /// Direct right-minus-left error measures, not fitted residuals.
@@ -242,29 +314,47 @@ pub enum DifferenceMeasure {
     MaxAbsolute,
 }
 /// Scenario-owned pairwise difference bounds.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct DifferenceExpectation {
     constraints: Vec<MetricConstraint<DifferenceMeasure>>,
 }
 impl DifferenceExpectation {
+    pub fn mean_absolute_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(DifferenceMeasure::MeanAbsolute, None, Some(max))
+    }
+    pub fn p95_absolute_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(DifferenceMeasure::P95Absolute, None, Some(max))
+    }
+    pub fn max_absolute_at_most(max: f64) -> Result<Self, NumericError> {
+        Self::with_bound(DifferenceMeasure::MaxAbsolute, None, Some(max))
+    }
+    pub fn with_bound(
+        measure: DifferenceMeasure,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Self, NumericError> {
+        Self {
+            constraints: Vec::new(),
+        }
+        .bound(measure, min, max)
+    }
     pub fn bound(
         mut self,
         measure: DifferenceMeasure,
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        validate_bounds(min, max)?;
         self.constraints
-            .push(MetricConstraint { measure, min, max });
+            .push(MetricConstraint::new(measure, min, max)?);
         Ok(self)
     }
-    pub fn mean_absolute(self, max: f64) -> Result<Self, NumericError> {
+    pub fn and_mean_absolute_at_most(self, max: f64) -> Result<Self, NumericError> {
         self.bound(DifferenceMeasure::MeanAbsolute, None, Some(max))
     }
-    pub fn p95_absolute(self, max: f64) -> Result<Self, NumericError> {
+    pub fn and_p95_absolute_at_most(self, max: f64) -> Result<Self, NumericError> {
         self.bound(DifferenceMeasure::P95Absolute, None, Some(max))
     }
-    pub fn max_absolute(self, max: f64) -> Result<Self, NumericError> {
+    pub fn and_max_absolute_at_most(self, max: f64) -> Result<Self, NumericError> {
         self.bound(DifferenceMeasure::MaxAbsolute, None, Some(max))
     }
 }
@@ -282,7 +372,7 @@ impl Expectation<DifferenceSummary> for DifferenceExpectation {
     fn describe(&self) -> String {
         bounded_debug(&self.constraints, 1024)
     }
-    fn class(&self) -> CheckClass {
-        CheckClass::StatisticalViolation
+    fn class(&self) -> ViolationClass {
+        ViolationClass::Statistical
     }
 }

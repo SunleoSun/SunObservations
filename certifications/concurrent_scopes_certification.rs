@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 use sun_observations::certifications::*;
-use sun_observations_certifications::certify as run_scenario;
+use sun_observations_certifications::run_scenario;
 
 #[test]
 fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "concurrent");
-    let all = source_slice("concurrent observations", &records);
-    let mut proof = certify("concurrent scopes preserve independent budgets and semantic identity");
+    let all = collection("concurrent observations", &records);
+    let mut proof =
+        certification("concurrent scopes preserve independent budgets and semantic identity");
     proof.check("record count", all.count().expect(8 * (1000 + 431 + 200)));
 
     let mut actual = BTreeSet::new();
@@ -22,7 +23,7 @@ fn concurrent_scopes_have_exact_independent_policy_counts_and_semantic_ids() {
             .iter()
             .filter(|r| r["data"]["parent"] == parent)
             .collect();
-        let own = source_slice(format!("parent {parent}"), &own);
+        let own = collection(format!("parent {parent}"), &own);
         proof.section(format!("parent {parent}"), |c| {
             c.check(
                 "scope",

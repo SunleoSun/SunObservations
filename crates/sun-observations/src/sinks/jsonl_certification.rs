@@ -9,7 +9,7 @@ use std::{
 
 #[test]
 fn continuous_producers_do_not_starve_periodic_flush_and_share_one_worker() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "continuous producers do not starve periodic flush and share one worker",
     );
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,7 +39,7 @@ fn continuous_producers_do_not_starve_periodic_flush_and_share_one_worker() {
                 producer: std::thread::current().id(),
                 wrote: false,
             },
-            JsonlConfig::new().flush_ms(1),
+            JsonlConfig::new().flush_interval_ms(1).unwrap(),
         )
         .unwrap(),
     );
@@ -77,7 +77,7 @@ fn continuous_producers_do_not_starve_periodic_flush_and_share_one_worker() {
 }
 #[test]
 fn span_end_async_failure_surfaces_at_engine_barrier_not_as_a_missing_checked_error() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "span end async failure surfaces at engine barrier not as a missing checked error",
     );
     use crate::{Observation, Phase};
@@ -99,12 +99,12 @@ fn span_end_async_failure_surfaces_at_engine_barrier_not_as_a_missing_checked_er
             Ok(())
         }
     }
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine
         .register_namespace_channel("async_span", "all")
         .unwrap();
-    engine.add_channel_sink("all", Arc::new(JsonlSink::new(EndFailure)));
+    engine.add_channel_sink("all", Arc::new(JsonlSink::from_writer(EndFailure)));
     let memory = Arc::new(MemorySink::new());
     engine.add_channel_sink("all", memory.clone());
     let span = engine.span_if_active(|| Work).unwrap();
@@ -126,7 +126,7 @@ fn span_end_async_failure_surfaces_at_engine_barrier_not_as_a_missing_checked_er
 
 #[test]
 fn retention_can_remove_span_start_without_splitting_newest_end() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "retention can remove span start without splitting newest end",
     );
     use crate::{Observation, Phase};
@@ -136,9 +136,10 @@ fn retention_can_remove_span_start_without_splitting_newest_end() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("span.jsonl");
     let sink = Arc::new(
-        JsonlSink::with_config(&path, JsonlConfig::new().max_file_size_bytes(1024)).unwrap(),
+        JsonlSink::with_config(&path, JsonlConfig::new().max_file_size_bytes(1024).unwrap())
+            .unwrap(),
     );
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine
         .register_namespace_channel("retained_span", "file")
@@ -175,12 +176,12 @@ fn retention_can_remove_span_start_without_splitting_newest_end() {
 
 #[test]
 fn retention_accepts_valid_deep_payload_without_an_implicit_format_depth_limit() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "retention accepts valid deep payload without an implicit format depth limit",
     );
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("deep.jsonl");
-    let config = JsonlConfig::new().max_file_size_bytes(4096);
+    let config = JsonlConfig::new().max_file_size_bytes(4096).unwrap();
     let mut event = record("retention::deep");
     for _ in 0..256 {
         event.data = serde_json::json!([event.data]);
@@ -238,7 +239,7 @@ impl Write for GateFile {
 }
 #[test]
 fn bounded_backlog_fifo_barrier_and_disconnect_drain_real_file() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "bounded backlog fifo barrier and disconnect drain real file",
     );
     let directory = tempfile::tempdir().unwrap();
@@ -247,7 +248,7 @@ fn bounded_backlog_fifo_barrier_and_disconnect_drain_real_file() {
     let (release, resume) = mpsc::channel();
     let chunks = Arc::new(Mutex::new(Vec::new()));
     let workers = Arc::new(Mutex::new(Vec::new()));
-    let sink = JsonlSink::new(GateFile {
+    let sink = JsonlSink::from_writer(GateFile {
         file: fs::File::create(&path).unwrap(),
         entered: Some(entered),
         release: resume,
@@ -345,12 +346,12 @@ impl Write for FaultWriter {
 }
 #[test]
 fn independent_background_failures_are_sticky_do_not_retry_and_release_concurrent_barriers() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "independent background failures are sticky do not retry and release concurrent barriers",
     );
     for fault in [Fault::Write, Fault::Flush, Fault::Panic] {
         let calls = Arc::new(Mutex::new((0, 0)));
-        let sink = Arc::new(JsonlSink::new(FaultWriter {
+        let sink = Arc::new(JsonlSink::from_writer(FaultWriter {
             fault,
             calls: calls.clone(),
         }));
@@ -399,16 +400,16 @@ fn independent_background_failures_are_sticky_do_not_retry_and_release_concurren
 }
 #[test]
 fn engine_error_barrier_counts_checked_operations_and_healthy_fanout_survives() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "engine error barrier counts checked operations and healthy fanout survives",
     );
     use crate::Observation;
     #[derive(serde::Serialize, Observation)]
     #[observation(namespace = "fault::engine")]
     struct Event;
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     let directory = tempfile::tempdir().unwrap();
-    let broken = Arc::new(JsonlSink::append(directory.path().join("missing/file")).unwrap());
+    let broken = Arc::new(JsonlSink::open_append(directory.path().join("missing/file")).unwrap());
     let memory = Arc::new(MemorySink::new());
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("fault", "all").unwrap();
@@ -457,14 +458,16 @@ fn engine_error_barrier_counts_checked_operations_and_healthy_fanout_survives() 
 }
 #[test]
 fn retention_is_a_newest_complete_suffix_across_cycles_and_rejects_corrupt_history() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "retention is a newest complete suffix across cycles and rejects corrupt history",
     );
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("suffix.jsonl");
     let config = JsonlConfig::new()
         .max_file_size_bytes(4096)
-        .trim_fraction(0.25);
+        .unwrap()
+        .trim_fraction(0.25)
+        .unwrap();
     let sink = JsonlSink::with_config(&path, config.clone()).unwrap();
     let mut history = Vec::new();
     for i in 0..300 {
@@ -516,7 +519,7 @@ mod persistence {
 
     #[test]
     fn append_preserves_existing_lines_and_schema_roundtrips() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "append preserves existing lines and schema roundtrips",
         );
         let directory = tempfile::tempdir().unwrap();
@@ -527,8 +530,11 @@ mod persistence {
         span.phase = Some(Phase::Start);
         span.span = Some("span-a".into());
         span.message = Some("line one\nline two".into());
-        JsonlSink::append(&path).unwrap().write(&point).unwrap();
-        let sink = JsonlSink::append(&path).unwrap();
+        JsonlSink::open_append(&path)
+            .unwrap()
+            .write(&point)
+            .unwrap();
+        let sink = JsonlSink::open_append(&path).unwrap();
         sink.write(&span).unwrap();
         sink.flush().unwrap();
         let text = fs::read_to_string(&path).unwrap();
@@ -560,11 +566,12 @@ mod persistence {
 
     #[test]
     fn concurrent_lines_are_complete_json_objects() {
-        let mut certification =
-            sun_observations::certifications::certify("concurrent lines are complete json objects");
+        let mut certification = sun_observations::certifications::certification(
+            "concurrent lines are complete json objects",
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("parallel.jsonl");
-        let sink = Arc::new(JsonlSink::append(&path).unwrap());
+        let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
         std::thread::scope(|scope| {
             for writer in 0..8 {
                 let sink = sink.clone();
@@ -596,7 +603,7 @@ mod persistence {
 
     #[test]
     fn engine_output_matches_envelope_without_routing_metadata() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "engine output matches envelope without routing metadata",
         );
         use crate::{start_scope, Observation, ObservationEngine, ScopeConfig, Selection};
@@ -607,12 +614,16 @@ mod persistence {
         }
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("engine.jsonl");
-        let engine = ObservationEngine::new();
-        engine.add_channel_sink("logical", Arc::new(JsonlSink::append(&path).unwrap()));
+        let engine = ObservationEngine::isolated();
+        engine.add_channel_sink("logical", Arc::new(JsonlSink::open_append(&path).unwrap()));
         engine
             .register_namespace_channel("jsonl::engine", "logical")
             .unwrap();
-        engine.set_selection(Selection::new().activate_namespace("jsonl::engine"));
+        engine.set_selection(
+            Selection::new()
+                .activate_namespace("jsonl::engine")
+                .unwrap(),
+        );
         {
             let _scope = start_scope(ScopeConfig::new("persisted-run"));
             engine.observe_if_active(|| Event { value: 7 }).unwrap();
@@ -696,7 +707,7 @@ mod persistence {
 
     #[test]
     fn lazy_worker_and_periodic_flush_run_off_producer_without_sleeps() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "lazy worker and periodic flush run off producer without sleeps",
         );
         use std::sync::mpsc;
@@ -727,7 +738,7 @@ mod persistence {
                 flushed: sender,
                 bytes: Vec::new(),
             },
-            JsonlConfig::new().flush_ms(10),
+            JsonlConfig::new().flush_interval_ms(10).unwrap(),
         )
         .unwrap();
         certification.check_fact_expect("sink.is_started()", sink.is_started(), false);
@@ -750,18 +761,18 @@ mod persistence {
 
     #[test]
     fn file_open_is_lazy_and_background_failure_is_sticky() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "file open is lazy and background failure is sticky",
         );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("not-yet.jsonl");
-        let sink = JsonlSink::append(&path).unwrap();
+        let sink = JsonlSink::open_append(&path).unwrap();
         certification.check_fact_expect("path.exists()", path.exists(), false);
         sink.write(&record("jsonl::lazy_file")).unwrap();
         sink.flush().unwrap();
         certification.check_fact_expect("path.exists()", path.exists(), true);
         let invalid =
-            JsonlSink::append(directory.path().join("missing").join("file.jsonl")).unwrap();
+            JsonlSink::open_append(directory.path().join("missing").join("file.jsonl")).unwrap();
         let _ = invalid.write(&record("jsonl::bad_path"));
         certification.check_fact_expect("invalid.flush().is_err()", invalid.flush().is_err(), true);
         certification.check_fact_expect(
@@ -779,12 +790,13 @@ mod persistence {
 
     #[test]
     fn normal_drop_drains_all_accepted_records() {
-        let mut certification =
-            sun_observations::certifications::certify("normal drop drains all accepted records");
+        let mut certification = sun_observations::certifications::certification(
+            "normal drop drains all accepted records",
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("drop.jsonl");
         {
-            let sink = Arc::new(JsonlSink::append(&path).unwrap());
+            let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
             std::thread::scope(|threads| {
                 for _ in 0..4 {
                     let sink = sink.clone();
@@ -806,12 +818,12 @@ mod persistence {
 
     #[test]
     fn concurrent_flush_barriers_do_not_deadlock_or_lose_records() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "concurrent flush barriers do not deadlock or lose records",
         );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("barriers.jsonl");
-        let sink = Arc::new(JsonlSink::append(&path).unwrap());
+        let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
         std::thread::scope(|threads| {
             for _ in 0..8 {
                 let sink = sink.clone();
@@ -834,7 +846,7 @@ mod persistence {
 
     #[test]
     fn repeated_compaction_retains_complete_newest_lines_with_hysteresis() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "repeated compaction retains complete newest lines with hysteresis",
         );
         let directory = tempfile::tempdir().unwrap();
@@ -843,7 +855,9 @@ mod persistence {
             &path,
             JsonlConfig::new()
                 .max_file_size_bytes(4096)
-                .trim_fraction(0.25),
+                .unwrap()
+                .trim_fraction(0.25)
+                .unwrap(),
         )
         .unwrap();
         let mut observed = 0;
@@ -888,7 +902,7 @@ mod persistence {
 
     #[test]
     fn threshold_crossing_trims_to_target_not_just_to_maximum() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "threshold crossing trims to target not just to maximum",
         );
         let directory = tempfile::tempdir().unwrap();
@@ -909,7 +923,9 @@ mod persistence {
             &path,
             JsonlConfig::new()
                 .max_file_size_bytes(4096)
-                .trim_fraction(0.25),
+                .unwrap()
+                .trim_fraction(0.25)
+                .unwrap(),
         )
         .unwrap();
         let mut newest = record("jsonl::hysteresis");
@@ -953,13 +969,14 @@ mod persistence {
 
     #[test]
     fn oversized_newest_record_is_never_split_or_deleted() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "oversized newest record is never split or deleted",
         );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("oversize.jsonl");
         let sink =
-            JsonlSink::with_config(&path, JsonlConfig::new().max_file_size_bytes(512)).unwrap();
+            JsonlSink::with_config(&path, JsonlConfig::new().max_file_size_bytes(512).unwrap())
+                .unwrap();
         sink.write(&record("jsonl::small")).unwrap();
         let mut big = record("jsonl::big");
         big.data = serde_json::json!({"padding": "x".repeat(4096)});
@@ -989,7 +1006,7 @@ mod persistence {
 
     #[test]
     fn writer_panics_are_observable_and_do_not_deadlock_flush_or_drop() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "writer panics are observable and do not deadlock flush or drop",
         );
         struct Panics;
@@ -1001,7 +1018,7 @@ mod persistence {
                 Ok(())
             }
         }
-        let sink = JsonlSink::new(Panics);
+        let sink = JsonlSink::from_writer(Panics);
         let _ = sink.write(&record("jsonl::panic"));
         certification.check_fact_expect("sink.flush().is_err()", sink.flush().is_err(), true);
         certification.check_fact_expect(
@@ -1014,25 +1031,28 @@ mod persistence {
 
     #[test]
     fn invalid_file_settings_and_writer_retention_are_rejected() {
-        let mut certification = sun_observations::certifications::certify(
+        let mut certification = sun_observations::certifications::certification(
             "invalid file settings and writer retention are rejected",
         );
         for config in [
-            JsonlConfig::new().flush_ms(0),
+            JsonlConfig::new().flush_interval_ms(0),
             JsonlConfig::new().max_file_size_bytes(0),
             JsonlConfig::new().trim_fraction(1.0),
             JsonlConfig::new().trim_fraction(f64::NAN),
         ] {
             certification.check_fact_expect(
                 "JsonlSink::with_config(\"unused.jsonl\", config).is_err()",
-                JsonlSink::with_config("unused.jsonl", config).is_err(),
+                config.is_err(),
                 true,
             );
         }
         certification.check_fact_expect(
             "arbitrary writer rejects file retention",
-            JsonlSink::writer_with_config(Vec::<u8>::new(), JsonlConfig::new().file_size_mb(1))
-                .is_err(),
+            JsonlSink::writer_with_config(
+                Vec::<u8>::new(),
+                JsonlConfig::new().max_file_size_mb(1).unwrap(),
+            )
+            .is_err(),
             true,
         );
         certification.assert_certify();
@@ -1041,7 +1061,7 @@ mod persistence {
     #[test]
     fn writer_failures_are_reported() {
         let mut certification =
-            sun_observations::certifications::certify("writer failures are reported");
+            sun_observations::certifications::certification("writer failures are reported");
         struct Broken;
         impl Write for Broken {
             fn write(&mut self, _: &[u8]) -> io::Result<usize> {
@@ -1051,7 +1071,7 @@ mod persistence {
                 Err(io::Error::other("broken"))
             }
         }
-        let sink = JsonlSink::new(Broken);
+        let sink = JsonlSink::from_writer(Broken);
         let _ = sink.write(&record("jsonl::broken"));
         certification.check_fact_expect("sink.flush().is_err()", sink.flush().is_err(), true);
         certification.check_fact_expect(

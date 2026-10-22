@@ -13,7 +13,7 @@ struct Defaulted;
 
 #[test]
 fn derive_emits_metadata_without_registration_and_supports_generics() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "derive emits metadata without registration and supports generics",
     );
     certification.check_fact_expect(

@@ -1,8 +1,6 @@
 use super::*;
-use crate::certifications::{
-    join_by,
-    test_support::{close, reference_linear, reference_rank, shuffle},
-};
+use crate::certifications::test_support::{close, reference_linear, reference_rank, shuffle};
+use crate::certifications::{collection, fact, CheckClass};
 
 fn defined(metric: Metric, expected: f64) {
     close(metric.value().unwrap(), expected);
@@ -107,29 +105,25 @@ fn empty_singleton_constant_and_nonfinite_metrics_never_succeed_as_nan() {
 fn pair_differences_percentiles_and_top_keys_have_reference_values() {
     let left = [(3, 30.), (1, 10.), (2, 20.)];
     let right = [(2, 18.), (3, 35.), (1, 11.)];
-    let joined = join_by(&left, &right, |v| v.0, |v| v.0);
-    let report = joined.difference(|v| v.1, |v| v.1, 2).unwrap();
-    close(report.summary.signed.mean, 4. / 3.);
-    close(report.summary.absolute.mean, 8. / 3.);
-    assert_eq!(report.summary.median_signed, 1.);
-    assert_eq!(report.summary.median_absolute, 2.);
-    close(report.summary.p95_absolute, 4.7);
-    assert_eq!(report.summary.absolute.max, 5.);
+    let a = collection("left", &left);
+    let b = collection("right", &right);
+    let joined = a.compare_with(&b).on(|v| v.0, |v| v.0);
+    let numeric = joined.numeric(|v| v.1, |v| v.1);
+    let summary = numeric.difference().observed.unwrap();
+    let largest = numeric.largest(2).observed.unwrap();
+    close(summary.signed.mean, 4. / 3.);
+    close(summary.absolute.mean, 8. / 3.);
+    assert_eq!(summary.median_signed, 1.);
+    assert_eq!(summary.median_absolute, 2.);
+    close(summary.p95_absolute, 4.7);
+    assert_eq!(summary.absolute.max, 5.);
     assert_eq!(
-        report.largest.iter().map(|v| v.key).collect::<Vec<_>>(),
+        largest.iter().map(|v| v.key).collect::<Vec<_>>(),
         vec![3, 2]
     );
-    assert_eq!(report.largest[0].signed_difference, 5.);
-    assert!(joined
-        .difference(|v| v.1, |v| v.1, 0)
-        .unwrap()
-        .largest
-        .is_empty());
-    assert_eq!(
-        serde_json::from_value::<DifferenceReport<i32>>(serde_json::to_value(&report).unwrap())
-            .unwrap(),
-        report
-    );
+    assert_eq!(largest[0].signed_difference, 5.);
+    assert!(numeric.largest(0).observed.unwrap().is_empty());
+    assert!(serde_json::to_value(&summary).is_ok());
 }
 
 #[test]
@@ -138,42 +132,39 @@ fn bounded_top_disagreements_match_full_sort_for_all_limits_and_ties() {
     let right: Vec<_> = (0..100)
         .map(|key| (key, ((key * 37) % 11) as f64 - 5.))
         .collect();
-    let joined = join_by(&left, &right, |v| v.0, |v| v.0);
+    let a = collection("left", &left);
+    let b = collection("right", &right);
+    let joined = a.compare_with(&b).on(|v| v.0, |v| v.0);
     let mut expected = right.clone();
     expected.sort_by(|a, b| b.1.abs().total_cmp(&a.1.abs()).then(a.0.cmp(&b.0)));
     for top in [0, 1, 2, 5, 99, 100, 200] {
-        let report = joined.difference(|v| v.1, |v| v.1, top).unwrap();
+        let report = joined
+            .numeric(|v| v.1, |v| v.1)
+            .largest(top)
+            .observed
+            .unwrap();
         assert_eq!(
-            report
-                .largest
-                .iter()
-                .map(|v| (v.key, v.right))
-                .collect::<Vec<_>>(),
+            report.iter().map(|v| (v.key, v.right)).collect::<Vec<_>>(),
             expected.iter().take(top).copied().collect::<Vec<_>>()
         );
     }
 }
 
 #[test]
-fn numeric_join_failures_retain_comparison_and_pair_to_source_coordinates() {
+fn numeric_failures_retain_paired_source_coordinates() {
     let left = [(7, 1.), (8, 2.)];
     let right = [(8, f64::NAN), (7, 3.)];
-    let joined = join_by(&left, &right, |v| v.0, |v| v.0);
-    let Err(RelationError::Numeric { comparison, error }) =
-        joined.numeric_relation(|v| v.1, |v| v.1, 1)
-    else {
-        panic!()
-    };
-    assert_eq!(
-        error,
-        NumericError::NonFinite {
-            index: 1,
-            value: crate::certifications::NumericValue::Nan
-        }
-    );
-    assert_eq!(comparison.matched[1].key, 8);
-    assert_eq!(comparison.matched[1].right_index, 0);
-    assert!(serde_json::to_string(&RelationError::Numeric { comparison, error }).is_ok());
+    let a = collection("left", &left);
+    let b = collection("right", &right);
+    let paired = a.compare_with(&b).on(|v| v.0, |v| v.0);
+    let result = paired
+        .numeric(|v| v.1, |v| v.1)
+        .relation()
+        .expect(RelationExpectation::spearman_at_least(0.9).unwrap());
+    assert_eq!(result.class(), CheckClass::EvaluationError);
+    assert!(result.observed().is_err());
+    assert_eq!(paired.comparison().matched()[1].key, 8);
+    assert_eq!(paired.comparison().matched()[1].right_index, 0);
 }
 
 #[test]
@@ -181,12 +172,16 @@ fn scenario_expectations_distinguish_direction_scale_and_residuals() {
     let x = [1., 2., 3., 4., 5.];
     for sign in [1., -1.] {
         let y = x.map(|v| sign * 2. * v + 3.);
-        let joined = join_by(&x, &y, |v| *v as i64, |v| ((*v - 3.) / (sign * 2.)) as i64);
-        let report = joined.numeric_relation(|v| *v, |v| *v, 2).unwrap();
-        let expectation = if sign > 0. {
-            RelationExpectation::positive(0.9)
+        let a = collection("left", &x);
+        let b = collection("right", &y);
+        let paired = a
+            .compare_with(&b)
+            .on(|v| *v as i64, |v| ((*v - 3.) / (sign * 2.)) as i64);
+        let numeric = paired.numeric(|v| *v, |v| *v);
+        let expected = if sign > 0. {
+            RelationExpectation::spearman_at_least(0.9)
         } else {
-            RelationExpectation::negative(-0.9)
+            RelationExpectation::spearman_at_most(-0.9)
         }
         .unwrap()
         .bound(
@@ -201,46 +196,42 @@ fn scenario_expectations_distinguish_direction_scale_and_residuals() {
         .unwrap()
         .bound(RelationMeasure::ResidualMaxAbsolute, None, Some(1e-10))
         .unwrap();
-        assert!(expectation.evaluate(report.clone()).is_ok());
-        let failure = if sign > 0. {
-            RelationExpectation::negative(-0.8)
+        assert!(numeric.relation().expect(expected).is_pass());
+        let opposite = if sign > 0. {
+            RelationExpectation::spearman_at_most(-0.8)
         } else {
-            RelationExpectation::positive(0.8)
+            RelationExpectation::spearman_at_least(0.8)
         }
-        .unwrap()
-        .evaluate(report)
-        .unwrap_err();
-        assert_eq!(failure.violated.len(), 1);
-        assert_eq!(failure.observed.observed.linear.count, 5);
-        let json = serde_json::to_value(&failure).unwrap();
-        assert_eq!(
-            serde_json::from_value::<RelationFailure<i64>>(json).unwrap(),
-            *failure
-        );
+        .unwrap();
+        let result = numeric.relation().expect(opposite);
+        assert_eq!(result.violations.len(), 1);
+        assert_eq!(result.observed.unwrap().linear.count, 5);
     }
-    let y = x.map(|v| 100. * v);
-    let joined = join_by(&x, &y, |v| *v as i64, |v| (*v / 100.) as i64);
-    let report = joined.numeric_relation(|v| *v, |v| *v, 1).unwrap();
-    assert!(RelationExpectation::positive(0.99)
-        .unwrap()
-        .evaluate(report.clone())
-        .is_ok());
-    let failure = RelationExpectation::positive(0.99)
-        .unwrap()
-        .bound(RelationMeasure::Slope, Some(0.9), Some(1.1))
-        .unwrap()
-        .evaluate(report)
-        .unwrap_err();
-    assert_eq!(failure.violated[0].measure, RelationMeasure::Slope);
-    defined(failure.observed.observed.linear.slope, 100.);
+    let a = collection("left", &x);
+    let numeric = a.compare_with(&a).on(|v| *v as i64, |v| *v as i64);
+    let values = numeric.numeric(|v| *v, |v| 100. * *v);
+    assert!(values
+        .relation()
+        .expect(RelationExpectation::spearman_at_least(0.99).unwrap())
+        .is_pass());
+    let result = values.relation().expect(
+        RelationExpectation::spearman_at_least(0.99)
+            .unwrap()
+            .bound(RelationMeasure::Slope, Some(0.9), Some(1.1))
+            .unwrap(),
+    );
+    assert_eq!(result.violations[0].measure, RelationMeasure::Slope);
+    defined(result.observed.unwrap().linear.slope, 100.);
 }
 
 #[test]
 fn independent_constraint_measures_and_undefined_values_fail_closed() {
     let left = [1., 2., 3.];
     let right = [3., 2., 1.];
-    let joined = join_by(&left, &right, |v| *v as i32, |v| (4. - *v) as i32);
-    let report = joined.numeric_relation(|v| *v, |v| *v, 3).unwrap();
+    let a = collection("left", &left);
+    let b = collection("right", &right);
+    let joined = a.compare_with(&b).on(|v| *v as i32, |v| (4. - *v) as i32);
+    let report = joined.numeric(|v| *v, |v| *v).relation().observed.unwrap();
     for measure in [
         RelationMeasure::Pearson,
         RelationMeasure::Spearman,
@@ -251,34 +242,31 @@ fn independent_constraint_measures_and_undefined_values_fail_closed() {
         RelationMeasure::MaxAbsoluteDifference,
         RelationMeasure::ResidualMeanAbsolute,
     ] {
-        let value = super::measure(&report.observed, measure).unwrap();
-        assert!(RelationExpectation::default()
-            .bound(measure, Some(value - 1e-9), Some(value + 1e-9))
-            .unwrap()
-            .evaluate(report.clone())
-            .is_ok());
-        assert!(RelationExpectation::default()
-            .bound(measure, Some(value + 1.), None)
-            .unwrap()
-            .evaluate(report.clone())
-            .is_err());
+        let value = super::measure(&report, measure).unwrap();
+        assert!(fact("relation", report.clone())
+            .expect(
+                RelationExpectation::with_bound(measure, Some(value - 1e-9), Some(value + 1e-9))
+                    .unwrap()
+            )
+            .is_pass());
+        assert!(!fact("relation", report.clone())
+            .expect(RelationExpectation::with_bound(measure, Some(value + 1.), None).unwrap())
+            .is_pass());
     }
-    assert!(RelationExpectation::default()
-        .bound(RelationMeasure::Slope, Some(2.), Some(1.))
-        .is_err());
-    for invalid in [0., -0.5, 1.1, f64::NAN] {
-        assert!(RelationExpectation::positive(invalid).is_err());
+    assert!(RelationExpectation::with_bound(RelationMeasure::Slope, Some(2.), Some(1.)).is_err());
+    for invalid in [f64::NAN, f64::INFINITY] {
+        assert!(RelationExpectation::spearman_at_least(invalid).is_err());
     }
-    for invalid in [0., 0.5, -1.1, f64::NAN] {
-        assert!(RelationExpectation::negative(invalid).is_err());
+    for invalid in [f64::NAN, f64::NEG_INFINITY] {
+        assert!(RelationExpectation::spearman_at_most(invalid).is_err());
     }
-    let constant = join_by(&left, &left, |v| *v as i32, |v| *v as i32)
-        .numeric_relation(|_| 1., |v| *v, 1)
-        .unwrap();
-    assert!(RelationExpectation::positive(0.1)
-        .unwrap()
-        .evaluate(constant)
-        .is_err());
+    let constant = numeric_relation(left.iter().map(|v| (1., *v))).unwrap();
+    assert_eq!(
+        fact("constant", constant)
+            .expect(RelationExpectation::spearman_at_least(0.1).unwrap())
+            .class,
+        CheckClass::EvaluationError
+    );
 }
 
 #[test]

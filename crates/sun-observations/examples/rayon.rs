@@ -19,9 +19,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scope = start_scope(
         ScopeConfig::new("pool-owner")
             .activate_namespace("jobs")
-            .override_policy::<Item>(Policy::MaxPerScope(7)),
+            .unwrap()
+            .override_policy::<Item>(Policy::first_n(7).unwrap()),
     );
-    let pool = ContextThreadPool::new(4)?;
+    let pool = ContextThreadPool::with_threads(std::num::NonZeroUsize::new(4).unwrap())?;
     drop(scope);
 
     let _caller = start_scope(ScopeConfig::new("another-caller"));

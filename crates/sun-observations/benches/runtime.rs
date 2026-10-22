@@ -64,19 +64,23 @@ fn selectors(count: usize) -> Selection {
     for i in 0..count {
         selection = selection
             .activate_namespace(format!("unrelated::n{i}"))
+            .unwrap()
             .activate_tags([format!("tag_{i}")])
+            .unwrap()
             .exclude_namespace(format!("excluded::n{i}"))
-            .exclude_tags([format!("exclude_{i}")]);
+            .unwrap()
+            .exclude_tags([format!("exclude_{i}")])
+            .unwrap();
     }
     selection
 }
 fn configure(count: usize, active: bool, excluded: bool) {
     let mut selection = selectors(count);
     if active {
-        selection = selection.activate_namespace("bench");
+        selection = selection.activate_namespace("bench").unwrap();
     }
     if excluded {
-        selection = selection.exclude_tags(["detail"]);
+        selection = selection.exclude_tags(["detail"]).unwrap();
     }
     global().set_selection(selection);
 }
@@ -186,7 +190,7 @@ fn capture(mode: Mode) -> Capture {
     }
     if matches!(mode, Mode::Jsonl | Mode::Both) {
         let path = directory.path().join("records.jsonl");
-        global().add_channel_sink("a", Arc::new(JsonlSink::append(&path).unwrap()));
+        global().add_channel_sink("a", Arc::new(JsonlSink::open_append(&path).unwrap()));
         file = Some(path);
     }
     Capture {
@@ -330,7 +334,9 @@ fn compaction(limit: bool, sample: usize) {
     let config = if limit {
         JsonlConfig::new()
             .max_file_size_bytes(1024 * 1024)
+            .unwrap()
             .trim_fraction(0.25)
+            .unwrap()
     } else {
         JsonlConfig::new()
     };
@@ -419,7 +425,7 @@ fn benchmark() {
                 ("excluded", Policy::Always, true, true),
                 ("never", Policy::Never, true, false),
                 ("always", Policy::Always, true, false),
-                ("every100", Policy::EveryN(100), true, false),
+                ("every100", Policy::every_n(100).unwrap(), true, false),
             ] {
                 macro_run("hot", name, 0, policy, active, excluded, sample);
             }
@@ -462,7 +468,7 @@ fn benchmark() {
             for threads in [1, 2, 4, 8, 16] {
                 for (mode, policy) in [
                     (Mode::NoSink, Policy::Always),
-                    (Mode::NoSink, Policy::EveryN(100)),
+                    (Mode::NoSink, Policy::every_n(100).unwrap()),
                     (Mode::Memory, Policy::Always),
                     (Mode::Jsonl, Policy::Always),
                 ] {

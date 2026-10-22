@@ -33,22 +33,22 @@ Canonical flow: **source → fact / Fact → expect → CheckResult → check �
 | `Fact{source,observed:Result<T,AnalysisError>,details:String}` | `details(text)` adds context; `expect(E:Expectation<T>) -> CheckResult<T,E::Violation>` consumes without cloning. |
 | `expect_valid()` | Delegates to AllValid for IntegrityReport, &Comparison or PairCheck. |
 | `Fact<LinearFitMetrics>::slope()/intercept()/r_squared() -> Fact<f64>` | Undefined metric becomes EvaluationError. |
-| `CheckResult<T,V=Violation>` | Public source/expected/observed/violations/class/analysis_error/details; `is_pass()`. Full observed value survives failed acceptance; failed preconditions set analysis_error even with observed Ok. |
-| `CheckClass::{Pass,HardViolation,StatisticalViolation,EvaluationError}` | Deterministic mismatch / statistical mismatch / invalid, unavailable or incomplete evidence/evaluation. **Every non-Pass fails final proof**. |
-| `Expectation<T>` | Extension trait: associated Violation:Debug; `assess(observed:&T)->Result<Vec<Violation>,AnalysisError>`, `describe()->String`, `class()->CheckClass` (default HardViolation). Own each domain acceptance rule once. |
+| `CheckResult<T,V=Violation>` | Immutable result: `source()/expected()/observed()/violations()/class()/analysis_error()/details()`; `is_pass()`. Full observed evidence survives rejection. |
+| `CheckClass::{Pass,HardViolation,StatisticalViolation,EvaluationError}` | Every non-Pass fails final proof. |
+| `Expectation<T>` | Extension trait: Violation:Debug; `assess(observed:&T)->Result<Vec<Violation>,AnalysisError>`, `describe()->String`, `class()->ViolationClass` (default Hard). `ViolationClass::{Hard,Statistical}` classifies rejection only. |
 
 ### Expectations
 
 | API | Acceptance |
 | --- | --- |
-| Plain `T:Debug+PartialEq`; `Equal<T>(T)`; `NotEqual<T>(T)` | Equality/inequality for scalars, structs, enums, bool, Option, collections; &str also expects owned String. Select fields for independent failures. |
-| `Criterion::{Equal(T),NotEqual(T),Greater(T),AtLeast(T),Less(T),AtMost(T),Range{min:T,max:T}}` | T:Debug+PartialOrd; inclusive range; invalid/incomparable/reversed bounds → EvaluationError. |
-| `criterion(expected:impl Into<String>, class:CheckClass, predicate:impl Fn(&T)->bool) -> Predicate` | Custom hard/statistical rule; false → Violation{expected:String}; Pass/EvaluationError classifications invalid. Ordinary Rust control flow, no conditional DSL. |
-| `close_to(expected:f64) -> CloseTo` | abs(actual−expected) <= absolute + relative*abs(expected); constructor defaults absolute=1e-9 and relative=1e-9. Builders `absolute(tolerance:f64)` / `relative(tolerance:f64)` replace those values; nonfinite evidence/expected/tolerance/arithmetic or negative tolerance → EvaluationError. |
+| Plain `T:Debug+PartialEq`; `NotEqual<T>(T)` | Exact equality/inequality for scalars, structs, enums, bool, Option, collections; &str also expects owned String. |
+| `Criterion::greater_than(T)/at_least(T)/less_than(T)/at_most(T)/between(min:T,max:T) -> Result<Criterion<T>,AnalysisError>` | T:Debug+PartialOrd; inclusive range; invalid bounds rejected at construction, incomparable evidence → EvaluationError. |
+| `criterion(expected:impl Into<String>, class:ViolationClass, predicate:impl Fn(&T)->bool) -> Predicate` | Custom hard/statistical expectation; false → Violation{expected:String}. |
+| `close_to(expected:f64) -> Result<CloseTo,NumericError>` | abs(actual−expected) <= absolute + relative*abs(expected); defaults absolute=1e-9, relative=1e-9. `absolute_tolerance(tolerance:f64)` / `relative_tolerance(tolerance:f64) -> Result<Self,NumericError>` validate finite nonnegative tolerances and combined arithmetic. Nonfinite evidence/delta → EvaluationError. |
 | `CountRule::{Exact(usize),Minimum(usize),NonEmpty}` | Hard count; plain expected usize is exact. Absence = expect(0usize). |
-| `NumericRule::{Finite,Range{min:f64,max:f64},Positive,NonNegative}` | Hard numeric acceptance, finite evidence even for sign checks; invalid bounds → EvaluationError. |
+| `NumericRule::{Finite,Positive,NonNegative}`; `NumericRule::between(min:f64,max:f64) -> Result<Self,NumericError>` | Finite inclusive bounds validated at construction using `NumericRange::new(min,max)`; hard numeric acceptance, finite evidence even for sign checks. |
 | `AllValid` | Hard structural validity; prefer expect_valid(). |
-| `AtMostAnomalies(usize)`; `LagExpectation{best_lag:i64}`; `GroupExpectation{minimum_count,mean_min,mean_max}` | Statistical report acceptance below. |
+| `AtMostAnomalies(usize)`; `LagExpectation{best_lag:i64}`; `GroupExpectation::new(minimum_count:usize,mean_min:f64,mean_max:f64) -> Result<Self,NumericError>` | Statistical report acceptance below. |
 
 ## Prepared sources, groups and typed comparison
 
@@ -58,16 +58,16 @@ Names accept Into<Arc<str>>. Keep borrowed inputs alive. PreparedSource clones s
 
 | API | Result/semantics |
 | --- | --- |
-| `source(name:impl Into<Arc<str>>,value:&T)` / `c.source(name,value)`; `source_slice(name:impl Into<Arc<str>>,values:&[T])` / `c.collection(name,values)` | PreparedSource<'a,T>. Singular &Vec is one Vec value, not rows; collections accept array/Vec slice coercions. Typed handles, no erased registry. |
+| `source(name:impl Into<Arc<str>>,value:&T)` / `c.source(name,value)`; `collection(name:impl Into<Arc<str>>,values:&[T])` / `c.collection(name,values)` | PreparedSource<'a,T>. Singular &Vec is one Vec value, not rows; collections accept array/Vec slice coercions. Typed handles, no erased registry. |
 | `name() -> &str`; `values() -> &'a [T]`; `entry(index) -> SourceEntry<'a,T>`; `iter()` | Entry{value:&T,index:usize,provenance:Option<&dyn SourceProvenance>}; exact/double-ended/cloneable iterator. entry uses ordinary indexing preconditions. |
 | `with_provenance(provenance:&'a dyn SourceProvenance) -> Self` | Adapter-owned `SourceProvenance::describe(index,&mut dyn fmt::Write)->fmt::Result`; never infer semantics from formatted coordinates. |
-| `select(project:impl FnOnce(&T)->V) -> Fact<V>` | Exactly one value, otherwise EvaluationError without calling selector. |
+| `single_map(project:impl FnOnce(&T)->V) -> Fact<V>` | Exactly one value, otherwise EvaluationError without calling projection. |
 | `project(project:impl Fn(&T)->V) -> PreparedValues<V>`; `numeric(project:impl Fn(&T)->f64) -> PreparedNumeric` | Eager once-per-row projection for reuse. |
 | `count() -> Fact<usize>`; `matching_count(predicate:impl Fn(&T)->bool) -> Fact<usize>` | All/selected count, including forbidden absence. |
 | `unique(key:impl Fn(&T)->K)`; `contiguous(key:impl Fn(&T)->u64,start:u64,end:u64)` | Fact<IntegrityReport<K/u64>>; unique K:Ord+Clone, inclusive range, compact missing ranges. |
 | `keys(key:impl Fn(&T)->K) -> PreparedKeys<'a,T,K>`; `compare_with(right:&PreparedSource<R>) -> ComparisonBuilder` | K:Ord+Clone cached sorted keys or explicit correspondence builder. |
 | `group_by(key:impl Fn(&T)->K) -> GroupedView<T,K>` | K:Ord, no Clone for membership; ascending groups, source order inside. |
-| `lag_relation_by(right:&PreparedSource<R>,left:impl Fn(&T)->(i64,f64),rp:impl Fn(&R)->(i64,f64),config:LagConfig) -> Fact<LagReport>` (`rp` is the right projection) | Projected once per search. |
+| `lag_self(projection,config)`; `lag_with(right:&PreparedSource<R>,left_projection,right_projection,config:LagConfig) -> Fact<LagReport>` | One projection for self-lag; two for cross-source or same-source fields. Each search projects once. |
 
 ### PreparedValues
 
@@ -75,11 +75,11 @@ Names accept Into<Arc<str>>. Keep borrowed inputs alive. PreparedSource clones s
 
 ### PreparedNumeric
 
-`values() -> &[f64]`, `series() -> NumericSeries`; `summary()/robust_summary()/quantile(q:f64)/check(rule:NumericRule)/outliers(config:OutlierConfig)/jumps(config:JumpConfig)` all return Fact. Report indices remain source-local. Scratch separate; repeated analysis never reruns projection.
+`values() -> &[f64]`, `series() -> NumericSeries`; `summary()/robust_summary()/quantile(q:f64)/outliers(config:OutlierConfig)/jumps(config:JumpConfig)` return Fact. `expect(rule:NumericRule) -> CheckResult<IntegrityReport>` composes series integrity → Fact → expect_valid. Indices are source-local; analysis never reruns projection.
 
 ### PreparedKeys
 
-`indices() -> &[(K,usize)]`, `compare_with(&PreparedKeys) -> PreparedComparison`; merges cached indices for several counterparts.
+`indices() -> &[(K,usize)]`, `compare_with(&PreparedKeys) -> PairedComparison`; merges cached indices for several counterparts.
 
 ### GroupedView
 
@@ -91,23 +91,21 @@ Names accept Into<Arc<str>>. Keep borrowed inputs alive. PreparedSource clones s
 
 ### GroupedNumeric
 
-`summaries()/summaries_with_robust() -> GroupedSummaryReport<K>` reuse cached values (K:Ord+Clone for owned keys). Report.groups contains GroupSummary{key,member_count,summary:Result<Summary,NumericError>,robust:Option<Result<RobustSummary,NumericError>>}; failed groups retain identity, healthy groups remain. GroupExpectation rejects zero groups/count/mean violations statistically; invalid bounds/unavailable summaries → EvaluationError.
+`summaries()/summaries_with_robust() -> GroupedSummaryReport<K>` reuse cached values (K:Ord+Clone for owned keys). Report.groups contains GroupSummary{key,member_count,summary:Result<Summary,NumericError>,robust:Option<Result<RobustSummary,NumericError>>}; failed groups retain identity, healthy groups remain. GroupExpectation rejects zero groups/count/mean violations statistically; construction validates mean bounds; unavailable summaries → EvaluationError.
 
 ### ComparisonBuilder
 
-`on(left:impl Fn(&L)->K,right:impl Fn(&R)->K)`, `on_u64(left:impl Fn(&L)->u64,right:impl Fn(&R)->u64)` → PreparedComparison<'a,L,R,K/u64>; `on_sorted(left,right) -> Result<PreparedComparison,JoinError>` rejects decreasing promised-sorted keys. Generic K:Ord+Clone; adaptive sort/merge and u64 bounded-dense optimization share ambiguity semantics. Left/right types may differ; no Hash requirement or string field-name joins.
+`on(left:impl Fn(&L)->K,right:impl Fn(&R)->K)`, `on_u64(left:impl Fn(&L)->u64,right:impl Fn(&R)->u64)` → PairedComparison<'a,L,R,K/u64>; `on_presorted(left,right) -> Result<PairedComparison,JoinError>` rejects decreasing promised-sorted keys. Generic K:Ord+Clone; adaptive sort/merge and u64 bounded-dense optimization share ambiguity semantics. Left/right types may differ; no Hash requirement or string field-name joins.
 
-### PreparedComparison
+### PairedComparison
 
 | API | Result/semantics (K:Clone+Debug) |
 | --- | --- |
 | `name() -> String`; `comparison() -> &Comparison<K>` | Named left → right and full mapping; field/check names belong on checks. |
-| `pairs()` | Iterator<(&K,SourceEntry<L>,SourceEntry<R>)> for deliberate subset investigation; original indices/provenance. |
-| `comparison_fact() -> Fact<&Comparison<K>>` | No giant copy; expect_valid requires exact unique correspondence, bounded missing/duplicate examples. |
-| `equal(left:impl Fn(&L)->V,right:impl Fn(&R)->V,top:usize)`; `check_pairs(predicate:impl Fn(&L,&R)->bool,top:usize)` | Fact<PairCheck<K>{matched,failures,examples}>; equality V:PartialEq. Examples cap min(top,32) with provenance; counts precede examples. Incomplete comparison → EvaluationError, never subset proof. |
+| `matched_pairs()` | Iterator<(&K,SourceEntry<L>,SourceEntry<R>)> over the matched subset, with original indices/provenance. |
+| `paired_comparison_fact() -> Fact<&Comparison<K>>` | No giant copy; expect_valid requires exact unique correspondence, bounded missing/duplicate examples. |
+| `equal(left:impl Fn(&L)->V,right:impl Fn(&R)->V,top:usize)`; `check_pairs(predicate:impl Fn(&L,&R)->bool,top:usize)` | Fact<PairCheck<K>> with read-only matched()/failures()/examples(); equality V:PartialEq. Examples cap min(top,32) with provenance; counts precede examples. Incomplete comparison → EvaluationError, never subset proof. |
 | `numeric(left:impl Fn(&L)->f64,right:impl Fn(&R)->f64) -> PreparedNumericComparison<K>` | f64 pairs projected once in comparison order; no new join. Reuse comparison across fields. |
-| `lag(left:impl Fn(&L)->(i64,f64),right:impl Fn(&R)->(i64,f64),config:LagConfig) -> Fact<LagReport>` | Separate shifted-domain sort, not zero-lag mapping. Partition repeated keys by fold/target/execution first. |
-
 ### PreparedNumericComparison
 
 Owns eagerly projected pairs; lazily caches compact linear/rank/difference/residual results **including errors**, once. Repeated views do not decode/project/sort keys/rebuild correspondence or copy comparisons; rank/quantile scratch may allocate. All analysis requires complete comparison.
@@ -117,71 +115,68 @@ Owns eagerly projected pairs; lazily caches compact linear/rank/difference/resid
 | `values()` | &[(f64,f64)] |
 | `correlation()` | Fact<CorrelationMetrics{pearson:Metric,spearman:Metric}> |
 | `linear_fit()` | Fact<LinearFitMetrics{linear:LinearMetrics,residual:Option<DifferenceSummary>}> |
-| `relation()` | Fact<RelationMetrics{linear,spearman,difference,residual}>; advanced composite, ordinary checks prefer separate views. |
+| `relation()` | Fact<RelationMetrics{linear,spearman,difference,residual}>; composite constraints over cached metrics. |
 | `difference()` | Fact<DifferenceSummary>; right−left, not fitted residuals. |
 | `linear()` | Fact<LinearMetrics>; covariance/OLS summary. |
-| `pearson()`; `spearman()` | Fact<Metric>; low-level scalar views; prefer correlation() for correlation expectations. |
+| `pearson()`; `spearman()` | Fact<Metric>; scalar metric views over the same caches. |
 | `largest(top)` | Fact<Vec<PairEvidence<K>>>; bounded top-N scratch, decreasing absolute disagreement, deterministic key-order ties. |
 
 ### Statistical expectation builders and measures
 
-Builders below return Result<Self,NumericError>, except `default()`. Each expectation `default()` starts with **zero constraints** and is therefore vacuous by itself; add at least one builder/bound to require a metric. Bounds are inclusive, finite, ordered; reversed/nonfinite → NumericError. Undefined/nonfinite **required** metrics → EvaluationError; violated valid bounds → StatisticalViolation with typed `MetricConstraint<M>{measure:M,min:Option<f64>,max:Option<f64>}`.
+Expectations start with a real bound; constructors/builders return Result<Self,NumericError>. Bounds are inclusive, finite, ordered, and cannot both be absent. Required undefined metrics → EvaluationError; violated bounds → StatisticalViolation with `MetricConstraint<M>`. `MetricConstraint::new(measure:M,min:Option<f64>,max:Option<f64>)` validates bounds; read-only `measure()/min()/max()`.
 
-| Owner | Builders and complete measure enum |
+| Owner | Constructors, additional bounds and measures |
 | --- | --- |
-| CorrelationExpectation | `positive(min:f64)` (0,1], `negative(max:f64)` [-1,0); `default().pearson(min:Option<f64>,max:Option<f64>)/spearman(min,max)/bound(measure:CorrelationMeasure,min,max)`. CorrelationMeasure::{Pearson,Spearman,AbsolutePearson,AbsoluteSpearman}. |
-| LinearFitExpectation | `default().slope(min:f64,max:f64)/intercept(min:f64,max:f64)/r_squared(min:f64)/residual_mean_absolute(max:f64)/residual_max_absolute(max:f64)`; `bound(measure:LinearFitMeasure,min:Option<f64>,max:Option<f64>)`. LinearFitMeasure::{Slope,Intercept,RSquared,ResidualMeanAbsolute,ResidualMaxAbsolute}. |
-| DifferenceExpectation | `default().mean_absolute(max:f64)/p95_absolute(max:f64)/max_absolute(max:f64)`; `bound(measure:DifferenceMeasure,min:Option<f64>,max:Option<f64>)`. DifferenceMeasure::{MeanAbsolute,P95Absolute,MaxAbsolute}. |
-| RelationExpectation | `positive(min_spearman:f64)/negative(max_spearman:f64)/default().bound(measure:RelationMeasure,min:Option<f64>,max:Option<f64>)`; same correlation bound domains. Public constraints:Vec<RelationConstraint>; `RelationConstraint = MetricConstraint<RelationMeasure>`. RelationMeasure::{Pearson,Spearman,AbsolutePearson,AbsoluteSpearman,Slope,Intercept,RSquared,MeanAbsoluteDifference,P95AbsoluteDifference,MaxAbsoluteDifference,ResidualMeanAbsolute,ResidualMaxAbsolute}. Applies to RelationMetrics or RelationReport<K>. |
+| CorrelationExpectation | `pearson_at_least(min:f64)`, `spearman_at_least(min:f64)`, `spearman_at_most(max:f64)`, `with_bound(measure,min,max)`; `and_pearson_bounds(min,max)`, `and_spearman_bounds(min,max)`, `bound(measure,min,max)`. CorrelationMeasure::{Pearson,Spearman,AbsolutePearson,AbsoluteSpearman}. |
+| LinearFitExpectation | `slope_between(min,max)`, `intercept_between(min,max)`, `r_squared_at_least(min)`, `residual_mean_absolute_at_most(max)`, `residual_max_absolute_at_most(max)`, `with_bound(measure,min,max)`; additional `and_slope_between`, `and_intercept_between`, `and_r_squared_at_least`, `and_residual_mean_absolute_at_most`, `and_residual_max_absolute_at_most`, `bound(measure,min,max)`. LinearFitMeasure::{Slope,Intercept,RSquared,ResidualMeanAbsolute,ResidualMaxAbsolute}. |
+| DifferenceExpectation | `mean_absolute_at_most(max)`, `p95_absolute_at_most(max)`, `max_absolute_at_most(max)`, `with_bound(measure,min,max)`; additional `and_mean_absolute_at_most`, `and_p95_absolute_at_most`, `and_max_absolute_at_most`, `bound(measure,min,max)`. DifferenceMeasure::{MeanAbsolute,P95Absolute,MaxAbsolute}. |
+| RelationExpectation | `spearman_at_least(min)`, `spearman_at_most(max)`, `with_bound(measure,min,max)`, `bound(measure,min,max)`. `RelationConstraint = MetricConstraint<RelationMeasure>`. RelationMeasure::{Pearson,Spearman,AbsolutePearson,AbsoluteSpearman,Slope,Intercept,RSquared,MeanAbsoluteDifference,P95AbsoluteDifference,MaxAbsoluteDifference,ResidualMeanAbsolute,ResidualMaxAbsolute}. |
 
 ## Anomaly, jump and temporal lag
 
-- `OutlierConfig{threshold:f64,zero_mad:ZeroMadPolicy}` defaults 3.5/ExactMedian; threshold finite nonnegative. modified-z = 0.6744897501960817*(value−median)/MAD, strict magnitude threshold. `ZeroMadPolicy::{ExactMedian,AbsoluteTolerance(f64)}`: zero MAD flags every nonmedian or deviations strictly beyond finite nonnegative tolerance in original units. OutlierReport{config,summary:RobustSummary,suspicious:Vec<Outlier{index,value,score}>}; `RobustScore::{ModifiedZ(f64),ZeroMadDeviation{signed_deviation}}`.
-- `JumpConfig{absolute_threshold:Option<f64>,relative_threshold:Option<f64>,denominator_floor:f64}` has **no Default**; callers provide all fields. Thresholds finite nonnegative, floor finite positive; both thresholds None measures maxima without flagging. Source order matters; either strict threshold flags; relative=abs(delta)/max(abs(previous),floor). JumpReport{config,record_count,transition_count,maximum_absolute,maximum_relative,suspicious}; Jump{from_index,to_index,from_value,to_value,signed_change,absolute_change,relative_change}. Earliest maximum wins ties. AtMostAnomalies bounds suspicious counts for either report.
-- `LagConfig{range:LagRange{start:i64,end:i64},measure:LagMeasure::{Pearson,Spearman}}` has **no Default**; callers provide range and measure. Range is inclusive start<=end, at most `MAX_LAG_CANDIDATES=4097`. Positive d pairs **left k with right k+d**, never vector offsets; overflow-safe shifts, duplicate keys error. Best maximizes absolute correlation, ties smallest |d| then signed d. One unique temporal domain/search.
-- LagReport{config,left_source/right_source:Option<String>,left_count,right_count,candidates,best}, `zero_lag()->Option<&LagCandidate>`. LagCandidate{lag,alignment:LagAlignment,relation}; `LagAlignment::default()` sets all five counters to 0; LagAlignment{pair_count,boundary_left,boundary_right,missing_left,missing_right}, `has_interior_gaps()->bool` distinguishes expected boundary loss/interior gaps. BestLag{lag,relation,strength}; best=None if all undefined. LagExpectation rejects `LagViolation::{UnexpectedBestLag,NoDefinedCandidate,InteriorMissingKeys}`.
+- `OutlierConfig::new(threshold:f64,zero_mad:ZeroMadPolicy)` validates finite nonnegative threshold; default is 3.5/ExactMedian. modified-z = 0.6744897501960817*(value−median)/MAD, strict magnitude threshold. `ZeroMadPolicy::absolute_tolerance(f64)` validates tolerance in original units; ExactMedian flags every nonmedian value at zero MAD. Reports retain summary and source-local suspicious indices; `RobustScore::{ModifiedZ(f64),ZeroMadDeviation{signed_deviation}}`.
+- `JumpConfig::new(absolute_threshold:Option<f64>,relative_threshold:Option<f64>,denominator_floor:f64)` validates finite nonnegative thresholds and positive finite floor. At least one threshold is required. Either strict threshold flags; relative=abs(delta)/max(abs(previous),floor). Reports retain record/transition counts, maxima, suspicious transitions and both endpoints; earliest maximum wins ties. AtMostAnomalies bounds suspicious counts.
+- `LagRange::new(start:i64,end:i64)` validates inclusive range with at most `MAX_LAG_CANDIDATES=4097`; accessors `start()/end()`. `LagConfig{range:LagRange,measure:LagMeasure::{Pearson,Spearman}}`. Positive d pairs **left k with right k+d**; overflow-safe shifts, duplicate keys error. Best maximizes absolute correlation, ties smallest |d| then signed d. Partition one unique temporal domain/search.
+- LagReport{config,left_source/right_source:Option<String>,left_count,right_count,candidates,best}, `zero_lag()->Option<&LagCandidate>`. LagCandidate{lag,alignment:LagAlignment,relation}; `LagAlignment::default()` sets all five counters to 0; LagAlignment{pair_count,boundary_left,boundary_right,right_only,left_only}, `has_interior_gaps()->bool` distinguishes expected boundary loss/interior gaps. BestLag{lag,relation,strength}; best=None if all undefined. LagExpectation rejects `LagViolation::{UnexpectedBestLag,NoDefinedCandidate,InteriorMissingKeys}`.
 
 ## Direct analysis and report/error reference
 
-Operations return data/errors, never assertions. Cloneable iterators must replay identical ordered values; lazy selectors must be pure. Reports/errors support Serde.
+Operations return data/errors, never assertions. Cloneable iterators must replay identical ordered values; lazy selectors must be pure. Numeric reports/errors support Serde; structural Comparison is output-only Serialize to prevent fabricated correspondence.
 
 | Function/type | Public surface/meaning |
 | --- | --- |
-| NumericSeries | `new(Iterator<Item=f64>+Clone)`, `iter()`; `finite_count()->FiniteCount{count,finite_count}` does not reject invalids. `summary()/quantile(probability:f64)/robust_summary()/check(rule:NumericRule)/outliers(config:OutlierConfig)/jumps(config:JumpConfig)` → Result<report,NumericError>. Lazy selectors may rerun; prefer PreparedNumeric for reuse. |
+| NumericSeries | `new(Iterator<Item=f64>+Clone)`, `iter()`; `finite_count()->FiniteCount{count,finite_count}`; `summary()/quantile(probability:f64)/robust_summary()/integrity(rule:NumericRule)/outliers(config:OutlierConfig)/jumps(config:JumpConfig)` → Result<report,NumericError>. Lazy selectors may rerun. |
 | Summary; RobustSummary | Summary{count,finite_count,min,max,sum,mean,variance(population),sample_variance:Option<f64>(n<2 absent),standard_deviation}; RobustSummary{count,median,q1,q3,iqr,mad(unscaled)}. Type-7 interpolation; empty/nonfinite/overflow/underflow errors; q finite in [0,1]. |
 | Integrity functions | `check_count(actual:usize,expected:CountRule)`, `check_unique(values:&[T],key:impl Fn(&T)->K)`, `check_contiguous(values:&[T],key:impl Fn(&T)->u64,start:u64,end:u64)` → IntegrityReport{record_count,issues}, `is_valid()`. IntegrityIssue::{Count{expected,actual},Duplicate(KeyGroup),UnexpectedKey{key},MissingRange{start,end},InvalidKeyRange{start,end},Numeric{index,value,expected}}. Aggregate via fact(...).expect_valid(). |
-| Comparison<K> | `check_same_keys(left:&[L],right:&[R],left_key:impl Fn(&L)->K,right_key:impl Fn(&R)->K)` → exact unique correspondence. Fields left_count/right_count, matched:Vec<MatchedKey{key,left_index,right_index}>, missing_left/missing_right/duplicate_left/duplicate_right:Vec<KeyGroup{key,indices}>, optional left_source/right_source labels. `is_complete()` includes duplicates; duplicate keys never pair. |
-| Join | `join_by(left:&[L],right:&[R],left_key:impl Fn(&L)->K,right_key:impl Fn(&R)->K) -> Join<L,R,K>` (K:Ord+Clone); `join_u64_by(left,right,left_key:impl Fn(&L)->u64,right_key:impl Fn(&R)->u64)`; `join_sorted_by(left,right,left_key,right_key) -> Result<Join,JoinError>`. `comparison()->&Comparison<K>`, `pairs()->Iterator<(&K,&L,&R)>`, `require_complete()->Result<(),&Comparison<K>>`, `set_source_names(&str,&str)`. JoinError{side:Side::{Left,Right},index}. |
-| Join numeric | `difference(lp,rp,top)->Result<DifferenceReport<K>,RelationError<K>>`; `numeric_relation(lp,rp,top)->Result<RelationReport<K>,RelationError<K>>`. f64 selectors, Clone for numeric_relation. Direct owned reports copy full comparison; prefer prepared comparisons for repeated checks. |
+| Comparison<K> | `check_same_keys(left,right,left_key,right_key)` → structural report; read-only `left_count()/right_count()/matched()/left_only()/right_only()/duplicate_left()/duplicate_right()/left_source()/right_source()`. `is_complete()` requires matched == left_count == right_count and no one-sided/duplicate keys. |
+| Join | `join_by(left,right,left_key,right_key)`, `join_u64_by(...)`, `join_presorted_by(...) -> Result<Join,JoinError>`; `comparison()`, `matched_pairs()`, `require_complete()`, `set_source_names(&str,&str)`. JoinError{side:Side::{Left,Right},index}. |
 | Pair analysis | `linear_metrics(pairs)/pearson(pairs)/spearman(pairs)` accept IntoIterator<(f64,f64)> → Result<LinearMetrics/Metric/Metric,NumericError>; `correlation(cloneable_pairs)/linear_fit(cloneable_pairs)/numeric_relation(cloneable_pairs)` → corresponding metrics. Cloneable_pairs is Iterator+Clone. `difference_summary(IntoIterator<(f64,f64)>)` → DifferenceSummary. |
 | LinearMetrics; Metric | LinearMetrics{count,pearson,covariance(population),sample_covariance,slope,intercept,r_squared}; OLS right on left. Spearman average tied ranks, including signed zero. `Metric::{Defined(f64),Undefined(UndefinedReason::{InsufficientPairs,ConstantLeft,ConstantRight})}`, `value()->Option<f64>`; no silent NaN. |
-| DifferenceSummary; pair reports | DifferenceSummary{signed:Summary,absolute:Summary,median_signed,median_absolute,p95_absolute}; direct right−left. Fit residuals = observed right−predicted right. RelationMetrics{linear,spearman,difference,residual:Option<DifferenceSummary>}; RelationReport<K>{comparison,observed,largest_disagreements}; DifferenceReport<K>{summary,largest}; PairEvidence<K>{key,left,right,signed_difference,absolute_difference}. |
+| DifferenceSummary; pair reports | DifferenceSummary{signed:Summary,absolute:Summary,median_signed,median_absolute,p95_absolute}; direct right−left. Fit residuals = observed right−predicted right. RelationMetrics{linear,spearman,difference,residual:Option<DifferenceSummary>}; PairEvidence<K>{key,left,right,signed_difference,absolute_difference}. |
 | Direct lag | `lag_relation_by(left:&[L],right:&[R],left_project:impl Fn(&L)->(i64,f64),right_project:impl Fn(&R)->(i64,f64),config:LagConfig)->Result<LagReport,LagError>`: slices, one (i64,f64) projection/row. LagError::{InvalidRange,DuplicateKeys{left,right},Projection{side,error},Numeric{lag,error}}. |
-| Numeric/error values | NumericError::{Empty,NonFinite{index,value},InvalidParameter{name,value},ArithmeticOverflow{operation},ArithmeticUnderflow{operation}}. NumericValue::{Finite(f64),Nan,PositiveInfinity,NegativeInfinity}, From<f64>, JSON-safe. RelationError<K>::{Comparison(Box<Comparison<K>>),Numeric{comparison,error}}. |
-
-Low-level `RelationExpectation::evaluate(RelationReport<K>)->Result<RelationReport<K>,Box<RelationFailure<K>>>` and `LagExpectation::evaluate(LagReport)->Result<LagReport,Box<LagFailure>>` delegate to canonical acceptance. Failures{expected,violated,observed} implement Display/Error; RelationFailure also retains analysis_error for invalid evidence/preconditions. Prefer Fact::expect for collect-all; never unwrap evaluate as intermediate assertion. No separate assert_* authority.
+| Numeric/error values | NumericError::{Empty,NonFinite{index,value},InvalidParameter{name,value},ArithmeticOverflow{operation},ArithmeticUnderflow{operation}}. NumericValue::{Finite(f64),Nan,PositiveInfinity,NegativeInfinity}, From<f64>, JSON-safe. |
 
 ## Hierarchy, report and final assertion
 
-`certify(name:impl Into<String>) -> Certification`. Methods: `source(name,value:&T)/collection(name,values:&[T])` above; `check(name:impl Into<String>,result:CheckResult)`; `check_fact_expect(name,observed,expected)` (exactly check(name,fact(name,observed).expect(expected))); `section(name,checks:impl FnOnce(&mut Certification))`; `limits(limits:DiagnosticLimits)`. Check/section/limits return &mut Self. Eager collect-all, nested semantic paths (encoder/prediction/timing/), no independent short-circuiting. Fallible dependent preparation uses try_fact, not ? out of the entire proof.
+`certification(name:impl Into<String>) -> Certification`. Methods: `source(name,value:&T)/collection(name,values:&[T])` above; `check(name:impl Into<String>,result:CheckResult)`; `check_fact_expect(name,observed,expected)` (exactly check(name,fact(name,observed).expect(expected))); `section(name,checks:impl FnOnce(&mut Certification))`; `limits(limits:DiagnosticLimits)`. Check/section/limits return &mut Self. Eager collect-all, nested semantic paths (encoder/prediction/timing/), no independent short-circuiting. Fallible dependent preparation uses try_fact, not ? out of the entire proof.
 
-`Certification::certify() -> CertificationReport` is a nonpanicking bounded snapshot: public name/checks/failed/failures, `is_pass()`. CheckFailure{section,name,class,diagnostic}. Both `Certification::assert_certify()` and `CertificationReport::assert_certify()` track caller; failure panics with one report, success silent. Report Display is empty on success.
+`Certification::report() -> CertificationReport` returns a nonpanicking immutable snapshot: `name()/checks()/failed()/failures()/is_pass()`. Zero checks cannot pass. `Certification::assert_certify()` and `CertificationReport::assert_certify()` assert at the proof boundary with bounded diagnostics; successful Display is empty.
 
 `DiagnosticLimits{failures,characters_per_failure}` defaults 64/2048 UTF-8 bytes, plus truncation marker and bounded names/paths; omitted failures remain counted. Success aggregation retains no fact report/duplicate comparison. Bounded writers stop traversal when formatters propagate errors; custom Debug must propagate write errors and avoid unbounded allocation/work before writing (a writer cannot interrupt ignored errors). `bounded_debug(&value,limit)` supports custom detail. Keep full typed reports separately; never inject unbounded JSON into panics.
 
 ## Ordinary + Observation-backed composition
 
-`CapturedRun::certify` is the completeness-aware evidence bridge. Start every capture proof with **run.certify(name)**, not standalone certify: eviction, emission failure or escaped contexts/workers/spans adds an EvaluationError prerequisite; healthy capture adds no extra check. A retained subset never establishes completeness. Capture mechanics belong to the sun-observations skill. Decode TypedView once; reuse its source. Filter proc/scope or include execution identity for repeated keys. Provenance optional; ordinary sources work identically.
+`CapturedRun::certification` is the completeness-aware evidence bridge. Start every capture proof with **run.certification(name)**, not standalone certification: eviction, emission failure or escaped contexts/workers/spans adds an EvaluationError prerequisite; healthy capture adds no extra check. A retained subset never establishes completeness. Capture mechanics belong to the sun-observations skill. Decode TypedView once; reuse its source. Filter proc/scope or include execution identity for repeated keys. Provenance optional; ordinary sources work identically.
 
 ```rust
 use sun_observations::certifications::*;
 fn ordinary() {
     let returned = 3usize;
     let rows = [1u64, 2, 3];
-    let mut c = certify("canonical result and artifact");
+    let mut c = certification("canonical result and artifact");
     let result = c.source("result", &returned);
     let data = c.collection("artifact", &rows);
-    c.section("result", |c| { c.check("ready", result.select(|v| *v).expect(3usize)); });
+    c.section("result", |c| { c.check("ready", result.single_map(|v| *v).expect(3usize)); });
     c.check("unique", data.unique(|v| *v).expect_valid());
     c.check("contiguous", data.contiguous(|v| *v, 1, 3).expect_valid());
     c.check("forbidden future", data.matching_count(|v| *v > 3).expect(0));
@@ -199,16 +194,16 @@ use sun_observations::Observation;
 struct Prediction { fold:u8, row:u64, signal:f64 }
 struct Output { fold:u8, row:u64, signal:f64 }
 fn mixed(run:&CapturedRun<Vec<Output>>) -> Result<(),DecodeError> {
-    let typed = run.typed::<Prediction>()?;
-    let mut c = run.certify("internal transfer to canonical result");
+    let typed = run.to_typed::<Prediction>()?;
+    let mut c = run.certification("internal transfer to canonical result");
     let internal = typed.source("predictions");
     let result = c.collection("output", run.result());
     let pair = internal.compare_with(&result).on(|v|(v.fold,v.row), |v|(v.fold,v.row));
     let signal = pair.numeric(|v|v.signal, |v|v.signal);
-    c.check("keys", pair.comparison_fact().expect_valid());
+    c.check("keys", pair.paired_comparison_fact().expect_valid());
     c.check("exact transfer", pair.equal(|v|v.signal, |v|v.signal, 5).expect_valid());
-    c.check("association", signal.correlation().expect(CorrelationExpectation::positive(0.9).unwrap()));
-    c.check("difference", signal.difference().expect(DifferenceExpectation::default().max_absolute(0.).unwrap()));
+    c.check("association", signal.correlation().expect(CorrelationExpectation::spearman_at_least(0.9).unwrap()));
+    c.check("difference", signal.difference().expect(DifferenceExpectation::max_absolute_at_most(0.).unwrap()));
     c.assert_certify();
     Ok(())
 }

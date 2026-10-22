@@ -28,7 +28,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _scope = start_scope(
         ScopeConfig::new("run-a")
             .activate_namespace("compute")
-            .override_policy::<Batch>(Policy::FirstN(1)),
+            .unwrap()
+            .override_policy::<Batch>(Policy::first_n(1).unwrap()),
     );
     {
         let _span = observe_span!(Run { items: 2 })?;

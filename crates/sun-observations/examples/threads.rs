@@ -18,7 +18,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scope = start_scope(
         ScopeConfig::new("job-42")
             .activate_namespace("jobs")
-            .override_policy::<Completed>(Policy::FirstN(2)),
+            .unwrap()
+            .override_policy::<Completed>(Policy::first_n(2).unwrap()),
     );
     let captured = Context::capture();
 

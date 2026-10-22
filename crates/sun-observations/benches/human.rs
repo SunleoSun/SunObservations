@@ -9,8 +9,8 @@ use std::{
     time::Instant,
 };
 use sun_observations::{
-    global, observe, start_scope, ConsoleSink, Context, JsonlSink, Observation,
-    ObservationDelivery, ObservationLevel, ObservationRecord, ScopeConfig, Selection,
+    global, observe, start_scope, ConsoleSink, Context, JsonlSink, Observation, ObservationRecord,
+    ScopeConfig, Selection,
 };
 
 const N: u64 = 262_144;
@@ -72,7 +72,7 @@ fn run<const CUSTOM: bool>(
     }
     let machine = directory.path().join("records.jsonl");
     if jsonl {
-        global().add_channel_sink("human", Arc::new(JsonlSink::append(&machine).unwrap()));
+        global().add_channel_sink("human", Arc::new(JsonlSink::open_append(&machine).unwrap()));
     }
     let _scope = start_scope(ScopeConfig::new("benchmark"));
     emit::<CUSTOM>(u64::MAX);
@@ -131,36 +131,6 @@ fn run<const CUSTOM: bool>(
     global().clear_channel_sinks("human");
 }
 fn representation(sample: usize) {
-    let record = Arc::new(ObservationRecord {
-        ts: "time".into(),
-        proc: "process".into(),
-        proc_ms: 0,
-        scope: None,
-        namespace: "bench".into(),
-        level: ObservationLevel::INFO,
-        data: serde_json::Value::Null,
-        message: None,
-        phase: None,
-        span: None,
-    });
-    for mode in ["arc_record", "stack_delivery", "shared_text_delivery"] {
-        let delivery = ObservationDelivery::new(
-            record.clone(),
-            (mode == "shared_text_delivery").then(|| Arc::new("a rendered row".into())),
-        );
-        let start = Instant::now();
-        for _ in 0..1_000_000 {
-            for _ in 0..2 {
-                if mode == "arc_record" {
-                    black_box(record.clone());
-                } else {
-                    black_box(delivery.clone());
-                }
-            }
-        }
-        let ns = start.elapsed().as_nanos() as f64 / 1_000_000.0;
-        println!("delivery,{mode},1,1000000,{sample},{ns:.3},{ns:.3},0");
-    }
     let start = Instant::now();
     for epoch in 0..N {
         let row = Metrics::<true> {

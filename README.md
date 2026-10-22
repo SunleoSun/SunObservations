@@ -23,11 +23,11 @@ A Fact records evidence; an Expectation decides acceptance. Checks collect resul
 then one final assertion proves the whole named contract. No runtime or Serde is needed:
 
 ```rust
-use sun_observations::certifications::{certify, fact, try_fact};
+use sun_observations::certifications::{certification, fact, try_fact};
 
 let output = [1u64, 2, 3];
 let parsed = "3".parse::<usize>();
-let mut proof = certify("exported rows");
+let mut proof = certification("exported rows");
 let rows = proof.collection("canonical output", &output);
 proof.check("schema version", fact("version", 1u8).expect(1u8));
 proof.check("declared count", try_fact("header", parsed).expect(3usize));
@@ -70,24 +70,24 @@ fn charge(orders: &[Order]) -> Result<Vec<Receipt>, ObservationError> {
 
 let orders = [Order { id: 1, net: 50 }, Order { id: 2, net: 200 }];
 let run = capture_observations(
-    CaptureConfig::new().activate_tag("evidence"),
+    CaptureConfig::new().activate_tag("evidence").unwrap(),
     || charge(&orders),
 );
-let decisions = run.typed::<RateSelected>();
-let mut proof = run.certify("billing production contract");
+let decisions = run.to_typed::<RateSelected>();
+let mut proof = run.certification("billing production contract");
 proof.check("call succeeded", try_fact("charge", run.result().as_ref().map(|_| true)).expect(true));
 proof.check("decodable evidence", try_fact("rates", decisions.as_ref().map(|_| true)).expect(true));
 if let (Ok(receipts), Ok(decisions)) = (run.result(), &decisions) {
     let input = proof.collection("orders", &orders);
     let output = proof.collection("receipts", receipts);
     let transfer = input.compare_with(&output).on(|v| v.id, |v| v.order);
-    proof.check("one receipt per order", transfer.comparison_fact().expect_valid());
+    proof.check("one receipt per order", transfer.paired_comparison_fact().expect_valid());
     proof.check("canonical totals", transfer.check_pairs(
         |a, b| b.total == if a.net >= 100 { a.net * 90 / 100 } else { a.net }, 3,
     ).expect_valid());
     let rates = decisions.source("internal rate decisions");
     let selection = input.compare_with(&rates).on(|v| v.id, |v| v.order);
-    proof.check("one decision per order", selection.comparison_fact().expect_valid());
+    proof.check("one decision per order", selection.paired_comparison_fact().expect_valid());
     proof.check("rate policy", selection.check_pairs(
         |a, b| b.rate == if a.net >= 100 { 90 } else { 100 }, 3,
     ).expect_valid());
@@ -95,7 +95,7 @@ if let (Ok(receipts), Ok(decisions)) = (run.result(), &decisions) {
 proof.assert_certify();
 ```
 
-`run.certify(...)` adds an `EvaluationError` prerequisite if capture lost records,
+`run.certification(...)` adds an `EvaluationError` prerequisite if capture lost records,
 ignored emission errors, or retained unfinished contexts/workers/spans. A retained
 subset cannot silently pass. Application and decode errors above also become checks;
 independent checks continue even when dependent comparisons cannot be prepared.
@@ -163,14 +163,14 @@ Undefined required metrics and invalid bounds fail closed, rather than becoming 
 or silently passing. Scenario thresholds belong to expectations, not Observations.
 
 `proof.section("meaning", |c| { ... })` groups independent checks into semantic paths.
-Call `proof.certify()` for a nonpanicking `CertificationReport` (`is_pass()`, counts,
+Call `proof.report()` for a nonpanicking `CertificationReport` (`is_pass()`, counts,
 bounded failures), or `proof.assert_certify()` at the test/application proof boundary.
 Do not unwrap acceptance midway: that loses collect-all diagnostics. Fallible dependent
 preparation should become a failed check, while unrelated sections still run.
 
 ### Name sources and prove collection integrity
 
-Use `source(name, &value)` for one value, `source_slice` or `proof.collection` for
+Use `source(name, &value)` for one value, `collection` or `proof.collection` for
 rows. A singular `&Vec<T>` is one Vec value, not a row collection. Keep borrowed inputs alive.
 
 ```rust
@@ -178,10 +178,10 @@ use sun_observations::certifications::*;
 
 let ids = [10u64, 11, 12];
 let status = String::from("ready");
-let mut proof = certify("published artifact");
+let mut proof = certification("published artifact");
 let metadata = proof.source("status", &status);
 let rows = proof.collection("artifact ids", &ids);
-proof.check("ready", metadata.select(|s| s.clone()).expect("ready"));
+proof.check("ready", metadata.single_map(|s| s.clone()).expect("ready"));
 proof.check("count", rows.count().expect(CountRule::Exact(3)));
 proof.check("identity", rows.unique(|id| *id).expect_valid());
 proof.check("no gaps", rows.contiguous(|id| *id, 10, 12).expect_valid());
@@ -210,11 +210,11 @@ let producer = [
     Row { fold: 0, row: 2, label: 3, value: 7.0 },
 ];
 let consumer = [producer[2].clone(), producer[0].clone(), producer[1].clone()];
-let mut proof = certify("producer to consumer");
+let mut proof = certification("producer to consumer");
 let left = proof.collection("producer", &producer);
 let right = proof.collection("consumer", &consumer);
 let pair = left.compare_with(&right).on(|v| (v.fold, v.row), |v| (v.fold, v.row));
-proof.check("exact unique keys", pair.comparison_fact().expect_valid());
+proof.check("exact unique keys", pair.paired_comparison_fact().expect_valid());
 proof.check("labels preserved", pair.equal(|v| v.label, |v| v.label, 3).expect_valid());
 proof.check("values preserved", pair.check_pairs(|a, b| a.value == b.value, 3).expect_valid());
 proof.assert_certify();
@@ -236,23 +236,23 @@ use sun_observations::certifications::*;
 
 let expected = [(1u64, 2.0), (2, 4.0), (3, 7.0)];
 let actual = [(3u64, 7.000001), (1, 2.0), (2, 4.0)];
-let mut proof = certify("numeric transfer");
+let mut proof = certification("numeric transfer");
 let left = proof.collection("reference", &expected);
 let right = proof.collection("optimized output", &actual);
 let pair = left.compare_with(&right).on(|v| v.0, |v| v.0);
 let values = pair.numeric(|v| v.1, |v| v.1);
-proof.check("keys", pair.comparison_fact().expect_valid());
-proof.check("association", values.correlation().expect(CorrelationExpectation::positive(0.99).unwrap()));
-proof.check("scale", values.linear_fit().slope().expect(close_to(1.0).absolute(1e-5)));
+proof.check("keys", pair.paired_comparison_fact().expect_valid());
+proof.check("association", values.correlation().expect(CorrelationExpectation::spearman_at_least(0.99).unwrap()));
+proof.check("scale", values.linear_fit().slope().expect(close_to(1.0).unwrap().absolute_tolerance(1e-5).unwrap()));
 proof.check("fit", values.linear_fit().expect(
-    LinearFitExpectation::default().slope(0.999, 1.001).unwrap()
-        .intercept(-1e-5, 1e-5).unwrap().r_squared(0.99).unwrap(),
+    LinearFitExpectation::slope_between(0.999, 1.001).unwrap()
+        .and_intercept_between(-1e-5, 1e-5).unwrap().and_r_squared_at_least(0.99).unwrap(),
 ));
 proof.check("direct error", values.difference().expect(
-    DifferenceExpectation::default().max_absolute(1e-5).unwrap(),
+    DifferenceExpectation::max_absolute_at_most(1e-5).unwrap(),
 ));
 proof.check("scalar tolerance", fact("total", 13.000001).expect(
-    close_to(13.0).absolute(1e-5).relative(0.0),
+    close_to(13.0).unwrap().absolute_tolerance(1e-5).unwrap().relative_tolerance(0.0).unwrap(),
 ));
 proof.assert_certify();
 ```
@@ -262,7 +262,7 @@ exposes slope/intercept/R²/residuals; `difference()` measures **right minus lef
 not fitted residuals. Prepared numeric pairs cache projections and compact results
 (including errors); requesting these views does not repeat decoding or correspondence.
 The `unwrap()` calls above validate fixed scenario configuration, not acceptance.
-For external configuration, handle builder errors explicitly. `close_to(x)` accepts
+For external configuration, handle builder errors explicitly. `close_to(x).unwrap()` accepts
 `abs(actual-x) <= absolute + relative*abs(x)`; both defaults are `1e-9`.
 
 ### Inspect groups, anomalies and temporal lag
@@ -275,20 +275,18 @@ so sort into domain time order first when arrival order is not meaningful.
 use sun_observations::certifications::*;
 
 let samples = [(0u8, 10.0), (0, 10.1), (0, 9.9), (1, 10.0), (1, 10.2), (1, 9.8)];
-let mut proof = certify("sensor partitions");
+let mut proof = certification("sensor partitions");
 let rows = proof.collection("samples in time order", &samples);
 let groups = rows.group_by(|v| v.0);
 proof.check("each sensor", fact("sensor summaries", groups.numeric(|v| v.1).summaries()).expect(
-    GroupExpectation { minimum_count: 3, mean_min: 9.5, mean_max: 10.5 },
+    GroupExpectation::new(3, 9.5, 10.5 ).unwrap(),
 ));
 for group in groups.iter() {
     let values = group.numeric(|v| v.1);
     proof.section(format!("sensor {}", group.key), |c| {
         c.check("robust outliers", try_fact("sensor values", values.outliers(OutlierConfig::default()))
             .expect(AtMostAnomalies(0)));
-        c.check("sudden jumps", try_fact("ordered sensor values", values.jumps(JumpConfig {
-            absolute_threshold: Some(0.5), relative_threshold: None, denominator_floor: 1e-9,
-        })).expect(AtMostAnomalies(0)));
+        c.check("sudden jumps", try_fact("ordered sensor values", values.jumps(JumpConfig::new(Some(0.5), None, 1e-9).unwrap())).expect(AtMostAnomalies(0)));
     });
 }
 proof.assert_certify();
@@ -302,14 +300,14 @@ use sun_observations::certifications::*;
 
 let sent = [(0i64, 2.0), (1, 9.0), (2, 3.0), (3, 7.0), (4, -1.0), (5, 5.0), (6, 11.0), (7, 4.0)];
 let received: Vec<_> = sent.iter().map(|(key, value)| (key + 1, *value)).collect();
-let mut proof = certify("known one-tick delay");
+let mut proof = certification("known one-tick delay");
 let left = proof.collection("sent", &sent);
 let right = proof.collection("received", &received);
 let delayed = left.compare_with(&right).on(|v| v.0 + 1, |v| v.0);
-proof.check("exact known tick offset", delayed.comparison_fact().expect_valid());
+proof.check("exact known tick offset", delayed.paired_comparison_fact().expect_valid());
 proof.check("payload preserved", delayed.equal(|v| v.1, |v| v.1, 3).expect_valid());
-proof.check("delay", left.lag_relation_by(&right, |v| *v, |v| *v, LagConfig {
-    range: LagRange { start: -1, end: 1 }, measure: LagMeasure::Pearson,
+proof.check("delay", left.lag_with(&right, |v| *v, |v| *v, LagConfig {
+    range: LagRange::new(-1, 1 ).unwrap(), measure: LagMeasure::Pearson,
 }).expect(LagExpectation { best_lag: 1 }));
 proof.assert_certify();
 ```
@@ -335,7 +333,7 @@ use sun_observations::{observe, start_scope, Observation, ScopeConfig};
 #[derive(Serialize, Observation)]
 #[observation(namespace = "encoder::train::epoch", level = INFO, tags("diagnostic"))]
 struct Epoch { epoch: usize, loss: f64 }
-let _scope = start_scope(ScopeConfig::new("training-42").activate_namespace("encoder::train"));
+let _scope = start_scope(ScopeConfig::new("training-42").activate_namespace("encoder::train").unwrap());
 observe!(Epoch { epoch: 1, loss: 0.125 })?;
 # Ok::<(), sun_observations::ObservationError>(())
 ```
@@ -358,10 +356,10 @@ serialize and call `message()`: no destination is not disabled instrumentation.
 ```rust
 use sun_observations::{global, Selection};
 global().set_selection(Selection::new()
-    .activate_namespace("service")
-    .activate_tags(["production"])
-    .exclude_namespace("service::wire")
-    .exclude_tags(["expensive"]));
+    .activate_namespace("service").unwrap()
+    .activate_tags(["production"]).unwrap()
+    .exclude_namespace("service::wire").unwrap()
+    .exclude_tags(["expensive"]).unwrap());
 ```
 
 Defaults activate nothing. Global and current-scope positives union (namespace OR
@@ -382,8 +380,8 @@ use sun_observations::{observe, start_scope, Observation, Policy, ScopeConfig};
 struct Batch { index: usize, norm: f64 }
 fn compute_norm() -> f64 { 0.125 }
 let _scope = start_scope(ScopeConfig::new("training-42")
-    .activate_namespace("encoder::train")
-    .override_policy::<Batch>(Policy::EveryN(100)));
+    .activate_namespace("encoder::train").unwrap()
+    .override_policy::<Batch>(Policy::every_n(100).unwrap()));
 for index in 1..=200 {
     observe!(Batch { index, norm: compute_norm() })?;
 }
@@ -391,8 +389,8 @@ for index in 1..=200 {
 ```
 
 Only occurrences 100 and 200 construct the payload here. Default `Always` admits
-every selected occurrence; `Never` none, `FirstN(n)` / `MaxPerScope(n)` the first n,
-`EveryN(n)` the n-th, 2n-th, …; numeric zero rejects all. Budgets belong to **scope
+every selected occurrence; `Never` none, `FirstN(n)` the first n,
+`EveryN(n)` the n-th, 2n-th, …; both variants require NonZeroU64. Budgets belong to **scope
 instance + concrete type**, shared by propagated workers. They count admitted
 attempts, not durable writes; failed serialization/delivery still consumes admission.
 
@@ -403,7 +401,7 @@ scope name does not reuse a budget, but makes persisted execution identity ambig
 ### Propagate execution context
 
 ```rust
-use sun_observations::certifications::{certify, fact};
+use sun_observations::certifications::{certification, fact};
 use sun_observations::{context, start_scope, Context, ScopeConfig};
 
 let _scope = start_scope(ScopeConfig::new("request-42"));
@@ -411,7 +409,7 @@ let captured = Context::capture();
 let worker = context::thread::spawn(|| Context::capture().scope_name().map(str::to_owned));
 let child_scope = worker.join().expect("worker panicked");
 let installed = captured.run(|| Context::capture().scope_name().map(str::to_owned));
-certify("execution identity")
+certification("execution identity")
     .check("child", fact("worker scope", child_scope).expect(Some(String::from("request-42"))))
     .check("captured", fact("installed scope", installed).expect(Some(String::from("request-42"))))
     .assert_certify();
@@ -422,7 +420,7 @@ worker boundary; guard drop restores it. `Context::default()` is explicitly empt
 Plain OS threads and async tasks do **not** inherit context. Join workers and propagate
 their failures; do not hold thread-local guards across async suspension/migration.
 
-With the built-in Rayon integration, `context::rayon::ContextThreadPool::new(4)?` binds
+With the built-in Rayon integration, `context::rayon::ContextThreadPool::with_threads(std::num::NonZeroUsize::new(4).unwrap())?` binds
 the context **at construction**, including nested jobs; `pool.install(|| work())` does
 not adopt a later caller's context. Build a pool for each intended execution boundary.
 See executable [threads](crates/sun-observations/examples/threads.rs) and [Rayon](crates/sun-observations/examples/rayon.rs) workflows.
@@ -444,12 +442,12 @@ struct Request { path: &'static str, status: u16 }
 let engine = global();
 let memory = Arc::new(MemorySink::new());
 let file = Arc::new(JsonlSink::with_config("observations.jsonl",
-    JsonlConfig::new().flush_ms(1000).file_size_mb(10).trim_fraction(0.10))?);
+    JsonlConfig::new().flush_interval_ms(1000).unwrap().max_file_size_mb(10).unwrap().trim_fraction(0.10).unwrap())?);
 engine.add_channel_sink("operations", memory.clone());
 engine.add_channel_sink("operations", file.clone());
 engine.add_channel_sink("operations", Arc::new(ConsoleSink::stderr()));
 engine.register_namespace_channel("service", "operations")?;
-engine.set_selection(Selection::new().activate_namespace("service"));
+engine.set_selection(Selection::new().activate_namespace("service").unwrap());
 let emission = observe!(Request { path: "/health", status: 200 });
 let persistence = engine.flush_channels();
 emission?;
@@ -462,9 +460,9 @@ let snapshot = memory.shared_records();
 - **MemorySink** is synchronous bounded history (default 1,000,000 records / 10%
   oldest-batch eviction). Shared snapshots retain records after drain/eviction;
   use scoped capture, not an unchecked memory subset, for proofs.
-- **JsonlSink** asynchronously appends structured JSONL. `append(path)?` has no size
+- **JsonlSink** asynchronously appends structured JSONL. `open_append(path)?` has no size
   limit; file retention removes whole oldest records toward the configured target.
-  `file_size_mb` means MiB; an oversized newest record remains whole. Parents must
+  `max_file_size_mb` means MiB; an oversized newest record remains whole. Parents must
   exist; constructor success validates config, not asynchronous file access.
 - **ConsoleSink** asynchronously writes human output to stdout/stderr or an owned
   writer. Structured Memory/JSONL never request human rendering.
@@ -511,7 +509,7 @@ use sun_observations::{observe_span, start_scope, Observation, ScopeConfig};
 #[derive(Serialize, Observation)]
 #[observation(namespace = "encoder::fit")]
 struct Fit { samples: usize }
-let _scope = start_scope(ScopeConfig::new("fit-42").activate_namespace("encoder"));
+let _scope = start_scope(ScopeConfig::new("fit-42").activate_namespace("encoder").unwrap());
 let span = observe_span!(Fit { samples: 128 })?;
 // Run the operation while the guard is alive.
 span.finish()?;
@@ -530,7 +528,7 @@ overlapping intervals as disjoint work. See [FORMAT v1](docs/FORMAT.md#lifecycle
 ## Capture production evidence
 
 Capture in the tour runs the **real production call** and preserves its result in
-`CapturedRun<T>`. Keep/reuse a `TypedView`: each `typed::<T>()` call decodes again.
+`CapturedRun<T>`. Keep/reuse a `TypedView`: each `to_typed::<T>()` call decodes again.
 Its `source(name)` is the same generic `PreparedSource` used for ordinary values,
 with optional original-record provenance in bounded diagnostics.
 
@@ -548,17 +546,14 @@ construct an `ObservationDataset`, query envelope fields, then strictly decode:
 ```rust
 use serde::{Deserialize, Serialize};
 use sun_observations::{MemorySink, Observation};
-use sun_observations::evidence::{EnvelopeQuery, ObservationDataset};
+use sun_observations::evidence::{ObservationsQuery, ObservationDataset};
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "jobs::completed")]
 struct Completed { job: u64 }
 let memory = MemorySink::new();
-let dataset = ObservationDataset::from_memory(&memory);
-let selected = dataset.query(EnvelopeQuery {
-    namespace_subtree: Some("jobs"), scope: Some(Some("run-42")),
-    ..Default::default()
-});
-let completed = selected.typed::<Completed>()?;
+let dataset = ObservationDataset::try_from_memory(&memory).unwrap();
+let selected = dataset.query(ObservationsQuery::new().namespace_subtree("jobs").scope("run-42"));
+let completed = selected.to_typed::<Completed>()?;
 let source = completed.source("completed jobs");
 # let _ = source;
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -566,10 +561,10 @@ let source = completed.source("completed jobs");
 
 This example shows selection over an existing sink; an empty snapshot proves no
 production effect. Snapshot membership is fixed, not proof of complete retention.
-For captures, **always start with `run.certify`**. For external files, establish
+For captures, **always start with `run.certification`**. For external files, establish
 completeness through the artifact's own contract before making absence/count claims.
 Load JSONL fallibly (`BufRead::lines` → deserialize `ObservationRecord` → `Arc` →
-`from_shared`); never discard malformed lines. Strict typed decoding includes matching
+`try_from_records`); never discard malformed lines. Strict typed decoding includes matching
 points/span starts and skips ends, not malformed matching payloads.
 
 Filter `proc`/`scope` before comparing repeated execution keys, or include execution
@@ -582,14 +577,14 @@ through `typed.sources()[index]`. See the [capture/adapter reference](docs/CAPTU
 | --- | --- |
 | Exact count / forbidden absence | `rows.count().expect(n)` / `rows.matching_count(forbidden).expect(0usize)`; capture completeness is prerequisite |
 | Row structural validity | Count invalid rows as zero; `unique` / `contiguous` reports with `expect_valid()` |
-| Producer/consumer correspondence | `compare_with(...).on(...)` with composite domain keys, then `comparison_fact().expect_valid()` |
+| Producer/consumer correspondence | `compare_with(...).on(...)` with composite domain keys, then `paired_comparison_fact().expect_valid()` |
 | Semantic equality / transformation | Reuse the pair for `equal` / `check_pairs` |
-| Approximate equality | `fact(...).expect(close_to(expected).absolute(t).relative(r))` or numeric `difference()` |
+| Approximate equality | `fact(...).expect(close_to(expected).unwrap().absolute_tolerance(t).unwrap().relative_tolerance(r).unwrap())` or numeric `difference()` |
 | Correlation **and** scale | `correlation()` + `linear_fit()` + direct `difference()`; add temporal checks separately |
 | Broken partitions / anomalies | `group_by` + `GroupExpectation`, cached `numeric` + outliers/jumps |
 | Stale or shifted evidence | Partition one temporal domain; `lag_relation_by` + `LagExpectation`, plus exact known offsets |
 | Fail closed on unavailable evidence | `try_fact(...).expect(...)`, dependent checks only when preparation succeeded; independent sections still run |
-| Real production behavior | `capture_observations(..., production_call)` → `run.certify` → ordinary + typed sources → one assertion |
+| Real production behavior | `capture_observations(..., production_call)` → `run.certification` → ordinary + typed sources → one assertion |
 | Negative-path behavior | Check rejection category, forbidden downstream absence, promised effects absent, explanatory evidence and an independent healthy path |
 
 The [mixed evidence workflow](crates/sun-observations/examples/skill_workflows.rs)

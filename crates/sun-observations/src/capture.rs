@@ -23,6 +23,9 @@ impl CaptureStorage {
     }
 }
 impl Sink for CaptureStorage {
+    fn flush(&self) -> std::io::Result<()> {
+        Ok(())
+    }
     fn write(&self, record: &ObservationRecord) -> io::Result<()> {
         self.memory.write(record)
     }

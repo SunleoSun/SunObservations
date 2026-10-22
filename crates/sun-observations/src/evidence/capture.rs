@@ -1,7 +1,7 @@
 use crate::evidence::{DecodeError, ObservationDataset, TypedView};
 use serde::de::DeserializeOwned;
 pub use sun_observations::capture::CaptureStatus;
-use sun_observations::certifications::{certify, try_fact, Certification};
+use sun_observations::certifications::{certification, try_fact, Certification};
 use sun_observations::{capture::ScopedCapture, MemorySinkConfig, Observation, Selection};
 
 /// Local canonical selection and bounded storage for one production execution.
@@ -26,45 +26,60 @@ impl CaptureConfig {
         self.selection = self.selection.activate_all();
         self
     }
-    pub fn activate_namespace(mut self, namespace: impl Into<String>) -> Self {
-        self.selection = self.selection.activate_namespace(namespace);
-        self
+    pub fn activate_namespace(
+        mut self,
+        namespace: impl Into<String>,
+    ) -> Result<Self, crate::namespace::InvalidNamespace> {
+        self.selection = self.selection.activate_namespace(namespace)?;
+        Ok(self)
     }
     pub fn activate_namespaces(
         mut self,
         namespaces: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
+    ) -> Result<Self, crate::namespace::InvalidNamespace> {
         for namespace in namespaces {
-            self = self.activate_namespace(namespace);
+            self = self.activate_namespace(namespace)?;
         }
-        self
+        Ok(self)
     }
-    pub fn exclude_namespace(mut self, namespace: impl Into<String>) -> Self {
-        self.selection = self.selection.exclude_namespace(namespace);
-        self
+    pub fn exclude_namespace(
+        mut self,
+        namespace: impl Into<String>,
+    ) -> Result<Self, crate::namespace::InvalidNamespace> {
+        self.selection = self.selection.exclude_namespace(namespace)?;
+        Ok(self)
     }
     pub fn exclude_namespaces(
         mut self,
         namespaces: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
+    ) -> Result<Self, crate::namespace::InvalidNamespace> {
         for namespace in namespaces {
-            self = self.exclude_namespace(namespace);
+            self = self.exclude_namespace(namespace)?;
         }
-        self
+        Ok(self)
     }
-    pub fn activate_tag(self, tag: impl Into<String>) -> Self {
+    pub fn activate_tag(
+        self,
+        tag: impl Into<String>,
+    ) -> Result<Self, crate::namespace::InvalidTag> {
         self.activate_tags([tag])
     }
-    pub fn activate_tags(mut self, tags: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.selection = self.selection.activate_tags(tags);
-        self
+    pub fn activate_tags(
+        mut self,
+        tags: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, crate::namespace::InvalidTag> {
+        self.selection = self.selection.activate_tags(tags)?;
+        Ok(self)
     }
-    pub fn exclude_tag(self, tag: impl Into<String>) -> Self {
+    pub fn exclude_tag(self, tag: impl Into<String>) -> Result<Self, crate::namespace::InvalidTag> {
         self.exclude_tags([tag])
     }
-    pub fn exclude_tags(mut self, tags: impl IntoIterator<Item = impl Into<String>>) -> Self {
-        self.selection = self.selection.exclude_tags(tags);
-        self
+    pub fn exclude_tags(
+        mut self,
+        tags: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, crate::namespace::InvalidTag> {
+        self.selection = self.selection.exclude_tags(tags)?;
+        Ok(self)
     }
 }
 /// Application result and immutable capture evidence; application errors remain ordinary data.
@@ -83,11 +98,11 @@ impl<T> CapturedRun<T> {
     pub fn status(&self) -> CaptureStatus {
         self.status
     }
-    pub fn typed<O: Observation + DeserializeOwned>(&self) -> Result<TypedView<O>, DecodeError> {
-        self.dataset.typed::<O>()
+    pub fn to_typed<O: Observation + DeserializeOwned>(&self) -> Result<TypedView<O>, DecodeError> {
+        self.dataset.to_typed::<O>()
     }
-    pub fn certify(&self, name: impl Into<String>) -> Certification {
-        let mut c = certify(name);
+    pub fn certification(&self, name: impl Into<String>) -> Certification {
+        let mut c = certification(name);
         if !self.status.is_complete() {
             c.check(
                 "capture completeness",

@@ -1,11 +1,11 @@
 use sun_observations::certifications::*;
-use sun_observations_certifications::certify as run_scenario;
+use sun_observations_certifications::run_scenario;
 
 #[test]
 fn public_overlapping_channels_preserve_exact_multiplicity_and_envelope() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "fanout");
-    let evidence = source_slice("fanout records", &records);
-    certify("overlapping channels preserve exact multiplicity and envelope")
+    let evidence = collection("fanout records", &records);
+    certification("overlapping channels preserve exact multiplicity and envelope")
         .check("record count", evidence.count().expect(100))
         .check(
             "namespace",

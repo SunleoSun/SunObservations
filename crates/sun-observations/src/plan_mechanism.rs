@@ -71,6 +71,9 @@ fn delivery_and_human_fanout_clones_allocate_nothing() {
 fn structured_dispatch_and_stack_human_delivery_have_equal_allocation_cost() {
     struct Discard(bool);
     impl crate::Sink for Discard {
+        fn flush(&self) -> std::io::Result<()> {
+            Ok(())
+        }
         fn write(&self, _: &crate::ObservationRecord) -> std::io::Result<()> {
             Ok(())
         }
@@ -83,7 +86,7 @@ fn structured_dispatch_and_stack_human_delivery_have_equal_allocation_cost() {
     struct Payload {
         value: u64,
     }
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     engine.set_selection(Selection::new().activate_all());
     engine.register_namespace_channel("plans", "all").unwrap();
     let counts: Vec<_> = [false, true]
@@ -105,18 +108,19 @@ fn structured_dispatch_and_stack_human_delivery_have_equal_allocation_cost() {
 
 #[test]
 fn warm_rejections_allocate_nothing_and_do_not_build_payloads() {
-    let engine = ObservationEngine::new();
+    let engine = ObservationEngine::isolated();
     for config in [
         ScopeConfig::new("inactive"),
         ScopeConfig::new("excluded")
             .activate_all()
-            .exclude_tags(["detail"]),
+            .exclude_tags(["detail"])
+            .unwrap(),
         ScopeConfig::new("never")
             .activate_all()
             .override_policy::<Event>(Policy::Never),
         ScopeConfig::new("every")
             .activate_all()
-            .override_policy::<Event>(Policy::EveryN(u64::MAX)),
+            .override_policy::<Event>(Policy::every_n(u64::MAX).unwrap()),
     ] {
         let _scope = start_scope(config);
         assert!(!engine
@@ -135,7 +139,7 @@ fn warm_rejections_allocate_nothing_and_do_not_build_payloads() {
 
 #[test]
 fn parent_resolution_is_shared_with_children_and_tiny_cache_reuses_it() {
-    let engine = Arc::new(ObservationEngine::new());
+    let engine = Arc::new(ObservationEngine::isolated());
     let _scope = start_scope(ScopeConfig::new("shared").activate_all());
     let parent = (*context::cached_plan::<Event>(&engine)).clone();
     let context = Context::capture();

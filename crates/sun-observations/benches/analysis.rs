@@ -74,8 +74,9 @@ fn benchmark() {
                 }))
                 .unwrap();
         }
-        let dataset = ObservationDataset::from_memory(&memory);
-        let typed = dataset.typed::<Sample>().unwrap();
+        let dataset = ObservationDataset::try_from_memory(&memory).unwrap();
+        let typed = dataset.to_typed::<Sample>().unwrap();
+        let source = typed.source("samples");
         let keys: Vec<_> = (0..n as u64).collect();
         let mut unordered = keys.clone();
         shuffle(&mut unordered);
@@ -83,30 +84,29 @@ fn benchmark() {
         unordered_right.reverse();
         let sparse: Vec<_> = keys.iter().map(|k| k * 1_000_003).collect();
         let sparse_unordered: Vec<_> = unordered.iter().map(|k| k * 1_000_003).collect();
-        let numeric = typed.numeric(|v| v.value);
+        let prepared_numeric = source.numeric(|v| v.value);
+        let numeric = prepared_numeric.series();
         let values: Vec<_> = typed
             .values()
             .iter()
             .map(|s| (s.value, 2. * s.value + 3.))
             .collect();
-        let few_groups = typed.group_by(|v| v.row % 8);
-        let many_groups = typed.group_by(|v| v.row % (n as u64 / 8));
+        let few_groups = source.group_by(|v| v.row % 8);
+        let many_groups = source.group_by(|v| v.row % (n as u64 / 8));
         assert_eq!(few_groups.iter().map(|g| g.len()).sum::<usize>(), n);
         assert_eq!(many_groups.iter().map(|g| g.len()).sum::<usize>(), n);
         for window in [2, 8, 32] {
-            let report = typed
-                .lag_relation_by(
-                    &typed,
+            let report = source
+                .lag_with(
+                    &source,
                     |v| (v.row as i64, v.value),
                     |v| (v.row as i64, v.value),
                     LagConfig {
-                        range: LagRange {
-                            start: -window,
-                            end: window,
-                        },
+                        range: LagRange::new(-window, window).unwrap(),
                         measure: LagMeasure::Pearson,
                     },
                 )
+                .observed
                 .unwrap();
             assert_eq!(report.best.unwrap().lag, 0);
             for candidate in report.candidates {
@@ -117,44 +117,38 @@ fn benchmark() {
                 assert!(!candidate.alignment.has_interior_gaps());
             }
         }
-        let jumps = JumpConfig {
-            absolute_threshold: Some(2000.),
-            relative_threshold: None,
-            denominator_floor: 1.,
-        };
-        let joined = join_sorted_by(&keys, &keys, |v| *v, |v| *v).unwrap();
-        let report = joined
-            .numeric_relation(|v| *v as f64, |v| 2. * *v as f64 + 3., 5)
+        let jumps = JumpConfig::new(Some(2000.), None, 1.).unwrap();
+        let keys_source = collection("keys", &keys);
+        let paired = keys_source
+            .compare_with(&keys_source)
+            .on_presorted(|v| *v, |v| *v)
             .unwrap();
-        let failure = RelationExpectation::negative(-0.9)
-            .unwrap()
-            .evaluate(report.clone())
-            .unwrap_err();
+        let numeric_comparison = paired.numeric(|v| *v as f64, |v| 2. * *v as f64 + 3.);
+        let report = numeric_comparison.relation().observed.unwrap();
+        let failure = fact("relation", report.clone())
+            .expect(RelationExpectation::spearman_at_most(-0.9).unwrap());
         assert_eq!(
             dense_candidate(&keys, &unordered),
             join_by(&keys, &unordered, |v| *v, |v| *v)
                 .comparison()
-                .matched
+                .matched()
         );
-        assert_eq!(report.comparison.matched.len(), n);
-        assert!((report.observed.linear.slope.value().unwrap() - 2.).abs() < 1e-9);
+        assert_eq!(paired.comparison().matched().len(), n);
+        assert!((report.linear.slope.value().unwrap() - 2.).abs() < 1e-9);
         let report_bytes = serde_json::to_vec(&report).unwrap().len();
-        let display_bytes = failure.to_string().len();
+        let display_bytes = format!("{failure:?}").len();
         for sample in 0..3 {
             measure("snapshot", n, sample, 8 * n, || {
-                ObservationDataset::from_memory(black_box(&memory))
+                ObservationDataset::try_from_memory(black_box(&memory)).unwrap()
             });
             measure("namespace_query", n, sample, 0, || {
                 dataset
-                    .query(EnvelopeQuery {
-                        namespace: Some(black_box(Sample::NAMESPACE)),
-                        ..Default::default()
-                    })
+                    .query(ObservationsQuery::new().namespace(black_box(Sample::NAMESPACE)))
                     .iter()
                     .count()
             });
             measure("typed_decode", n, sample, 32 * n, || {
-                dataset.typed::<Sample>().unwrap()
+                dataset.to_typed::<Sample>().unwrap()
             });
             measure("typed_source_iteration", n, sample, 0, || {
                 typed.iter().fold(0u64, |sum, entry| {
@@ -165,10 +159,10 @@ fn benchmark() {
                 })
             });
             measure("group_few", n, sample, 16 * n, || {
-                typed.group_by(|v| v.row % 8)
+                source.group_by(|v| v.row % 8)
             });
             measure("group_many", n, sample, 16 * n, || {
-                typed.group_by(|v| v.row % (n as u64 / 8))
+                source.group_by(|v| v.row % (n as u64 / 8))
             });
             measure(
                 "group_summary_few",
@@ -191,19 +185,17 @@ fn benchmark() {
                     sample,
                     48 * n + (2 * window + 1) as usize * std::mem::size_of::<LagCandidate>(),
                     || {
-                        typed
-                            .lag_relation_by(
-                                &typed,
+                        source
+                            .lag_with(
+                                &source,
                                 |v| (v.row as i64, v.value),
                                 |v| (v.row as i64, v.value),
                                 LagConfig {
-                                    range: LagRange {
-                                        start: -window,
-                                        end: window,
-                                    },
+                                    range: LagRange::new(-window, window).unwrap(),
                                     measure: LagMeasure::Pearson,
                                 },
                             )
+                            .observed
                             .unwrap()
                     },
                 );
@@ -213,7 +205,7 @@ fn benchmark() {
                 numeric.robust_summary().unwrap()
             });
             measure("sorted_join", n, sample, 56 * n, || {
-                join_sorted_by(&keys, &keys, |v| *v, |v| *v).unwrap()
+                join_presorted_by(&keys, &keys, |v| *v, |v| *v).unwrap()
             });
             measure("generic_ordered_join", n, sample, 56 * n, || {
                 join_by(&keys, &keys, |v| *v, |v| *v)
@@ -253,7 +245,7 @@ fn benchmark() {
                 serde_json::to_vec(&report).unwrap()
             });
             measure("report_display", n, sample, display_bytes, || {
-                failure.to_string()
+                format!("{failure:?}")
             });
         }
         eprintln!(

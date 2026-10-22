@@ -109,7 +109,7 @@ Each row is enforced by the full release commands, not solely the name-filtered 
 | Four-entry TLS eviction, distinct types/engines/nested scopes, reentrant destruction without TLS/config borrows | plan_certification.rs; context_certification.rs |
 | Generation invalidation for selection/routes/attachment/detachment with counter continuity, already-warm workers | plan_certification.rs; certifications/tests/configuration_churn_certification.rs (8 workers, 7 synchronized phases) |
 | Scope nesting, out-of-order drop, captured lifetime, explicit empty context, no override leakage | context_certification.rs; scope_certification.rs |
-| Exact concurrent Always/Never/FirstN/EveryN/MaxPerScope budgets, saturation, rejected vs failed admission counting | scope_certification.rs; engine_certification.rs |
+| Exact concurrent Always/Never/FirstN/EveryN budgets, saturation, rejected vs failed admission counting | scope_certification.rs; engine_certification.rs |
 | Simultaneous parents, transitive public OS-thread propagation, plain-thread isolation, unwind and parent restoration | context/thread_certification.rs; certifications/thread_propagation_certification.rs |
 | Construction-bound independent Rayon pools, nested work, strict shared budgets, empty pool, worker-local scope, caller restoration | context/rayon_certification.rs; certifications/rayon_propagation_certification.rs |
 | Parent/child fan-out, repeated-route dedup, multi-sink channel, intentional multi-channel duplicate Arc identity, failure continuation, detachment, unique physical flush | channel_certification.rs; certifications/channel_fanout_certification.rs; engine_certification.rs |

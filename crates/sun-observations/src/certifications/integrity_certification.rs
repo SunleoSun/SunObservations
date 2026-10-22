@@ -65,8 +65,8 @@ fn uniqueness_contiguity_and_same_sets_retain_precise_key_evidence() {
     ));
     assert!(check_contiguous(&[3, 1, 2], |v| *v, 1, 3).is_valid());
     let mismatch = check_same_keys(&[1, 2], &[2, 3], |v| *v, |v| *v);
-    assert_eq!(mismatch.missing_left[0].key, 3);
-    assert_eq!(mismatch.missing_right[0].key, 1);
+    assert_eq!(mismatch.right_only[0].key, 3);
+    assert_eq!(mismatch.left_only[0].key, 1);
     assert!(check_same_keys(&[1, 2], &[2, 1], |v| *v, |v| *v).is_complete());
 }
 
@@ -74,14 +74,28 @@ fn uniqueness_contiguity_and_same_sets_retain_precise_key_evidence() {
 fn finite_ranges_positive_and_nonnegative_checks_are_structured_and_inclusive() {
     let values = [-1., 0., 1., f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
     let series = NumericSeries::new(values.into_iter());
-    assert_eq!(series.check(NumericRule::Finite).unwrap().issues.len(), 3);
-    assert_eq!(series.check(NumericRule::Positive).unwrap().issues.len(), 5);
     assert_eq!(
-        series.check(NumericRule::NonNegative).unwrap().issues.len(),
+        series.integrity(NumericRule::Finite).unwrap().issues.len(),
+        3
+    );
+    assert_eq!(
+        series
+            .integrity(NumericRule::Positive)
+            .unwrap()
+            .issues
+            .len(),
+        5
+    );
+    assert_eq!(
+        series
+            .integrity(NumericRule::NonNegative)
+            .unwrap()
+            .issues
+            .len(),
         4
     );
     let report = series
-        .check(NumericRule::Range { min: -1., max: 1. })
+        .integrity(NumericRule::between(-1., 1.).unwrap())
         .unwrap();
     assert_eq!(report.issues.len(), 3);
     assert_eq!(
@@ -89,7 +103,7 @@ fn finite_ranges_positive_and_nonnegative_checks_are_structured_and_inclusive() 
         IntegrityIssue::Numeric {
             index: 3,
             value: NumericValue::Nan,
-            expected: NumericRule::Range { min: -1., max: 1. }
+            expected: NumericRule::between(-1., 1.).unwrap()
         }
     );
     let json = serde_json::to_string(&report).unwrap();
@@ -98,13 +112,6 @@ fn finite_ranges_positive_and_nonnegative_checks_are_structured_and_inclusive() 
         serde_json::from_str::<IntegrityReport>(&json).unwrap(),
         report
     );
-    assert!(series
-        .check(NumericRule::Range { min: 2., max: 1. })
-        .is_err());
-    assert!(series
-        .check(NumericRule::Range {
-            min: f64::NAN,
-            max: 1.
-        })
-        .is_err());
+    assert!(NumericRule::between(2., 1.).is_err());
+    assert!(NumericRule::between(f64::NAN, 1.).is_err());
 }

@@ -12,7 +12,7 @@ struct Lazy {
 
 #[test]
 fn macro_checks_selection_exclusion_and_policy_before_building_fields() {
-    let mut certification = sun_observations::certifications::certify(
+    let mut certification = sun_observations::certifications::certification(
         "macro checks selection exclusion and policy before building fields",
     );
     let sink = capture(global(), "macro_tests");
@@ -27,7 +27,9 @@ fn macro_checks_selection_exclusion_and_policy_before_building_fields() {
         let _scope = start_scope(
             ScopeConfig::new("excluded")
                 .activate_namespace("macro_tests")
-                .exclude_tags(["macro_expensive"]),
+                .unwrap()
+                .exclude_tags(["macro_expensive"])
+                .unwrap(),
         );
         certification.check_fact_expect(
             "observe!(Lazy { value: value() }).unwrap()",
@@ -39,7 +41,8 @@ fn macro_checks_selection_exclusion_and_policy_before_building_fields() {
         let _scope = start_scope(
             ScopeConfig::new("policy")
                 .activate_namespace("macro_tests")
-                .override_policy::<Lazy>(Policy::EveryN(2)),
+                .unwrap()
+                .override_policy::<Lazy>(Policy::every_n(2).unwrap()),
         );
         certification.check_fact_expect(
             "observe!(Lazy { value: value() }).unwrap()",

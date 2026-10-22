@@ -5,11 +5,38 @@ use std::{error::Error, fmt};
 
 /// Maximum number of candidate shifts in one diagnostic search.
 pub const MAX_LAG_CANDIDATES: i128 = 4097;
-/// Inclusive domain-key shifts; validated at the analysis boundary.
+/// Validated inclusive domain-key shifts bounded by MAX_LAG_CANDIDATES.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "LagRangeInput")]
 pub struct LagRange {
-    pub start: i64,
-    pub end: i64,
+    start: i64,
+    end: i64,
+}
+#[derive(Deserialize)]
+struct LagRangeInput {
+    start: i64,
+    end: i64,
+}
+impl TryFrom<LagRangeInput> for LagRange {
+    type Error = LagError;
+    fn try_from(input: LagRangeInput) -> Result<Self, Self::Error> {
+        Self::new(input.start, input.end)
+    }
+}
+impl LagRange {
+    pub fn new(start: i64, end: i64) -> Result<Self, LagError> {
+        let width = i128::from(end) - i128::from(start) + 1;
+        if !(1..=MAX_LAG_CANDIDATES).contains(&width) {
+            return Err(LagError::InvalidRange { start, end });
+        }
+        Ok(Self { start, end })
+    }
+    pub fn start(self) -> i64 {
+        self.start
+    }
+    pub fn end(self) -> i64 {
+        self.end
+    }
 }
 /// Correlation owner used for each candidate; strength is its absolute value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,12 +57,12 @@ pub struct LagAlignment {
     pub pair_count: usize,
     pub boundary_left: usize,
     pub boundary_right: usize,
-    pub missing_left: usize,
-    pub missing_right: usize,
+    pub right_only: usize,
+    pub left_only: usize,
 }
 impl LagAlignment {
     pub fn has_interior_gaps(&self) -> bool {
-        self.missing_left != 0 || self.missing_right != 0
+        self.right_only != 0 || self.left_only != 0
     }
 }
 /// Matched-subset diagnostic with explicit completeness evidence and undefined metrics.
@@ -72,7 +99,10 @@ impl LagReport {
 /// Hard prerequisites; duplicate indices are original side-local coordinates.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum LagError {
-    InvalidRange(LagRange),
+    InvalidRange {
+        start: i64,
+        end: i64,
+    },
     DuplicateKeys {
         left: Vec<KeyGroup<i64>>,
         right: Vec<KeyGroup<i64>>,
@@ -137,9 +167,6 @@ pub fn lag_relation_by<L, R>(
     config: LagConfig,
 ) -> Result<LagReport, LagError> {
     let width = i128::from(config.range.end) - i128::from(config.range.start) + 1;
-    if !(1..=MAX_LAG_CANDIDATES).contains(&width) {
-        return Err(LagError::InvalidRange(config.range));
-    }
     let a = LagInput::prepare(left, left_project, Side::Left)?;
     let b = LagInput::prepare(right, right_project, Side::Right)?;
     let (duplicate_left, duplicate_right) = (a.duplicates(), b.duplicates());
@@ -176,7 +203,7 @@ pub fn lag_relation_by<L, R>(
                     {
                         alignment.boundary_left += 1;
                     } else {
-                        alignment.missing_right += 1;
+                        alignment.left_only += 1;
                     }
                 } else {
                     let key = i128::from(b.keys[br.start].0);
@@ -187,7 +214,7 @@ pub fn lag_relation_by<L, R>(
                     {
                         alignment.boundary_right += 1;
                     } else {
-                        alignment.missing_left += 1;
+                        alignment.right_only += 1;
                     }
                 }
                 None
@@ -232,26 +259,7 @@ pub enum LagViolation {
     UnexpectedBestLag,
     InteriorMissingKeys,
 }
-/// Full expected/observed shift evidence, without formatted-string contracts.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "analysis_kind", rename = "lag_expectation_failure")]
-pub struct LagFailure {
-    pub expected: LagExpectation,
-    pub violated: Vec<LagViolation>,
-    pub observed: LagReport,
-}
-impl fmt::Display for LagFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "expected best lag {}, observed {:?}: {:?}",
-            self.expected.best_lag,
-            self.observed.best.as_ref().map(|b| b.lag),
-            self.violated
-        )
-    }
-}
-impl Error for LagFailure {}
+
 impl LagExpectation {
     pub(crate) fn violations(&self, observed: &LagReport) -> Vec<LagViolation> {
         let mut violated = Vec::new();
@@ -272,18 +280,6 @@ impl LagExpectation {
             }
         }
         violated
-    }
-    pub fn evaluate(self, observed: LagReport) -> Result<LagReport, Box<LagFailure>> {
-        let violated = self.violations(&observed);
-        if violated.is_empty() {
-            Ok(observed)
-        } else {
-            Err(Box::new(LagFailure {
-                expected: self,
-                violated,
-                observed,
-            }))
-        }
     }
 }
 
