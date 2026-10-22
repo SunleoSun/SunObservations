@@ -326,9 +326,50 @@ impl TryFrom<RelationExpectationInput> for RelationExpectation {
                 value: 0.0.into(),
             });
         }
+        for constraint in &input.constraints {
+            validate_relation_bounds(constraint.measure, constraint.min, constraint.max)?;
+        }
         Ok(Self {
             constraints: input.constraints,
         })
+    }
+}
+
+fn validate_relation_bounds(
+    measure: RelationMeasure,
+    min: Option<f64>,
+    max: Option<f64>,
+) -> Result<(), NumericError> {
+    use RelationMeasure::*;
+    match measure {
+        Pearson | Spearman => crate::certifications::numerical::validate_domain_bounds(
+            min,
+            max,
+            Some(-1.0),
+            Some(1.0),
+            "correlation bound",
+        ),
+        AbsolutePearson | AbsoluteSpearman | RSquared => {
+            crate::certifications::numerical::validate_domain_bounds(
+                min,
+                max,
+                Some(0.0),
+                Some(1.0),
+                "bounded relation metric",
+            )
+        }
+        MeanAbsoluteDifference
+        | P95AbsoluteDifference
+        | MaxAbsoluteDifference
+        | ResidualMeanAbsolute
+        | ResidualMaxAbsolute => crate::certifications::numerical::validate_domain_bounds(
+            min,
+            max,
+            Some(0.0),
+            None,
+            "absolute relation metric",
+        ),
+        Slope | Intercept => Ok(()),
     }
 }
 impl RelationExpectation {
@@ -355,8 +396,9 @@ impl RelationExpectation {
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        self.constraints
-            .push(RelationConstraint::new(measure, min, max)?);
+        let constraint = RelationConstraint::new(measure, min, max)?;
+        validate_relation_bounds(measure, min, max)?;
+        self.constraints.push(constraint);
         Ok(self)
     }
     pub(crate) fn violations(

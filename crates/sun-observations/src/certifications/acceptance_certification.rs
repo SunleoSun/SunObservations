@@ -230,11 +230,17 @@ fn each_fit_and_difference_measure_independently_fails_final_proof() {
         LinearFitMeasure::ResidualMeanAbsolute,
         LinearFitMeasure::ResidualMaxAbsolute,
     ] {
+        let max = match measure {
+            LinearFitMeasure::Slope | LinearFitMeasure::Intercept => -1.0,
+            LinearFitMeasure::RSquared
+            | LinearFitMeasure::ResidualMeanAbsolute
+            | LinearFitMeasure::ResidualMaxAbsolute => 0.0,
+        };
         assert_rejected(
             &format!("fit {measure:?}"),
             numeric
                 .linear_fit()
-                .expect(LinearFitExpectation::with_bound(measure, None, Some(-1.)).unwrap()),
+                .expect(LinearFitExpectation::with_bound(measure, None, Some(max)).unwrap()),
             CheckClass::StatisticalViolation,
         );
     }
@@ -247,7 +253,7 @@ fn each_fit_and_difference_measure_independently_fails_final_proof() {
             &format!("difference {measure:?}"),
             numeric
                 .difference()
-                .expect(DifferenceExpectation::with_bound(measure, None, Some(-1.)).unwrap()),
+                .expect(DifferenceExpectation::with_bound(measure, None, Some(0.0)).unwrap()),
             CheckClass::StatisticalViolation,
         );
     }
@@ -280,7 +286,13 @@ fn every_composite_relation_measure_fails_for_prepared_metrics() {
             RelationMeasure::AbsolutePearson | RelationMeasure::AbsoluteSpearman => {
                 (None, Some(0.))
             }
-            _ => (None, Some(-1.)),
+            RelationMeasure::Intercept => (None, Some(-1.)),
+            RelationMeasure::RSquared
+            | RelationMeasure::MeanAbsoluteDifference
+            | RelationMeasure::P95AbsoluteDifference
+            | RelationMeasure::MaxAbsoluteDifference
+            | RelationMeasure::ResidualMeanAbsolute
+            | RelationMeasure::ResidualMaxAbsolute => (None, Some(0.)),
         };
         let expected = RelationExpectation::with_bound(measure, min, max).unwrap();
         assert_rejected(

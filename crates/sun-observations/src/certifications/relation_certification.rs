@@ -244,13 +244,17 @@ fn independent_constraint_measures_and_undefined_values_fail_closed() {
     ] {
         let value = super::measure(&report, measure).unwrap();
         assert!(fact("relation", report.clone())
-            .expect(
-                RelationExpectation::with_bound(measure, Some(value - 1e-9), Some(value + 1e-9))
-                    .unwrap()
-            )
+            .expect(RelationExpectation::with_bound(measure, Some(value), Some(value)).unwrap())
             .is_pass());
         assert!(!fact("relation", report.clone())
-            .expect(RelationExpectation::with_bound(measure, Some(value + 1.), None).unwrap())
+            .expect(
+                if value <= 0.0 {
+                    RelationExpectation::with_bound(measure, Some((value + 1.0) / 2.0), None)
+                } else {
+                    RelationExpectation::with_bound(measure, None, Some(value / 2.0))
+                }
+                .unwrap()
+            )
             .is_pass());
     }
     assert!(RelationExpectation::with_bound(RelationMeasure::Slope, Some(2.), Some(1.)).is_err());

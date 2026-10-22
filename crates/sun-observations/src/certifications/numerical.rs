@@ -124,6 +124,26 @@ pub(crate) fn validate_bounds(min: Option<f64>, max: Option<f64>) -> Result<(), 
     }
     Ok(())
 }
+
+pub(crate) fn validate_domain_bounds(
+    min: Option<f64>,
+    max: Option<f64>,
+    domain_min: Option<f64>,
+    domain_max: Option<f64>,
+    name: &str,
+) -> Result<(), NumericError> {
+    for value in [min, max].into_iter().flatten() {
+        if domain_min.is_some_and(|floor| value < floor)
+            || domain_max.is_some_and(|ceiling| value > ceiling)
+        {
+            return Err(NumericError::InvalidParameter {
+                name: name.into(),
+                value: value.into(),
+            });
+        }
+    }
+    Ok(())
+}
 pub(crate) fn assess<M: Clone>(
     constraints: &[MetricConstraint<M>],
     value: impl Fn(&M) -> Option<f64>,
@@ -186,8 +206,22 @@ impl CorrelationExpectation {
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        self.constraints
-            .push(MetricConstraint::new(measure, min, max)?);
+        let constraint = MetricConstraint::new(measure, min, max)?;
+        match measure {
+            CorrelationMeasure::Pearson | CorrelationMeasure::Spearman => {
+                validate_domain_bounds(min, max, Some(-1.0), Some(1.0), "correlation bound")?;
+            }
+            CorrelationMeasure::AbsolutePearson | CorrelationMeasure::AbsoluteSpearman => {
+                validate_domain_bounds(
+                    min,
+                    max,
+                    Some(0.0),
+                    Some(1.0),
+                    "absolute correlation bound",
+                )?;
+            }
+        }
+        self.constraints.push(constraint);
         Ok(self)
     }
     pub fn and_pearson_bounds(
@@ -268,8 +302,17 @@ impl LinearFitExpectation {
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        self.constraints
-            .push(MetricConstraint::new(measure, min, max)?);
+        let constraint = MetricConstraint::new(measure, min, max)?;
+        match measure {
+            LinearFitMeasure::RSquared => {
+                validate_domain_bounds(min, max, Some(0.0), Some(1.0), "r_squared bound")?;
+            }
+            LinearFitMeasure::ResidualMeanAbsolute | LinearFitMeasure::ResidualMaxAbsolute => {
+                validate_domain_bounds(min, max, Some(0.0), None, "absolute residual bound")?;
+            }
+            LinearFitMeasure::Slope | LinearFitMeasure::Intercept => {}
+        }
+        self.constraints.push(constraint);
         Ok(self)
     }
     pub fn and_slope_between(self, min: f64, max: f64) -> Result<Self, NumericError> {
@@ -344,8 +387,9 @@ impl DifferenceExpectation {
         min: Option<f64>,
         max: Option<f64>,
     ) -> Result<Self, NumericError> {
-        self.constraints
-            .push(MetricConstraint::new(measure, min, max)?);
+        let constraint = MetricConstraint::new(measure, min, max)?;
+        validate_domain_bounds(min, max, Some(0.0), None, "absolute difference bound")?;
+        self.constraints.push(constraint);
         Ok(self)
     }
     pub fn and_mean_absolute_at_most(self, max: f64) -> Result<Self, NumericError> {

@@ -123,7 +123,7 @@ Owns eagerly projected pairs; lazily caches compact linear/rank/difference/resid
 
 ### Statistical expectation builders and measures
 
-Expectations start with a real bound; constructors/builders return Result<Self,NumericError>. Bounds are inclusive, finite, ordered, and cannot both be absent. Required undefined metrics → EvaluationError; violated bounds → StatisticalViolation with `MetricConstraint<M>`. `MetricConstraint::new(measure:M,min:Option<f64>,max:Option<f64>)` validates bounds; read-only `measure()/min()/max()`.
+Expectations start with a real bound; constructors/builders return Result<Self,NumericError>. Bounds are inclusive, finite, ordered, and cannot both be absent. Owners also reject impossible metric domains: Pearson/Spearman stay in [-1,1], absolute correlations and R² in [0,1], and absolute difference/residual bounds are nonnegative. Required undefined metrics → EvaluationError; violated valid bounds → StatisticalViolation with `MetricConstraint<M>`. `MetricConstraint::new(measure:M,min:Option<f64>,max:Option<f64>)` validates generic finite/order structure; expectation owners validate metric domains. Read-only `measure()/min()/max()`.
 
 | Owner | Constructors, additional bounds and measures |
 | --- | --- |

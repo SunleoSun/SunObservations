@@ -83,11 +83,11 @@ panic output without bound.
 
 ## Statistical semantic views
 
-correlation() returns Fact<CorrelationMetrics>. CorrelationExpectation::pearson_at_least, spearman_at_least and spearman_at_most construct meaningful bounds. with_bound(measure,min,max) and additional bound/and_pearson_bounds/and_spearman_bounds reject empty or invalid static bounds at construction.
+correlation() returns Fact<CorrelationMetrics>. CorrelationExpectation::pearson_at_least, spearman_at_least and spearman_at_most construct meaningful bounds. with_bound(measure,min,max) and additional bound/and_pearson_bounds/and_spearman_bounds reject empty, nonfinite, reversed, or out-of-domain bounds at construction; Pearson/Spearman are constrained to [-1,1] and absolute correlations to [0,1].
 linear_fit() returns Fact<LinearFitMetrics> with linear/residual metrics; the fact exposes slope()/intercept()/
 r_squared() as fallible f64 facts. LinearFitExpectation::slope_between(min,max)?.and_intercept_between(min,max)?
 .and_r_squared_at_least(min)?.and_residual_mean_absolute_at_most(max)?.and_residual_max_absolute_at_most(max)? constrains regression.
-difference() returns Fact<DifferenceSummary> (right minus left); DifferenceExpectation::mean_absolute_at_most(max)?.and_p95_absolute_at_most(max)?.and_max_absolute_at_most(max)? constrains direct errors. All builders
+difference() returns Fact<DifferenceSummary> (right minus left); DifferenceExpectation::mean_absolute_at_most(max)?.and_p95_absolute_at_most(max)?.and_max_absolute_at_most(max)? constrains direct errors. Absolute difference/residual bounds are nonnegative and R² stays in [0,1]. All builders
 return Result and all bounds are inclusive. The advanced relation()/RelationExpectation composite
 remains for deliberate multi-class analysis and delegates to the same mathematical owners.
 

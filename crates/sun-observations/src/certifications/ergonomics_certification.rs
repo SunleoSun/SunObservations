@@ -243,10 +243,35 @@ fn correlation_fit_difference_and_composite_reuse_prepared_correspondence() {
         .is_pass());
 }
 #[test]
-fn composite_relation_invalid_bounds_and_empty_constraints_fail_at_construction() {
+fn metric_specific_invalid_bounds_and_empty_constraints_fail_at_construction() {
+    assert!(CorrelationExpectation::spearman_at_least(1.01).is_err());
+    assert!(CorrelationExpectation::spearman_at_most(-1.01).is_err());
+    assert!(CorrelationExpectation::with_bound(
+        CorrelationMeasure::AbsolutePearson,
+        Some(-0.01),
+        None
+    )
+    .is_err());
+    assert!(LinearFitExpectation::r_squared_at_least(1.01).is_err());
+    assert!(LinearFitExpectation::residual_mean_absolute_at_most(-0.01).is_err());
+    assert!(DifferenceExpectation::max_absolute_at_most(-0.01).is_err());
     assert!(RelationExpectation::with_bound(RelationMeasure::Slope, Some(2.), Some(1.)).is_err());
     assert!(RelationExpectation::with_bound(RelationMeasure::Slope, None, None).is_err());
+    assert!(RelationExpectation::with_bound(RelationMeasure::RSquared, Some(1.01), None).is_err());
+    assert!(RelationExpectation::with_bound(
+        RelationMeasure::MeanAbsoluteDifference,
+        None,
+        Some(-0.01)
+    )
+    .is_err());
     assert!(serde_json::from_str::<RelationExpectation>(r#"{"constraints":[]}"#).is_err());
+    assert!(serde_json::from_str::<RelationExpectation>(
+        r#"{"constraints":[{"measure":"RSquared","min":1.01,"max":null}]}"#
+    )
+    .is_err());
+    assert!(CorrelationExpectation::spearman_at_least(1.0).is_ok());
+    assert!(LinearFitExpectation::r_squared_at_least(1.0).is_ok());
+    assert!(DifferenceExpectation::max_absolute_at_most(0.0).is_ok());
 }
 #[test]
 fn correlation_known_positive_negative_zero_and_undefined_fixtures() {
