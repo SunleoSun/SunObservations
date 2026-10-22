@@ -24,9 +24,9 @@ may reach outside its package directory. Before the derive version exists in the
 registry, verify the main artifact locally with a patch to the packaged derive;
 normal unpatched Cargo verification requires publishing derive first.
 
-No authoritative license file or manifest license decision is established in this
-repository. Project-owner license selection remains a publication blocker; validation
-does not invent a license.
+The workspace is released under the MIT license; publishable packages inherit
+`license = "MIT"` from the workspace manifest and the repository license text lives in
+`LICENSE`.
 
 ## Compact capture and acceptance contracts
 
