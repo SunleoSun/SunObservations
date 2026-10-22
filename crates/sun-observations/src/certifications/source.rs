@@ -225,14 +225,6 @@ impl<'a, L, R> ComparisonBuilder<'a, L, R> {
         let joined = join_by(self.left.values, self.right.values, left, right);
         PairedComparison::new(self.left, self.right, joined)
     }
-    pub fn on_u64(
-        self,
-        left: impl Fn(&L) -> u64,
-        right: impl Fn(&R) -> u64,
-    ) -> PairedComparison<'a, L, R, u64> {
-        let joined = join_u64_by(self.left.values, self.right.values, left, right);
-        PairedComparison::new(self.left, self.right, joined)
-    }
     pub fn on_presorted<K: Ord + Clone>(
         self,
         left: impl Fn(&L) -> K,

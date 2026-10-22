@@ -72,9 +72,9 @@ fn capture_preserves_results_and_canonical_selection_with_exclusions() {
             .expect_valid(),
     );
     c.check_fact_expect(
-        "no noisy health check",
-        run.certification("health").report().checks,
-        0usize,
+        "healthy capture contributes explicit completeness prerequisite",
+        run.certification("health").report().checks(),
+        1usize,
     );
     for selection in [
         CaptureConfig::new().activate_namespace("capture").unwrap(),

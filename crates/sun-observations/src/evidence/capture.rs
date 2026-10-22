@@ -103,16 +103,15 @@ impl<T> CapturedRun<T> {
     }
     pub fn certification(&self, name: impl Into<String>) -> Certification {
         let mut c = certification(name);
-        if !self.status.is_complete() {
-            c.check(
-                "capture completeness",
-                try_fact::<bool, _>(
-                    "scoped Observation capture",
-                    Err(format!("incomplete capture: {:?}", self.status)),
-                )
-                .expect(true),
-            );
-        }
+        let completeness = if self.status.is_complete() {
+            Ok(true)
+        } else {
+            Err(format!("incomplete capture: {:?}", self.status))
+        };
+        c.check(
+            "capture completeness",
+            try_fact("scoped Observation capture", completeness).expect(true),
+        );
         c
     }
 }

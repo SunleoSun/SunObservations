@@ -95,7 +95,7 @@ Names accept Into<Arc<str>>. Keep borrowed inputs alive. PreparedSource clones s
 
 ### ComparisonBuilder
 
-`on(left:impl Fn(&L)->K,right:impl Fn(&R)->K)`, `on_u64(left:impl Fn(&L)->u64,right:impl Fn(&R)->u64)` → PairedComparison<'a,L,R,K/u64>; `on_presorted(left,right) -> Result<PairedComparison,JoinError>` rejects decreasing promised-sorted keys. Generic K:Ord+Clone; adaptive sort/merge and u64 bounded-dense optimization share ambiguity semantics. Left/right types may differ; no Hash requirement or string field-name joins.
+`on(left:impl Fn(&L)->K,right:impl Fn(&R)->K) -> PairedComparison<'a,L,R,K>`; `on_presorted(left,right) -> Result<PairedComparison,JoinError>` rejects decreasing promised-sorted keys. Generic K:Ord+Clone; implementation chooses the canonical sort/merge behavior. Left/right types may differ; no Hash requirement or string field-name joins.
 
 ### PairedComparison
 
@@ -149,7 +149,7 @@ Operations return data/errors, never assertions. Cloneable iterators must replay
 | Summary; RobustSummary | Summary{count,finite_count,min,max,sum,mean,variance(population),sample_variance:Option<f64>(n<2 absent),standard_deviation}; RobustSummary{count,median,q1,q3,iqr,mad(unscaled)}. Type-7 interpolation; empty/nonfinite/overflow/underflow errors; q finite in [0,1]. |
 | Integrity functions | `check_count(actual:usize,expected:CountRule)`, `check_unique(values:&[T],key:impl Fn(&T)->K)`, `check_contiguous(values:&[T],key:impl Fn(&T)->u64,start:u64,end:u64)` → IntegrityReport{record_count,issues}, `is_valid()`. IntegrityIssue::{Count{expected,actual},Duplicate(KeyGroup),UnexpectedKey{key},MissingRange{start,end},InvalidKeyRange{start,end},Numeric{index,value,expected}}. Aggregate via fact(...).expect_valid(). |
 | Comparison<K> | `check_same_keys(left,right,left_key,right_key)` → structural report; read-only `left_count()/right_count()/matched()/left_only()/right_only()/duplicate_left()/duplicate_right()/left_source()/right_source()`. `is_complete()` requires matched == left_count == right_count and no one-sided/duplicate keys. |
-| Join | `join_by(left,right,left_key,right_key)`, `join_u64_by(...)`, `join_presorted_by(...) -> Result<Join,JoinError>`; `comparison()`, `matched_pairs()`, `require_complete()`, `set_source_names(&str,&str)`. JoinError{side:Side::{Left,Right},index}. |
+| Join | `join_by(left,right,left_key,right_key)`, `join_presorted_by(...) -> Result<Join,JoinError>`; `comparison()`, `matched_pairs()`, `require_complete()`, `set_source_names(&str,&str)`. JoinError{side:Side::{Left,Right},index}. Integer-specialized join machinery is not part of the agent-facing proof API. |
 | Pair analysis | `linear_metrics(pairs)/pearson(pairs)/spearman(pairs)` accept IntoIterator<(f64,f64)> → Result<LinearMetrics/Metric/Metric,NumericError>; `correlation(cloneable_pairs)/linear_fit(cloneable_pairs)/numeric_relation(cloneable_pairs)` → corresponding metrics. Cloneable_pairs is Iterator+Clone. `difference_summary(IntoIterator<(f64,f64)>)` → DifferenceSummary. |
 | LinearMetrics; Metric | LinearMetrics{count,pearson,covariance(population),sample_covariance,slope,intercept,r_squared}; OLS right on left. Spearman average tied ranks, including signed zero. `Metric::{Defined(f64),Undefined(UndefinedReason::{InsufficientPairs,ConstantLeft,ConstantRight})}`, `value()->Option<f64>`; no silent NaN. |
 | DifferenceSummary; pair reports | DifferenceSummary{signed:Summary,absolute:Summary,median_signed,median_absolute,p95_absolute}; direct right−left. Fit residuals = observed right−predicted right. RelationMetrics{linear,spearman,difference,residual:Option<DifferenceSummary>}; PairEvidence<K>{key,left,right,signed_difference,absolute_difference}. |
@@ -166,7 +166,7 @@ Operations return data/errors, never assertions. Cloneable iterators must replay
 
 ## Ordinary + Observation-backed composition
 
-`CapturedRun::certification` is the completeness-aware evidence bridge. Start every capture proof with **run.certification(name)**, not standalone certification: eviction, emission failure or escaped contexts/workers/spans adds an EvaluationError prerequisite; healthy capture adds no extra check. A retained subset never establishes completeness. Capture mechanics belong to the sun-observations skill. Decode TypedView once; reuse its source. Filter proc/scope or include execution identity for repeated keys. Provenance optional; ordinary sources work identically.
+`CapturedRun::certification` is the completeness-aware evidence bridge. Start every capture proof with **run.certification(name)**, not standalone certification: it always contributes an explicit capture-completeness prerequisite; healthy capture passes it, while eviction, emission failure or escaped contexts/workers/spans makes it EvaluationError. A retained subset never establishes completeness. Capture mechanics belong to the sun-observations skill. Decode TypedView once; reuse its source. Filter proc/scope or include execution identity for repeated keys. Provenance optional; ordinary sources work identically.
 
 ```rust
 use sun_observations::certifications::*;

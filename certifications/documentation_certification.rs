@@ -84,7 +84,7 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
             "GroupedNumeric",
             vec!["summaries(", "summaries_with_robust("],
         ),
-        ("ComparisonBuilder", vec!["on(", "on_u64(", "on_presorted("]),
+        ("ComparisonBuilder", vec!["on(", "on_presorted("]),
         (
             "PairedComparison",
             vec![
@@ -142,7 +142,6 @@ fn certification_api_coverage(text: &str) -> CertificationReport {
                 "is_valid(",
                 "is_complete(",
                 "join_by(",
-                "join_u64_by(",
                 "join_presorted_by(",
                 "comparison(",
                 "matched_pairs(",
@@ -608,6 +607,8 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
                 "source_slice",
                 "on_sorted(",
                 "join_sorted_by(",
+                "on_u64(",
+                "join_u64_by(",
                 ".typed::<",
                 ".certify(",
                 "::certify(",

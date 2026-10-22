@@ -24,10 +24,10 @@ prior context on return/Result/?/unwind. Join workers and finish spans inside th
 CapturedRun<T>::result() -> &T preserves application Result as ordinary data; dataset() returns
 a fixed ObservationDataset; to_typed::<O>() strictly decodes a TypedView; status() returns
 CaptureStatus{retention,emission_errors,unfinished_contexts}. run.certification(name) constructs a
-generic Certification and automatically records EvaluationError if completeness is unprovable
-(eviction, ignored serialization errors, escaped contexts/spans/workers). Healthy capture is
-silent. Always start Observation-backed proof from run.certification, not a standalone root over
-possibly incomplete retained records. TypedView decoding is explicit: prepare once and reuse.
+generic Certification and always records an explicit capture-completeness prerequisite: healthy
+capture contributes a passing check, while eviction, ignored serialization errors, or escaped
+contexts/spans/workers contribute EvaluationError. Always start Observation-backed proof from
+run.certification, not a standalone root over possibly incomplete retained records. TypedView decoding is explicit: prepare once and reuse.
 
 Runtime MemorySink defaults to 1,000,000 records with 10% oldest-batch eviction in VecDeque.
 MemorySinkConfig::new(capacity,fraction) validates positive capacity and finite (0,1] fraction.

@@ -236,6 +236,7 @@ pub(crate) fn merge<'a, L, R, K: Ord + Clone>(
 
 /// Integer-domain join that automatically chooses ordered merge, bounded dense indexing, or sorting.
 /// Dense indexing is used only for unordered unique keys spanning at most n+m positions.
+#[doc(hidden)]
 pub fn join_u64_by<'a, L, R>(
     left: &'a [L],
     right: &'a [R],

@@ -178,7 +178,7 @@ fn captured_100k_and_one_million_records_remain_complete_and_mathematically_corr
         let right = dataset.to_typed::<Output>().unwrap();
         let a = left.source("input");
         let b = right.source("output");
-        let pair = a.compare_with(&b).on_u64(|v| v.row, |v| v.row);
+        let pair = a.compare_with(&b).on(|v| v.row, |v| v.row);
         let numeric = pair.numeric(|v| v.value, |v| v.value);
         let mut c = dataset.certification("million-record production trace");
         c.check(

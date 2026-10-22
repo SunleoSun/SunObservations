@@ -46,9 +46,9 @@ scalar/field (requires one value); project caches arbitrary projections; numeric
 f64 projections; keys caches sorted key/index vectors for correspondence with multiple
 counterparts. group_by retains deterministic key/member identity.
 
-PairedComparison owns one mapping, independent of chosen fields. on supports Ord+Clone
-tuples/dedicated key structs; on_presorted validates monotonicity; on_u64 offers adaptive
-integer specialization. Missing/duplicate keys are explicit and duplicate keys never pair.
+PairedComparison owns one mapping, independent of chosen fields. `on` supports Ord+Clone
+tuples/dedicated key structs; `on_presorted` validates monotonicity. Integer-specific join
+optimizations remain an implementation/benchmark concern, not a separate proof API. Missing/duplicate keys are explicit and duplicate keys never pair.
 paired_comparison_fact borrows the mapping rather than copying it. Pair checks retain bounded examples
 and optional adapter provenance. Numeric field pairs cache values and reuse correspondence
 for correlation, linear_fit, difference and top disagreements. Linear moments, ranks,

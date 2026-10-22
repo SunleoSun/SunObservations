@@ -6,7 +6,6 @@ fn prepared_reports_preserve_source_names_across_correspondence_and_lag_entrypoi
     let left = collection("producer", &rows);
     let right = collection("consumer", &rows);
     let generic = left.compare_with(&right).on(|v| v.0, |v| v.0);
-    let integer = left.compare_with(&right).on_u64(|v| v.0, |v| v.0);
     let presorted = left
         .compare_with(&right)
         .on_presorted(|v| v.0, |v| v.0)
@@ -14,7 +13,7 @@ fn prepared_reports_preserve_source_names_across_correspondence_and_lag_entrypoi
     let keys = left.keys(|v| v.0);
     let other_keys = right.keys(|v| v.0);
     let cached = keys.compare_with(&other_keys);
-    for paired in [&generic, &integer, &presorted, &cached] {
+    for paired in [&generic, &presorted, &cached] {
         assert_eq!(paired.comparison().left_source(), Some("producer"));
         assert_eq!(paired.comparison().right_source(), Some("consumer"));
     }
