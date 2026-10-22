@@ -17,13 +17,12 @@ Rust edition 2021. Use the dependency source already configured by the consuming
 
 Runtime emission needs sun-observations plus Serde derive support. Observation-backed certification additionally needs sun-observations-data-source and sun-certifications. The Observation derive macro is re-exported by the runtime. Payloads require Serialize + 'static; add Deserialize only when decoding captured evidence. The generic certification framework has no runtime dependency.
 
-## Canonical capture → typed source → proof
+## Canonical production capture and typed evidence
 
 ```rust
 use serde::{Deserialize, Serialize};
 use sun_observations::*;
 use sun_observations_data_source::*;
-use sun_certifications::*;
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "pipeline::prediction", level = INFO, tags("evidence"))]
@@ -44,15 +43,10 @@ fn capture() -> Result<(), Box<dyn std::error::Error>> {
     );
     let output = run.result().as_ref().unwrap();
     let typed = run.typed::<Prediction>()?;
-    let evidence = typed.source("encoder predictions");
-    let mut c = run.certify("prediction boundary");
-    let result = c.collection("canonical output", output);
-    c.check_fact_expect("result count", output.len(), 8usize);
-    c.check("count", evidence.count().expect(8usize));
-    c.check("identity", evidence.unique(|v| v.row).expect_valid());
-    c.check("forbidden future rows", evidence.matching_count(|v| v.row >= 8).expect(0usize));
-    c.check("output identity", result.unique(|v| *v).expect_valid());
-    c.assert_certify();
+    let _output_rows = output.len();
+    let _evidence = typed.source("encoder predictions");
+    let _status = run.status();
+    let _complete = run.status().is_complete();
     Ok(())
 }
 ```
@@ -66,8 +60,8 @@ Production functions use the process-global lazy `global()` engine through typed
 - Parallel captures never share storage. Nested captures are **exclusive**: inner evidence is absent from the outer run. Child scopes inherit attachment; Context/thread/Rayon propagation carries it. Ordinary threads and async tasks do not inherit automatically. Each capture is a fresh scope/policy lifecycle. Join workers and finish spans inside the closure.
 - Context guards restore the predecessor on normal return, Result/?, or panic unwind, independently of certification/assertion. Panics propagate. Escaped Contexts, workers or spans make completeness unprovable even if no late emission has occurred.
 - `CapturedRun::result() -> &T` preserves any application Result as data; `dataset() -> &ObservationDataset` exposes the finalized fixed snapshot; `typed::<O>() -> Result<TypedView<O>,DecodeError>` decodes matching evidence. Keep the TypedView alive and reuse its prepared source; calling typed again decodes again.
-- `status() -> CaptureStatus` exposes `retention:MemoryStats`, `emission_errors:u64` and `unfinished_contexts:bool`; `is_complete()` requires no eviction, emission failures or escaped context owners. Ignored serialization failures are counted against the frozen admission context, even if serialization changes the installed context.
-- `run.certify(name) -> sun_certifications::Certification` automatically adds an EvaluationError prerequisite for incomplete capture. Healthy capture adds no noisy check. Always use this root for Observation-backed proofs; a standalone certify over a retained subset cannot establish capture completeness. Capture integration lives only in the data-source crate.
+- `status() -> CaptureStatus` exposes `retention:MemoryStats`, `emission_errors:u64` and `unfinished_contexts:bool`; `status().is_complete()` requires no eviction, emission failures or escaped context owners. Ignored serialization failures are counted against the frozen admission context, even if serialization changes the installed context.
+- `CapturedRun::certify` (`run.certify(name)`) is the data-source completeness-aware bridge to the generic proof owner. See the certifications skill for its proof workflow; capture integration itself lives only in the data-source crate.
 - `retention(MemorySinkConfig)` configures capture capacity. Default finite history holds up to 1,000,000 records; size for points **and both span halves**. Eviction is legal for runtime history, never silent successful certification. No channel, sink, route or flush is required for ordinary capture.
 
 ## Declaration and meaning

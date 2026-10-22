@@ -1,4 +1,4 @@
-//! Generic, typed semantic proofs over ordinary Rust evidence. Measurements never assert.
+//! Generic, typed semantic proofs over ordinary Rust evidence. Facts never assert.
 mod anomaly;
 mod certification;
 mod criteria;

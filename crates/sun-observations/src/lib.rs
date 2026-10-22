@@ -20,7 +20,7 @@ pub mod sinks;
 pub mod span;
 
 #[cfg(test)]
-mod support_test;
+mod test_support;
 
 pub use channel::Channel;
 pub use context::{Context, ContextGuard};
@@ -44,5 +44,5 @@ pub mod __private {
 }
 
 #[cfg(test)]
-#[path = "macros_test.rs"]
-mod macros_test;
+#[path = "macros_certification.rs"]
+mod macros_certification;

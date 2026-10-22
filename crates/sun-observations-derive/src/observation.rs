@@ -88,5 +88,5 @@ pub fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
 }
 
 #[cfg(test)]
-#[path = "observation_test.rs"]
-mod tests;
+#[path = "observation_codegen.rs"]
+mod codegen;

@@ -133,10 +133,10 @@ fn benchmark() {
         assert_eq!(
             dense_candidate(&keys, &unordered),
             join_by(&keys, &unordered, |v| *v, |v| *v)
-                .alignment()
+                .comparison()
                 .matched
         );
-        assert_eq!(report.alignment.matched.len(), n);
+        assert_eq!(report.comparison.matched.len(), n);
         assert!((report.observed.linear.slope.value().unwrap() - 2.).abs() < 1e-9);
         let report_bytes = serde_json::to_vec(&report).unwrap().len();
         let display_bytes = failure.to_string().len();

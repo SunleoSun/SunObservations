@@ -37,9 +37,9 @@ pub(crate) fn next_identity() -> u64 {
 }
 
 #[cfg(test)]
-#[path = "plan_test.rs"]
-mod tests;
+#[path = "plan_mechanism.rs"]
+mod mechanism;
 
 #[cfg(test)]
-#[path = "plan_certification_test.rs"]
+#[path = "plan_certification.rs"]
 mod certification;

@@ -80,7 +80,7 @@ fn scalar_struct_collection_and_empty_contracts() {
     assert!(proof.certify().to_string().is_empty());
 }
 #[test]
-fn preparation_reuses_keys_alignment_and_projected_values_across_fields() {
+fn preparation_reuses_keys_comparison_and_projected_values_across_fields() {
     let left = rows(10000);
     let mut right = rows(10000);
     right.reverse();
@@ -96,7 +96,7 @@ fn preparation_reuses_keys_alignment_and_projected_values_across_fields() {
         (v.fold, v.target, v.row)
     });
     let comparison = ak.compare_with(&bk);
-    let address = comparison.alignment().matched.as_ptr();
+    let address = comparison.comparison().matched.as_ptr();
     let projections = Cell::new(0);
     let numeric = comparison.numeric(
         |v| {
@@ -144,8 +144,8 @@ fn preparation_reuses_keys_alignment_and_projected_values_across_fields() {
     }
     assert_eq!(key_calls.get(), 20000);
     assert_eq!(projections.get(), 20000);
-    assert_eq!(comparison.alignment().matched.as_ptr(), address);
-    assert_eq!(ak.compare_with(&bk).alignment().matched.len(), 10000);
+    assert_eq!(comparison.comparison().matched.as_ptr(), address);
+    assert_eq!(ak.compare_with(&bk).comparison().matched.len(), 10000);
     let (key, l, r) = comparison.pairs().next().unwrap();
     assert_eq!(*key, (l.value.fold, l.value.target, l.value.row));
     assert_eq!(l.value.row, r.value.row);
@@ -174,7 +174,7 @@ fn dedicated_domain_key_and_unordered_sources_preserve_semantic_correspondence()
         .assert_certify();
 }
 #[test]
-fn missing_and_duplicate_evidence_fails_hard_and_blocks_only_dependent_measurements() {
+fn missing_and_duplicate_evidence_fails_hard_and_blocks_only_dependent_facts() {
     let a = [(1, 1.), (2, 2.), (2, 3.), (4, 4.)];
     let b = [(1, 1.), (3, 3.)];
     let a = source_slice("left", &a);
@@ -198,7 +198,7 @@ fn missing_and_duplicate_evidence_fails_hard_and_blocks_only_dependent_measureme
     assert!(s.contains("missing right=2"));
     assert!(s.contains("duplicate left=1"));
     assert!(s.contains("left -> right"));
-    assert_eq!(pair.alignment().matched.len(), 1);
+    assert_eq!(pair.comparison().matched.len(), 1);
 }
 #[test]
 fn expensive_source_and_group_projections_are_cached() {

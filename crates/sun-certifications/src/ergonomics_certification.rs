@@ -142,7 +142,7 @@ fn correlation_fit_difference_and_composite_reuse_prepared_correspondence() {
         },
     );
     assert!(pair.comparison_fact().expect_valid().is_pass());
-    assert_eq!(pair.alignment().matched.len(), 10_000);
+    assert_eq!(pair.comparison().matched.len(), 10_000);
     let numeric = pair.numeric(
         |v| {
             projections.set(projections.get() + 1);
@@ -207,7 +207,7 @@ fn correlation_fit_difference_and_composite_reuse_prepared_correspondence() {
     let duplicates = [(0, 1.), (0, 2.)];
     let duplicate_source = source_slice("duplicate", &duplicates);
     let duplicate_pair = left.compare_with(&duplicate_source).on(|v| v.0, |v| v.0);
-    assert_eq!(duplicate_pair.alignment().duplicate_right.len(), 1);
+    assert_eq!(duplicate_pair.comparison().duplicate_right.len(), 1);
     assert!(!duplicate_pair.comparison_fact().expect_valid().is_pass());
 }
 #[test]
@@ -264,5 +264,71 @@ fn correlation_known_positive_negative_zero_and_undefined_fixtures() {
             .expect(CorrelationExpectation::positive(0.9).unwrap())
             .class,
         CheckClass::EvaluationError
+    );
+}
+
+#[test]
+fn typed_facts_checks_and_comparison_reports_share_the_public_contract() {
+    let observed: Fact<usize> = fact("returned count", 3);
+    let checked: CheckResult<usize> = observed.expect(3);
+    let unavailable: Fact<usize> = try_fact("unavailable", Err("missing artifact"));
+    assert_eq!(unavailable.expect(3).class, CheckClass::EvaluationError);
+    let left = [(1u64, 2.), (2, 4.), (3, 8.)];
+    let right = [(3u64, 8.), (1, 2.), (2, 4.)];
+    let a = source_slice("returned", &left);
+    let b = source_slice("persisted", &right);
+    let prepared = a.compare_with(&b).on(|r| r.0, |r| r.0);
+    let comparison: &Comparison<u64> = prepared.comparison();
+    let structural_fact: Fact<&Comparison<u64>> = prepared.comparison_fact();
+    let structural_check: CheckResult<&Comparison<u64>> = structural_fact.expect_valid();
+    assert!(std::ptr::eq(
+        *structural_check.observed.as_ref().unwrap(),
+        comparison
+    ));
+    let mut c = certify("typed public flow");
+    c.check("count", checked)
+        .check("correspondence", structural_check);
+    assert!(c.certify().is_pass());
+    let report = join_by(&left, &right, |r| r.0, |r| r.0)
+        .numeric_relation(|r| r.1, |r| r.1, 2)
+        .unwrap();
+    let encoded = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        encoded["comparison"],
+        serde_json::to_value(comparison).unwrap()
+    );
+    assert_eq!(
+        serde_json::from_value::<RelationReport<u64>>(encoded).unwrap(),
+        report
+    );
+    let incomplete = join_by(&left, &right[..2], |r| r.0, |r| r.0)
+        .numeric_relation(|r| r.1, |r| r.1, 2)
+        .unwrap_err();
+    let incomplete_comparison = match &incomplete {
+        RelationError::Comparison(comparison) => comparison,
+        other => panic!("expected incomplete comparison, got {other:?}"),
+    };
+    assert!(!incomplete_comparison.is_complete());
+    let encoded = serde_json::to_value(&incomplete).unwrap();
+    assert_eq!(
+        encoded,
+        serde_json::json!({"Comparison": incomplete_comparison})
+    );
+    assert_eq!(
+        serde_json::from_value::<RelationError<u64>>(encoded).unwrap(),
+        incomplete
+    );
+    let error = RelationError::Numeric {
+        comparison: Box::new(comparison.clone()),
+        error: NumericError::Empty,
+    };
+    let encoded = serde_json::to_value(&error).unwrap();
+    assert_eq!(
+        encoded["Numeric"]["comparison"],
+        serde_json::to_value(comparison).unwrap()
+    );
+    assert_eq!(
+        serde_json::from_value::<RelationError<u64>>(encoded).unwrap(),
+        error
     );
 }

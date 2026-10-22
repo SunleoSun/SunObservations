@@ -10,15 +10,15 @@ rayon = ["obs/rayon", "dep:rayon"]
 
 [[test]]
 name = "documentation_certification"
-path = "documentation_certification_test.rs"
+path = "documentation_certification.rs"
 
 [[test]]
 name = "analysis_certification"
-path = "analysis_certification_test.rs"
+path = "analysis_certification.rs"
 
 [[test]]
 name = "human_delivery_certification"
-path = "human_delivery_certification_test.rs"
+path = "human_delivery_certification.rs"
 
 [dependencies]
 sun-certifications = { path = "../crates/sun-certifications" }
@@ -32,20 +32,20 @@ rayon = { version = "1.10", optional = true }
 
 [[test]]
 name = "concurrent_scopes_certification"
-path = "concurrent_scopes_certification_test.rs"
+path = "concurrent_scopes_certification.rs"
 [[test]]
 name = "thread_propagation_certification"
-path = "thread_propagation_certification_test.rs"
+path = "thread_propagation_certification.rs"
 [[test]]
 name = "rayon_propagation_certification"
-path = "rayon_propagation_certification_test.rs"
+path = "rayon_propagation_certification.rs"
 required-features = ["rayon"]
 [[test]]
 name = "channel_fanout_certification"
-path = "channel_fanout_certification_test.rs"
+path = "channel_fanout_certification.rs"
 [[test]]
 name = "jsonl_roundtrip_certification"
-path = "jsonl_roundtrip_certification_test.rs"
+path = "jsonl_roundtrip_certification.rs"
 [[test]]
 name = "runtime_end_to_end_certification"
-path = "runtime_end_to_end_certification_test.rs"
+path = "runtime_end_to_end_certification.rs"

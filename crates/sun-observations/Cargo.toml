@@ -41,7 +41,7 @@ harness = false
 
 [[test]]
 name = "benchmark_reports"
-path = "benches/support/report_test.rs"
+path = "benches/support/report_process.rs"
 
 [dev-dependencies]
 sun-certifications = { path = "../sun-certifications", version = "0.1.0" }

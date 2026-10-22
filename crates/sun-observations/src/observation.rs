@@ -20,5 +20,5 @@ pub trait Observation: Serialize + 'static {
 }
 
 #[cfg(test)]
-#[path = "observation_test.rs"]
-mod tests;
+#[path = "observation_certification.rs"]
+mod certification;

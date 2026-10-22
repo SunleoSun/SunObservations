@@ -174,7 +174,7 @@ impl Certification {
     pub fn check<T: fmt::Debug, V: fmt::Debug>(
         &mut self,
         name: impl Into<String>,
-        result: CompareResult<T, V>,
+        result: CheckResult<T, V>,
     ) -> &mut Self {
         self.report.checks += 1;
         if result.is_pass() {

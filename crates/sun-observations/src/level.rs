@@ -20,5 +20,5 @@ impl fmt::Display for ObservationLevel {
 }
 
 #[cfg(test)]
-#[path = "level_test.rs"]
-mod tests;
+#[path = "level_certification.rs"]
+mod certification;

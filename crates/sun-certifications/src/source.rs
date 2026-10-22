@@ -59,10 +59,10 @@ impl<'a, T> PreparedSource<'a, T> {
     ) -> impl ExactSizeIterator<Item = SourceEntry<'a, T>> + DoubleEndedIterator + Clone + '_ {
         (0..self.values.len()).map(|i| self.entry(i))
     }
-    pub fn count(&self) -> Measurement<usize> {
+    pub fn count(&self) -> Fact<usize> {
         fact(self.name(), self.values.len())
     }
-    pub fn select<V>(&self, project: impl FnOnce(&T) -> V) -> Measurement<V> {
+    pub fn select<V>(&self, project: impl FnOnce(&T) -> V) -> Fact<V> {
         if self.values.len() != 1 {
             return try_fact(
                 self.name(),
@@ -82,7 +82,7 @@ impl<'a, T> PreparedSource<'a, T> {
             data: self.project(project),
         }
     }
-    pub fn unique<K: Ord + Clone>(&self, key: impl Fn(&T) -> K) -> Measurement<IntegrityReport<K>> {
+    pub fn unique<K: Ord + Clone>(&self, key: impl Fn(&T) -> K) -> Fact<IntegrityReport<K>> {
         fact(self.name(), check_unique(self.values, key))
     }
     pub fn contiguous(
@@ -90,10 +90,10 @@ impl<'a, T> PreparedSource<'a, T> {
         key: impl Fn(&T) -> u64,
         start: u64,
         end: u64,
-    ) -> Measurement<IntegrityReport<u64>> {
+    ) -> Fact<IntegrityReport<u64>> {
         fact(self.name(), check_contiguous(self.values, key, start, end))
     }
-    pub fn matching_count(&self, predicate: impl Fn(&T) -> bool) -> Measurement<usize> {
+    pub fn matching_count(&self, predicate: impl Fn(&T) -> bool) -> Fact<usize> {
         fact(
             self.name(),
             self.values.iter().filter(|v| predicate(v)).count(),
@@ -119,7 +119,7 @@ impl<'a, T> PreparedSource<'a, T> {
         left: impl Fn(&T) -> (i64, f64),
         rp: impl Fn(&R) -> (i64, f64),
         config: LagConfig,
-    ) -> Measurement<LagReport> {
+    ) -> Fact<LagReport> {
         let result = lag_relation_by(self.values, right.values, left, rp, config);
         let details = result
             .as_ref()
@@ -187,22 +187,22 @@ impl PreparedNumeric {
     pub fn series(&self) -> NumericSeries<impl Iterator<Item = f64> + Clone + '_> {
         NumericSeries::new(self.values().iter().copied())
     }
-    pub fn summary(&self) -> Measurement<Summary> {
+    pub fn summary(&self) -> Fact<Summary> {
         try_fact(&*self.data.name, self.series().summary())
     }
-    pub fn robust_summary(&self) -> Measurement<RobustSummary> {
+    pub fn robust_summary(&self) -> Fact<RobustSummary> {
         try_fact(&*self.data.name, self.series().robust_summary())
     }
-    pub fn quantile(&self, q: f64) -> Measurement<f64> {
+    pub fn quantile(&self, q: f64) -> Fact<f64> {
         try_fact(&*self.data.name, self.series().quantile(q))
     }
-    pub fn check(&self, rule: NumericRule) -> Measurement<IntegrityReport> {
+    pub fn check(&self, rule: NumericRule) -> Fact<IntegrityReport> {
         try_fact(&*self.data.name, self.series().check(rule))
     }
-    pub fn outliers(&self, config: OutlierConfig) -> Measurement<OutlierReport> {
+    pub fn outliers(&self, config: OutlierConfig) -> Fact<OutlierReport> {
         try_fact(&*self.data.name, self.series().outliers(config))
     }
-    pub fn jumps(&self, config: JumpConfig) -> Measurement<JumpReport> {
+    pub fn jumps(&self, config: JumpConfig) -> Fact<JumpReport> {
         try_fact(&*self.data.name, self.series().jumps(config))
     }
 }
@@ -255,7 +255,7 @@ pub struct PreparedComparison<'a, L, R, K> {
     right: PreparedSource<'a, R>,
     joined: Join<'a, L, R, K>,
 }
-/// Bounded custom predicate evidence; full alignment remains on the prepared comparison.
+/// Bounded custom predicate evidence; full comparison remains on the prepared comparison.
 #[derive(Debug)]
 pub struct PairCheck<K> {
     pub matched: usize,
@@ -266,11 +266,11 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
     pub fn name(&self) -> String {
         format!("{} -> {}", self.left.name(), self.right.name())
     }
-    pub fn alignment(&self) -> &Alignment<K> {
-        self.joined.alignment()
+    pub fn comparison(&self) -> &Comparison<K> {
+        self.joined.comparison()
     }
     pub fn pairs(&self) -> impl Iterator<Item = (&K, SourceEntry<'_, L>, SourceEntry<'_, R>)> {
-        self.alignment().matched.iter().map(|p| {
+        self.comparison().matched.iter().map(|p| {
             (
                 &p.key,
                 self.left.entry(p.left_index),
@@ -278,23 +278,23 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             )
         })
     }
-    pub fn comparison_fact(&self) -> Measurement<&Alignment<K>> {
-        let a = self.alignment();
+    pub fn comparison_fact(&self) -> Fact<&Comparison<K>> {
+        let a = self.comparison();
         fact(self.name(),a).details(format!("left={} right={} matched={} missing left={} missing right={} duplicate left={} duplicate right={} examples: missing_left={} missing_right={} duplicates_left={} duplicates_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len(),bounded_debug(&a.missing_left,256),bounded_debug(&a.missing_right,256),bounded_debug(&a.duplicate_left,256),bounded_debug(&a.duplicate_right,256)))
     }
     pub fn check_pairs(
         &self,
         predicate: impl Fn(&L, &R) -> bool,
         top: usize,
-    ) -> Measurement<PairCheck<K>> {
-        if !self.alignment().is_complete() {
+    ) -> Fact<PairCheck<K>> {
+        if !self.comparison().is_complete() {
             return try_fact(
                 self.name(),
-                Err::<PairCheck<K>, _>("incomplete alignment; inspect comparison_fact"),
+                Err::<PairCheck<K>, _>("incomplete comparison; inspect comparison_fact"),
             );
         }
         let mut report = PairCheck {
-            matched: self.alignment().matched.len(),
+            matched: self.comparison().matched.len(),
             failures: 0,
             examples: Vec::new(),
         };
@@ -340,7 +340,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
         left: impl Fn(&L) -> V,
         right: impl Fn(&R) -> V,
         top: usize,
-    ) -> Measurement<PairCheck<K>> {
+    ) -> Fact<PairCheck<K>> {
         self.check_pairs(|l, r| left(l) == right(r), top)
     }
     pub fn numeric(
@@ -355,7 +355,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
             .collect();
         PreparedNumericComparison {
             name: self.name(),
-            alignment: self.alignment(),
+            comparison: self.comparison(),
             values,
             linear_cache: std::sync::OnceLock::new(),
             rank_cache: std::sync::OnceLock::new(),
@@ -368,7 +368,7 @@ impl<L, R, K: Clone + fmt::Debug> PreparedComparison<'_, L, R, K> {
         left: impl Fn(&L) -> (i64, f64),
         right: impl Fn(&R) -> (i64, f64),
         config: LagConfig,
-    ) -> Measurement<LagReport> {
+    ) -> Fact<LagReport> {
         self.left.lag_relation_by(&self.right, left, right, config)
     }
 }
@@ -380,7 +380,7 @@ mod certification;
 /// Compact analysis results (including errors) are initialized once; sorting scratch is not retained.
 pub struct PreparedNumericComparison<'a, K> {
     name: String,
-    alignment: &'a Alignment<K>,
+    comparison: &'a Comparison<K>,
     values: Vec<(f64, f64)>,
     linear_cache: std::sync::OnceLock<Result<LinearMetrics, NumericError>>,
     rank_cache: std::sync::OnceLock<Result<Metric, NumericError>>,
@@ -391,11 +391,11 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
     pub fn values(&self) -> &[(f64, f64)] {
         &self.values
     }
-    fn analyze<T>(&self, op: impl FnOnce() -> Result<T, NumericError>) -> Measurement<T> {
-        if !self.alignment.is_complete() {
+    fn analyze<T>(&self, op: impl FnOnce() -> Result<T, NumericError>) -> Fact<T> {
+        if !self.comparison.is_complete() {
             return try_fact(
                 &self.name,
-                Err::<T, _>("incomplete alignment; inspect comparison_fact"),
+                Err::<T, _>("incomplete comparison; inspect comparison_fact"),
             );
         }
         try_fact(&self.name, op())
@@ -425,7 +425,7 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
             })
             .clone()
     }
-    pub fn correlation(&self) -> Measurement<CorrelationMetrics> {
+    pub fn correlation(&self) -> Fact<CorrelationMetrics> {
         self.analyze(|| {
             Ok(CorrelationMetrics {
                 pearson: self.cached_linear()?.pearson,
@@ -433,10 +433,10 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
             })
         })
     }
-    pub fn linear_fit(&self) -> Measurement<LinearFitMetrics> {
+    pub fn linear_fit(&self) -> Fact<LinearFitMetrics> {
         self.analyze(|| self.cached_fit())
     }
-    pub fn relation(&self) -> Measurement<RelationMetrics> {
+    pub fn relation(&self) -> Fact<RelationMetrics> {
         self.analyze(|| {
             let fit = self.cached_fit()?;
             Ok(RelationMetrics {
@@ -447,22 +447,22 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
             })
         })
     }
-    pub fn difference(&self) -> Measurement<DifferenceSummary> {
+    pub fn difference(&self) -> Fact<DifferenceSummary> {
         self.analyze(|| self.cached_difference())
     }
-    pub fn linear(&self) -> Measurement<LinearMetrics> {
+    pub fn linear(&self) -> Fact<LinearMetrics> {
         self.analyze(|| self.cached_linear())
     }
-    pub fn pearson(&self) -> Measurement<Metric> {
+    pub fn pearson(&self) -> Fact<Metric> {
         self.analyze(|| Ok(self.cached_linear()?.pearson))
     }
-    pub fn spearman(&self) -> Measurement<Metric> {
+    pub fn spearman(&self) -> Fact<Metric> {
         self.analyze(|| self.cached_rank())
     }
-    pub fn largest(&self, top: usize) -> Measurement<Vec<PairEvidence<K>>> {
+    pub fn largest(&self, top: usize) -> Fact<Vec<PairEvidence<K>>> {
         self.analyze(|| {
             crate::relation::largest_pairs(
-                self.alignment
+                self.comparison
                     .matched
                     .iter()
                     .zip(&self.values)

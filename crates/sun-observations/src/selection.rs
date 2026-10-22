@@ -70,5 +70,5 @@ impl Selection {
 }
 
 #[cfg(test)]
-#[path = "selection_test.rs"]
-mod tests;
+#[path = "selection_certification.rs"]
+mod certification;

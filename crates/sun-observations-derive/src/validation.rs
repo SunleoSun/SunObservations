@@ -8,5 +8,5 @@ pub fn namespace(value: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "validation_test.rs"]
-mod tests;
+#[path = "validation_grammar.rs"]
+mod grammar;

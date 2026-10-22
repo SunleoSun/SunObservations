@@ -8,7 +8,7 @@ SunObservations is a cohesive **typed structured logging + runtime diagnostics +
 | --- | --- |
 | `sun-observations` | Typed production evidence, selection, policies, scopes, routing, sinks and profiling spans |
 | `sun-observations-data-source` | Scoped capture, completeness prerequisites, fixed snapshots, typed views and provenance |
-| `sun-certifications` | Generic sources, preparation, alignment, analysis, expectations and hierarchical proofs; no runtime dependency |
+| `sun-certifications` | Generic sources, preparation, comparison, analysis, expectations and hierarchical proofs; no runtime dependency |
 
 ```text
 production evidence → generic data sources → semantic certification
@@ -38,7 +38,7 @@ Release medians in milliseconds, three samples per scale. The earlier release da
 
 | Operation | 1k | 10k | 100k | 1M |
 | --- | ---: | ---: | ---: | ---: |
-| Composite prepared alignment | 0.1025 | 0.8688 | 9.6098 | 147.5912 |
+| Composite prepared comparison | 0.1025 | 0.8688 | 9.6098 | 147.5912 |
 | Pearson on cached pairs | 0.0198 | 0.1606 | 1.6141 | 23.3894 |
 | Spearman on cached pairs | 0.0789 | 1.2856 | 13.9725 | 201.5130 |
 | Prepare once + five checks | 0.1060 | 1.3086 | 17.2743 | 265.3567 |
@@ -161,7 +161,7 @@ Use **sun-certifications** directly for ordinary returned structs, inputs/output
 collections, loaded artifacts, reference oracles and metamorphic scenarios. Use
 **sun-observations-data-source** for scoped production capture, fixed snapshots, envelope queries,
 strict one-time typed decoding and shared source provenance. All generic integrity,
-join/alignment, grouping, statistics, relations, robust anomalies and lag behavior is
+join/comparison, grouping, statistics, relations, robust anomalies and lag behavior is
 owned by sun-certifications—not duplicated in the adapter or runtime.
 
 ```rust
@@ -1293,7 +1293,7 @@ This is a navigation map, not a replacement for source-generated Rust API docs.
 The [adapter guide](docs/ANALYSIS.md) covers ObservationDataset/EnvelopeQuery/TypedView
 and original-record provenance. The [generic framework guide](docs/CERTIFICATIONS_API.md)
 covers named sources, preparation, reusable composite-key comparisons, integrity/statistics,
-expectations, CompareResult and hierarchical certification. Neither API is a runtime re-export.
+expectations, CheckResult and hierarchical certification. Neither API is a runtime re-export.
 
 ## Development and Release Checks
 

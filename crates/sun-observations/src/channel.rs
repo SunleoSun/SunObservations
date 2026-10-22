@@ -53,9 +53,5 @@ pub(crate) fn flush_sinks(sinks: &[Arc<dyn Sink>]) -> io::Result<()> {
 }
 
 #[cfg(test)]
-#[path = "channel_test.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "channel_certification_test.rs"]
+#[path = "channel_certification.rs"]
 mod certification;

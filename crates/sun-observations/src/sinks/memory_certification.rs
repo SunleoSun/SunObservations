@@ -1,5 +1,5 @@
 use super::*;
-use crate::support_test::record;
+use crate::test_support::record;
 use sun_certifications::*;
 #[test]
 fn bounded_oldest_batch_retention_preserves_identity_order_and_lifetime_stats() {
@@ -92,4 +92,34 @@ fn retention_configuration_rejects_invalid_bounds() {
         1_000_000usize,
     )
     .assert_certify();
+}
+
+mod snapshots {
+    use super::super::*;
+    use crate::test_support::record;
+    use std::sync::Arc;
+
+    #[test]
+    fn concurrent_writes_and_independent_snapshots() {
+        let mut certification =
+            sun_certifications::certify("concurrent writes and independent snapshots");
+        let memory = Arc::new(MemorySink::new());
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let memory = memory.clone();
+                scope.spawn(move || {
+                    for _ in 0..100 {
+                        memory.write(&record("memory::event")).unwrap();
+                    }
+                });
+            }
+        });
+        certification.check_fact_expect("memory.len()", &(memory.len()), &(800));
+        let mut snapshot = memory.records();
+        snapshot.clear();
+        certification.check_fact_expect("memory.len()", &(memory.len()), &(800));
+        certification.check_fact_expect("memory.drain().len()", &(memory.drain().len()), &(800));
+        certification.check_fact_expect("memory.is_empty()", memory.is_empty(), true);
+        certification.assert_certify();
+    }
 }

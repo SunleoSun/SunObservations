@@ -241,5 +241,5 @@ impl Moments {
 }
 
 #[cfg(test)]
-#[path = "stats_certification_test.rs"]
+#[path = "stats_certification.rs"]
 mod tests;

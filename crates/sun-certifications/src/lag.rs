@@ -288,5 +288,5 @@ impl LagExpectation {
 }
 
 #[cfg(test)]
-#[path = "lag_certification_test.rs"]
+#[path = "lag_certification.rs"]
 mod tests;

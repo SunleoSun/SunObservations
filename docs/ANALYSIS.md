@@ -62,7 +62,7 @@ or further deserialization.
 PreparedSource path with SourceProvenance. Generic SourceEntry uses a **typed-source-local**
 index; original dataset coordinates are `typed.sources()[index]`. Its optional provenance
 formatter supplies proc/scope/namespace/span/time in bounded pair diagnostics. No payload
-copies or record clones are needed to create another source handle or measurement.
+copies or record clones are needed to create another source handle or fact.
 
 If row identities repeat across runs, first query proc/scope or include execution identity
 in typed domain keys. Never join cross-owner events by insertion order.
@@ -87,7 +87,7 @@ run.certify("production boundary")
 
 ## Generic analysis ownership
 
-Count/integrity, uniqueness/contiguity, joins/alignment, numeric/robust summaries,
+Count/integrity, uniqueness/contiguity, joins/comparison, numeric/robust summaries,
 relations/differences/residuals, grouping, outliers/jumps, lag, expectations and proof
 aggregation all live in **sun-certifications**. Import those types/functions there.
 Adapter convenience methods numeric/group_by/join_by/join_sorted_by/join_u64_by/
@@ -96,9 +96,9 @@ conveniences can replay selectors; prefer source().numeric() for cached expensiv
 Group iteration now yields generic SourceEntry rather than TypedEntry; preserve the typed
 view when resolving original provenance.
 
-Use a PreparedComparison for one typed composite-key alignment reused across fields,
+Use a PreparedComparison for one typed composite-key comparison reused across fields,
 and a cached numeric field pair for several metrics. Direct generic analysis remains
-available without asserting; scenario acceptance belongs in a CompareResult/Certification.
+available without asserting; scenario acceptance belongs in a CheckResult/Certification.
 
 See [generic workflows](CERTIFICATIONS_API.md), [certification matrix](CERTIFICATION.md),
 [current performance](CERTIFICATION_BENCHMARKS.md), and executable

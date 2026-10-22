@@ -32,9 +32,9 @@ pub struct MatchedKey<K> {
     pub left_index: usize,
     pub right_index: usize,
 }
-/// Complete deterministic alignment evidence, sorted by domain key.
+/// Typed-key correspondence sorted by key, including missing and duplicate evidence.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Alignment<K> {
+pub struct Comparison<K> {
     pub left_source: Option<String>,
     pub right_source: Option<String>,
     pub left_count: usize,
@@ -47,7 +47,7 @@ pub struct Alignment<K> {
     pub duplicate_left: Vec<KeyGroup<K>>,
     pub duplicate_right: Vec<KeyGroup<K>>,
 }
-impl<K> Alignment<K> {
+impl<K> Comparison<K> {
     fn new(left_count: usize, right_count: usize) -> Self {
         Self {
             left_source: None,
@@ -72,28 +72,28 @@ impl<K> Alignment<K> {
 pub struct Join<'a, L, R, K> {
     left: &'a [L],
     right: &'a [R],
-    pub(crate) alignment: Alignment<K>,
+    pub(crate) comparison: Comparison<K>,
 }
 impl<'a, L, R, K> Join<'a, L, R, K> {
     pub fn set_source_names(&mut self, left: &str, right: &str) {
-        self.alignment.left_source = Some(left.into());
-        self.alignment.right_source = Some(right.into());
+        self.comparison.left_source = Some(left.into());
+        self.comparison.right_source = Some(right.into());
     }
-    pub fn alignment(&self) -> &Alignment<K> {
-        &self.alignment
+    pub fn comparison(&self) -> &Comparison<K> {
+        &self.comparison
     }
     pub fn pairs(&self) -> impl Iterator<Item = (&K, &L, &R)> + Clone {
-        self.alignment
+        self.comparison
             .matched
             .iter()
             .map(|p| (&p.key, &self.left[p.left_index], &self.right[p.right_index]))
     }
     /// Explicitly require a complete bijection before using matched-subset statistics.
-    pub fn require_complete(&self) -> Result<(), &Alignment<K>> {
-        if self.alignment.is_complete() {
+    pub fn require_complete(&self) -> Result<(), &Comparison<K>> {
+        if self.comparison.is_complete() {
             Ok(())
         } else {
-            Err(&self.alignment)
+            Err(&self.comparison)
         }
     }
 }
@@ -167,26 +167,28 @@ pub(crate) fn merge<'a, L, R, K: Ord + Clone>(
     a: &[(K, usize)],
     b: &[(K, usize)],
 ) -> Join<'a, L, R, K> {
-    let mut alignment = Alignment::new(left.len(), right.len());
+    let mut comparison = Comparison::new(left.len(), right.len());
     for (ar, br) in merge_groups(a, b, Ord::cmp) {
         if ar.len() > 1 {
-            alignment
+            comparison
                 .duplicate_left
                 .push(key_group(a, ar.start, ar.end));
         }
         if br.len() > 1 {
-            alignment
+            comparison
                 .duplicate_right
                 .push(key_group(b, br.start, br.end));
         }
         if br.is_empty() {
-            alignment.missing_right.push(key_group(a, ar.start, ar.end));
+            comparison
+                .missing_right
+                .push(key_group(a, ar.start, ar.end));
         }
         if ar.is_empty() {
-            alignment.missing_left.push(key_group(b, br.start, br.end));
+            comparison.missing_left.push(key_group(b, br.start, br.end));
         }
         if ar.len() == 1 && br.len() == 1 {
-            alignment.matched.push(MatchedKey {
+            comparison.matched.push(MatchedKey {
                 key: a[ar.start].0.clone(),
                 left_index: a[ar.start].1,
                 right_index: b[br.start].1,
@@ -196,7 +198,7 @@ pub(crate) fn merge<'a, L, R, K: Ord + Clone>(
     Join {
         left,
         right,
-        alignment,
+        comparison,
     }
 }
 
@@ -236,20 +238,20 @@ pub fn join_u64_by<'a, L, R>(
         if unique {
             drop(a);
             drop(b);
-            let mut alignment = Alignment::new(left.len(), right.len());
+            let mut comparison = Comparison::new(left.len(), right.len());
             for (offset, (i, j)) in dense_left.into_iter().zip(dense_right).enumerate() {
                 let key = min + offset as u64;
                 match (i != usize::MAX, j != usize::MAX) {
-                    (true, true) => alignment.matched.push(MatchedKey {
+                    (true, true) => comparison.matched.push(MatchedKey {
                         key,
                         left_index: i,
                         right_index: j,
                     }),
-                    (true, false) => alignment.missing_right.push(KeyGroup {
+                    (true, false) => comparison.missing_right.push(KeyGroup {
                         key,
                         indices: vec![i],
                     }),
-                    (false, true) => alignment.missing_left.push(KeyGroup {
+                    (false, true) => comparison.missing_left.push(KeyGroup {
                         key,
                         indices: vec![j],
                     }),
@@ -259,7 +261,7 @@ pub fn join_u64_by<'a, L, R>(
             return Join {
                 left,
                 right,
-                alignment,
+                comparison,
             };
         }
     }
@@ -268,7 +270,7 @@ pub fn join_u64_by<'a, L, R>(
     merge(left, right, &a, &b)
 }
 
-/// Shared ordered alignment walk; comparison must preserve each side's key ordering.
+/// Shared ordered comparison walk; comparison must preserve each side's key ordering.
 pub(crate) fn merge_groups<'a, K: Ord, F: Fn(&K, &K) -> Ordering + Clone + 'a>(
     a: &'a [(K, usize)],
     b: &'a [(K, usize)],
@@ -302,5 +304,5 @@ pub(crate) fn merge_groups<'a, K: Ord, F: Fn(&K, &K) -> Ordering + Clone + 'a>(
 }
 
 #[cfg(test)]
-#[path = "join_certification_test.rs"]
+#[path = "join_certification.rs"]
 mod tests;

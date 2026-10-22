@@ -132,6 +132,3 @@ impl Sink for MemorySink {
 #[cfg(test)]
 #[path = "memory_certification.rs"]
 mod certification;
-#[cfg(test)]
-#[path = "memory_test.rs"]
-mod tests;

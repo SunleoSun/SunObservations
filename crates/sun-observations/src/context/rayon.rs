@@ -72,9 +72,5 @@ impl ContextThreadPool {
 }
 
 #[cfg(test)]
-#[path = "rayon_test.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "rayon_certification_test.rs"]
+#[path = "rayon_certification.rs"]
 mod certification;

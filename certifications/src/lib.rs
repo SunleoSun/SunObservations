@@ -84,19 +84,30 @@ pub fn pair(records: &[Value], expected: usize) {
             .or_insert_with(Vec::new)
             .push(r);
     }
-    assert_eq!(pairs.len(), expected);
-    for pair in pairs.values() {
-        assert_eq!(pair.len(), 2);
-        let (a, b) = (pair[0], pair[1]);
-        assert_eq!(a["phase"], "start");
-        assert_eq!(b["phase"], "end");
-        for key in ["proc", "scope", "namespace", "level", "span"] {
-            assert_eq!(a[key], b[key]);
-        }
-        assert!(b["data"].is_null());
-        assert!(b.get("message").is_none());
-        assert!(b["proc_ms"].as_u64().unwrap() >= a["proc_ms"].as_u64().unwrap());
+    let mut c = sun_certifications::certify("persisted span lifecycle");
+    c.check_fact_expect("pair count", pairs.len(), expected);
+    for (identity, pair) in &pairs {
+        c.section(format!("{identity:?}"), |c| {
+            c.check_fact_expect("two lifecycle halves", pair.len(), 2usize);
+            if let [a, b] = pair.as_slice() {
+                c.check_fact_expect("start phase", a["phase"].as_str(), Some("start"));
+                c.check_fact_expect("end phase", b["phase"].as_str(), Some("end"));
+                for key in ["proc", "scope", "namespace", "level", "span"] {
+                    c.check_fact_expect(key, &a[key], &b[key]);
+                }
+                c.check_fact_expect("end has no payload", b["data"].is_null(), true);
+                c.check_fact_expect("end has no message", b.get("message").is_none(), true);
+                c.check(
+                    "ordered time",
+                    sun_certifications::fact("end milliseconds", b["proc_ms"].as_u64().unwrap())
+                        .expect(sun_certifications::Criterion::AtLeast(
+                            a["proc_ms"].as_u64().unwrap(),
+                        )),
+                );
+            }
+        });
     }
+    c.assert_certify();
 }
 /// Run each global scenario in a new OS process and compare independent persisted views.
 pub fn certify(executable: &str, scenario: &str) -> Vec<Value> {
@@ -124,6 +135,8 @@ pub fn certify(executable: &str, scenario: &str) -> Vec<Value> {
         v.sort();
         v
     };
-    assert_eq!(canonical(&records), canonical(&memory));
+    sun_certifications::certify("persisted and memory views")
+        .check_fact_expect("canonical records", canonical(&records), canonical(&memory))
+        .assert_certify();
     records
 }

@@ -38,26 +38,26 @@ pub(crate) fn fit_with_linear(
     };
     Ok(LinearFitMetrics { linear, residual })
 }
-impl Measurement<LinearFitMetrics> {
-    fn metric(self, select: impl FnOnce(&LinearMetrics) -> Metric) -> Measurement<f64> {
+impl Fact<LinearFitMetrics> {
+    fn metric(self, select: impl FnOnce(&LinearMetrics) -> Metric) -> Fact<f64> {
         let observed = self.observed.and_then(|r| {
             select(&r.linear).value().ok_or_else(|| AnalysisError {
                 message: "undefined linear-fit metric".into(),
             })
         });
-        Measurement {
+        Fact {
             source: self.source,
             observed,
             details: self.details,
         }
     }
-    pub fn slope(self) -> Measurement<f64> {
+    pub fn slope(self) -> Fact<f64> {
         self.metric(|r| r.slope)
     }
-    pub fn intercept(self) -> Measurement<f64> {
+    pub fn intercept(self) -> Fact<f64> {
         self.metric(|r| r.intercept)
     }
-    pub fn r_squared(self) -> Measurement<f64> {
+    pub fn r_squared(self) -> Fact<f64> {
         self.metric(|r| r.r_squared)
     }
 }

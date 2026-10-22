@@ -16,23 +16,20 @@ pub struct AnalysisError {
 }
 /// Full typed observed evidence, kept separate from acceptance.
 #[derive(Debug)]
-pub struct Measurement<T> {
+pub struct Fact<T> {
     pub source: String,
     pub observed: Result<T, AnalysisError>,
     pub details: String,
 }
-pub fn fact<T>(source: impl Into<String>, observed: T) -> Measurement<T> {
-    Measurement {
+pub fn fact<T>(source: impl Into<String>, observed: T) -> Fact<T> {
+    Fact {
         source: source.into(),
         observed: Ok(observed),
         details: String::new(),
     }
 }
-pub fn try_fact<T, E: fmt::Display>(
-    source: impl Into<String>,
-    observed: Result<T, E>,
-) -> Measurement<T> {
-    Measurement {
+pub fn try_fact<T, E: fmt::Display>(source: impl Into<String>, observed: Result<T, E>) -> Fact<T> {
+    Fact {
         source: source.into(),
         observed: observed.map_err(|e| AnalysisError {
             message: crate::certification::bounded_display(&e, 2048),
@@ -40,19 +37,19 @@ pub fn try_fact<T, E: fmt::Display>(
         details: String::new(),
     }
 }
-impl<T> Measurement<T> {
+impl<T> Fact<T> {
     pub fn details(mut self, details: impl Into<String>) -> Self {
         self.details = details.into();
         self
     }
-    pub fn expect_valid(self) -> CompareResult<T, <AllValid as Expectation<T>>::Violation>
+    pub fn expect_valid(self) -> CheckResult<T, <AllValid as Expectation<T>>::Violation>
     where
         AllValid: Expectation<T>,
     {
         self.expect(AllValid)
     }
 
-    pub fn expect<E: Expectation<T>>(self, expected: E) -> CompareResult<T, E::Violation> {
+    pub fn expect<E: Expectation<T>>(self, expected: E) -> CheckResult<T, E::Violation> {
         let mut violations = Vec::new();
         let observed = self.observed;
         let mut analysis_error = None;
@@ -82,7 +79,7 @@ impl<T> Measurement<T> {
         } else {
             class = CheckClass::EvaluationError;
         }
-        CompareResult {
+        CheckResult {
             source: self.source,
             expected: expected.describe(),
             observed,
@@ -104,7 +101,7 @@ pub trait Expectation<T> {
 }
 /// Directly inspectable result; aggregation consumes it without copying its report.
 #[derive(Debug)]
-pub struct CompareResult<T, V = Violation> {
+pub struct CheckResult<T, V = Violation> {
     pub source: String,
     pub expected: String,
     pub observed: Result<T, AnalysisError>,
@@ -113,7 +110,7 @@ pub struct CompareResult<T, V = Violation> {
     pub analysis_error: Option<AnalysisError>,
     pub details: String,
 }
-impl<T, V> CompareResult<T, V> {
+impl<T, V> CheckResult<T, V> {
     pub fn is_pass(&self) -> bool {
         self.class == CheckClass::Pass
     }
@@ -265,9 +262,9 @@ impl<K: fmt::Debug> Expectation<IntegrityReport<K>> for AllValid {
         "no integrity violations".into()
     }
 }
-impl<K> Expectation<&Alignment<K>> for AllValid {
+impl<K> Expectation<&Comparison<K>> for AllValid {
     type Violation = Violation;
-    fn assess(&self, v: &&Alignment<K>) -> Result<Vec<Violation>, AnalysisError> {
+    fn assess(&self, v: &&Comparison<K>) -> Result<Vec<Violation>, AnalysisError> {
         Ok(if v.is_complete() {
             vec![]
         } else {
@@ -333,9 +330,9 @@ impl Expectation<RelationMetrics> for RelationExpectation {
 impl<K> Expectation<RelationReport<K>> for RelationExpectation {
     type Violation = RelationConstraint;
     fn assess(&self, v: &RelationReport<K>) -> Result<Vec<RelationConstraint>, AnalysisError> {
-        if !v.alignment.is_complete() {
+        if !v.comparison.is_complete() {
             return Err(AnalysisError {
-                message: "incomplete relation alignment".into(),
+                message: "incomplete relation comparison".into(),
             });
         }
         self.assess(&v.observed)

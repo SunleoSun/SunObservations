@@ -250,5 +250,5 @@ fn run(mut destination: Destination, receiver: &Receiver<Message>) -> io::Result
 }
 
 #[cfg(test)]
-#[path = "console_certification_test.rs"]
+#[path = "console_certification.rs"]
 mod certification;

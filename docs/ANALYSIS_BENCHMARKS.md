@@ -5,7 +5,7 @@ algorithms now belong to sun-certifications; the executable adapter harness dele
 that owner. Grouped numeric projection now caches values once, so these timings describe
 the earlier representation, not a claim of byte-identical current measurements. See
 [final framework/adapter benchmarks](CERTIFICATION_BENCHMARKS.md) for current prepared-source,
-reusable alignment and aggregation results.
+reusable comparison and aggregation results.
 
 ## Environment and reproduction
 
@@ -55,7 +55,7 @@ Display formats a precomputed expectation failure without cloning its evidence.
 There are three nonadaptive samples per operation/size, fixed operation order.
 Timers include construction/allocation and computation, exclude result destruction,
 source setup, report preconstruction and artifact I/O. black_box retains outputs.
-Assertions outside timers verify alignment/candidate equivalence, fit and report
+Assertions outside timers verify comparison/candidate equivalence, fit and report
 counts. The public certification separately captures and checks exact 100k and
 1M-record traces; benchmarks are not substitutes for correctness tests.
 
@@ -132,7 +132,7 @@ measurement was run. In particular:
 - Spearman: five logical f64/index arrays at peak, approximately 40n bytes; growing
   capacities can approach 56n. Difference/residual summaries use two logical f64
   arrays, sequentially, not in addition to all ranking arrays. Full joined reports
-  retain their own alignment copy. Bounded largest-disagreement selection costs
+  retain their own comparison copy. Bounded largest-disagreement selection costs
   O(n log(top+1)) time and O(top) scratch.
 - JSON output is 48,476 / 498,529 / 5,268,593 / 55,668,652 bytes at the four sizes.
   to_vec capacity can exceed length. At 1M serialization costs 59.11 ms median;
@@ -151,7 +151,7 @@ These payloads are deliberately small, schema decoding is by-reference, and a si
 namespace/all-match scan is measured. Deep/nested payloads, sparse query selectivity,
 string/composite key costs, non-finite failures and failure-heavy serialization can
 behave differently. Envelope scans remain allocation-free O(n), without speculative
-indexes. Materializing ranking/order statistics and full machine-readable alignment
+indexes. Materializing ranking/order statistics and full machine-readable comparison
 necessarily costs linear memory. No production capture hot-path claims are inferred
 from these offline-consumer measurements.
 

@@ -124,13 +124,13 @@ fn main() {
         sample("prepared_keys", n, || {
             black_box(a.keys(key));
         });
-        sample("simple_alignment", n, || {
+        sample("simple_comparison", n, || {
             black_box(a.compare_with(&b).on(|v| v.row, |v| v.row));
         });
-        sample("u64_alignment", n, || {
+        sample("u64_comparison", n, || {
             black_box(a.compare_with(&b).on_u64(|v| v.row, |v| v.row));
         });
-        sample("composite_alignment", n, || {
+        sample("composite_comparison", n, || {
             black_box(a.compare_with(&b).on(key, key));
         });
         let pair = a.compare_with(&b).on(key, key);

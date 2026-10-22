@@ -35,5 +35,5 @@ impl Policy {
 }
 
 #[cfg(test)]
-#[path = "policy_test.rs"]
-mod tests;
+#[path = "policy_certification.rs"]
+mod certification;

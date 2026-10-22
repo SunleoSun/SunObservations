@@ -4,6 +4,7 @@ use std::{
     path::Path,
     sync::{Arc, Barrier},
 };
+use sun_certifications::{certify, fact, CountRule};
 use sun_observations_certifications::pair;
 
 #[derive(Serialize, Observation)]
@@ -96,15 +97,27 @@ fn threads() {
                 for child in children {
                     child.join().unwrap();
                 }
-                assert_eq!(Context::capture().scope_name(), Some(name.as_str()));
-                assert!(!std::thread::spawn(|| observe!(Event {
-                    parent: 99,
-                    child: 0,
-                    sequence: 0
-                }))
-                .join()
-                .unwrap()
-                .unwrap());
+                let mut c = certify(format!("thread {parent} context"));
+                c.check_fact_expect(
+                    "parent restored",
+                    Context::capture().scope_name(),
+                    Some(name.as_str()),
+                );
+                c.check_fact_expect(
+                    "ordinary thread isolated",
+                    std::thread::spawn(|| {
+                        observe!(Event {
+                            parent: 99,
+                            child: 0,
+                            sequence: 0
+                        })
+                    })
+                    .join()
+                    .unwrap()
+                    .unwrap(),
+                    false,
+                );
+                c.assert_certify();
             });
         }
     });
@@ -192,7 +205,13 @@ fn rayon() {
             });
         }
     });
-    assert_eq!(Context::capture().scope_name(), Some("caller"));
+    let mut c = certify("Rayon caller context");
+    c.check_fact_expect(
+        "caller restored",
+        Context::capture().scope_name(),
+        Some("caller"),
+    );
+    c.assert_certify();
 }
 fn fanout(memory: &Arc<MemorySink>) {
     global().set_selection(Selection::new().activate_all());
@@ -221,12 +240,18 @@ fn fanout(memory: &Arc<MemorySink>) {
         })
         .unwrap();
     }
-    assert_eq!(secondary.len(), 200);
-    assert_eq!(memory.len(), 100);
-    assert!(sibling.is_empty());
-    for records in secondary.shared_records().chunks_exact(2) {
-        assert!(Arc::ptr_eq(&records[0], &records[1]));
+    let mut c = certify("channel fanout");
+    c.check_fact_expect("two matching channels", secondary.len(), 200);
+    c.check_fact_expect("one primary delivery", memory.len(), 100);
+    c.check_fact_expect("sibling namespace excluded", sibling.is_empty(), true);
+    for (index, records) in secondary.shared_records().chunks_exact(2).enumerate() {
+        c.check_fact_expect(
+            format!("shared record {index}"),
+            Arc::ptr_eq(&records[0], &records[1]),
+            true,
+        );
     }
+    c.assert_certify();
 }
 #[derive(Serialize)]
 struct Rich {
@@ -265,6 +290,7 @@ fn roundtrip() {
     .unwrap();
 }
 fn runtime() {
+    let mut c = certify("runtime reconfiguration");
     global().set_selection(
         Selection::new()
             .activate_tags(["detail"])
@@ -291,6 +317,7 @@ fn runtime() {
                         child: phase * 4 + child
                     })
                     .unwrap();
+                    let mut rejected = 0usize;
                     for sequence in phase * 60..(phase + 1) * 60 {
                         observe!(Event {
                             parent,
@@ -309,17 +336,24 @@ fn runtime() {
                             sequence: child * 120 + sequence
                         })
                         .unwrap();
-                        assert!(!observe!({
-                            panic!("excluded payload");
-                            #[allow(unreachable_code)]
-                            Blocked
-                        })
-                        .unwrap());
+                        rejected += usize::from(
+                            !observe!({
+                                panic!("excluded payload");
+                                #[allow(unreachable_code)]
+                                Blocked
+                            })
+                            .unwrap(),
+                        );
                     }
+                    rejected
                 }));
             }
-            for child in children {
-                child.join().unwrap();
+            for (child, handle) in children.into_iter().enumerate() {
+                c.check_fact_expect(
+                    format!("excluded attempts {parent}/{phase}/{child}"),
+                    handle.join().unwrap(),
+                    60usize,
+                );
             }
             if phase == 0 {
                 global().clear_channel_sinks("overlap");
@@ -344,10 +378,19 @@ fn runtime() {
         drop(scope);
     }
     let records = extra.records();
-    assert_eq!(records.len(), 4 * 240);
-    assert!(records
-        .iter()
-        .all(|r| r.data["sequence"].as_u64().unwrap() < 60));
+    c.check_fact_expect("extra route before detach", records.len(), 4 * 240);
+    c.check(
+        "no delivery after detach",
+        fact(
+            "late records",
+            records
+                .iter()
+                .filter(|r| r.data["sequence"].as_u64().unwrap() >= 60)
+                .count(),
+        )
+        .expect(CountRule::Exact(0)),
+    );
+    c.assert_certify();
 }
 fn main() {
     let args: Vec<_> = std::env::args().collect();

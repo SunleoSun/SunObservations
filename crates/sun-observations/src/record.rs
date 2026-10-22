@@ -29,5 +29,5 @@ pub struct ObservationRecord {
 }
 
 #[cfg(test)]
-#[path = "record_test.rs"]
-mod tests;
+#[path = "record_certification.rs"]
+mod certification;

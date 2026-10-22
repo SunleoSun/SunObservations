@@ -1,10 +1,10 @@
 use crate::{
-    checked, finite, quantile_sorted, Alignment, Join, NumericError, NumericSeries, Summary,
+    checked, finite, quantile_sorted, Comparison, Join, NumericError, NumericSeries, Summary,
 };
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::BinaryHeap, error::Error, fmt};
 
-/// A mathematically undefined measurement is explicit rather than NaN or JSON null.
+/// A mathematically undefined metric is explicit rather than NaN or JSON null.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UndefinedReason {
     InsufficientPairs,
@@ -266,14 +266,14 @@ pub(crate) fn largest_pairs<'a, K: Clone + 'a>(
         .map(|p| p.evidence)
         .collect())
 }
-/// Difference measurements plus a caller-bounded list of largest disagreements.
+/// Difference metrics plus a caller-bounded list of largest disagreements.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "analysis_kind", rename = "difference")]
 pub struct DifferenceReport<K> {
     pub summary: DifferenceSummary,
     pub largest: Vec<PairEvidence<K>>,
 }
-/// Relation measurements contain no domain acceptance decision.
+/// Relation metrics contain no domain acceptance decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RelationMetrics {
     pub linear: LinearMetrics,
@@ -293,28 +293,28 @@ pub fn numeric_relation<I: Iterator<Item = (f64, f64)> + Clone>(
         difference: difference_summary(pairs)?,
     })
 }
-/// Complete alignment, numerical measurements, and source-keyed disagreements.
+/// Complete comparison, numerical metrics, and source-keyed disagreements.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "analysis_kind", rename = "relation")]
 pub struct RelationReport<K> {
-    pub alignment: Alignment<K>,
+    pub comparison: Comparison<K>,
     pub observed: RelationMetrics,
     pub largest_disagreements: Vec<PairEvidence<K>>,
 }
-/// Hard alignment/numeric failure, distinct from a failed statistical expectation.
+/// Hard comparison/numeric failure, distinct from a failed statistical expectation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum RelationError<K> {
-    Alignment(Box<Alignment<K>>),
+    Comparison(Box<Comparison<K>>),
     Numeric {
-        alignment: Box<Alignment<K>>,
+        comparison: Box<Comparison<K>>,
         error: NumericError,
     },
 }
 impl<K> fmt::Display for RelationError<K> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Alignment(a) => write!(f, "incomplete relation alignment: left={}, right={}, matched={}, missing_left={}, missing_right={}, duplicate_left={}, duplicate_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len()),
-            Self::Numeric { alignment,error } => write!(f, "relation over {} pairs: {error}",alignment.matched.len()),
+            Self::Comparison(a) => write!(f, "incomplete relation comparison: left={}, right={}, matched={}, missing_left={}, missing_right={}, duplicate_left={}, duplicate_right={}", a.left_count,a.right_count,a.matched.len(),a.missing_left.len(),a.missing_right.len(),a.duplicate_left.len(),a.duplicate_right.len()),
+            Self::Numeric { comparison,error } => write!(f, "relation over {} pairs: {error}",comparison.matched.len()),
         }
     }
 }
@@ -322,7 +322,7 @@ impl<K: fmt::Debug> Error for RelationError<K> {}
 impl<L, R, K: Clone> Join<'_, L, R, K> {
     fn numeric_error(&self, error: NumericError) -> RelationError<K> {
         RelationError::Numeric {
-            alignment: Box::new(self.alignment.clone()),
+            comparison: Box::new(self.comparison.clone()),
             error,
         }
     }
@@ -333,7 +333,7 @@ impl<L, R, K: Clone> Join<'_, L, R, K> {
         top: usize,
     ) -> Result<DifferenceReport<K>, RelationError<K>> {
         self.require_complete()
-            .map_err(|a| RelationError::Alignment(Box::new(a.clone())))?;
+            .map_err(|a| RelationError::Comparison(Box::new(a.clone())))?;
         let summary = difference_summary(self.pairs().map(|(_, a, b)| (left(a), right(b))))
             .map_err(|error| self.numeric_error(error))?;
         let largest = self
@@ -356,21 +356,21 @@ impl<L, R, K: Clone> Join<'_, L, R, K> {
         top: usize,
     ) -> Result<RelationReport<K>, RelationError<K>> {
         self.require_complete()
-            .map_err(|a| RelationError::Alignment(Box::new(a.clone())))?;
+            .map_err(|a| RelationError::Comparison(Box::new(a.clone())))?;
         let observed = numeric_relation(self.pairs().map(|(_, a, b)| (left(a), right(b))))
             .map_err(|error| self.numeric_error(error))?;
         let largest_disagreements = self
             .largest(left, right, top)
             .map_err(|error| self.numeric_error(error))?;
         Ok(RelationReport {
-            alignment: self.alignment.clone(),
+            comparison: self.comparison.clone(),
             observed,
             largest_disagreements,
         })
     }
 }
 
-/// A measurement that a consuming certification may constrain independently.
+/// A metric that a consuming certification may constrain independently.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RelationMeasure {
     Pearson,
@@ -492,5 +492,5 @@ fn measure(report: &RelationMetrics, measure: RelationMeasure) -> Option<f64> {
 }
 
 #[cfg(test)]
-#[path = "relation_certification_test.rs"]
+#[path = "relation_certification.rs"]
 mod tests;

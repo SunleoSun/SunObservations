@@ -69,5 +69,5 @@ impl Routing {
 }
 
 #[cfg(test)]
-#[path = "routing_test.rs"]
-mod tests;
+#[path = "routing_certification.rs"]
+mod certification;

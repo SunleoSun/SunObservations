@@ -157,5 +157,5 @@ pub(crate) fn forget_engine(engine: u64) {
 }
 
 #[cfg(test)]
-#[path = "context_test.rs"]
-mod tests;
+#[path = "context_certification.rs"]
+mod certification;

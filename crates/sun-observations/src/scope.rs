@@ -94,9 +94,5 @@ pub fn start_scope(config: ScopeConfig) -> ContextGuard {
 }
 
 #[cfg(test)]
-#[path = "scope_test.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "scope_certification_test.rs"]
+#[path = "scope_certification.rs"]
 mod certification;

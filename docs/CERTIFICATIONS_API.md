@@ -1,6 +1,6 @@
 # Generic semantic certification
 
-sun-certifications owns generic named sources, preparation, alignment, measurements,
+sun-certifications owns generic named sources, preparation, comparison, facts,
 acceptance and hierarchical proofs. It has no dependency on SunObservations. An ordinary
 returned value, input/output collection, loaded artifact or independent reference is
 first-class evidence. The optional Observation adapter supplies identical PreparedSource
@@ -51,10 +51,10 @@ difference and residual results are cached, so requesting clearer semantic views
 repeat projections, key sorting or correspondence. Standalone source/source_slice and
 Certification::source/collection construct identical PreparedSource handles; no heterogeneous registry.
 
-## Measurement and acceptance
+## Fact and acceptance
 
-Measurements are neutral. fact(name,value) / try_fact(name,Result<T,E>) wrap direct
-evidence; expect(expectation) produces CompareResult retaining source, expected condition,
+Facts are neutral. fact(name,value) / try_fact(name,Result<T,E>) wrap direct
+evidence; expect(expectation) produces CheckResult retaining source, expected condition,
 full observed Result, typed violations, class and any expectation-precondition error.
 Plain expected T:Debug+PartialEq means equality (including enums, booleans, strings and Options);
 Equal<T> remains an advanced explicit building block. NotEqual<T> means inequality; ordered Criterion supports greater/less/inclusive
@@ -65,10 +65,10 @@ and the Expectation<T> trait extend domain acceptance without a second assertion
 CheckClass variants are Pass (proven), HardViolation (evaluated deterministic mismatch),
 StatisticalViolation (evaluated scenario statistical/anomaly mismatch) and EvaluationError
 (invalid/unavailable/incomplete evidence or evaluation). Required undefined metrics and
-invalid bounds fail closed as EvaluationError. check consumes CompareResult; success drops
-its measured report, failure retains bounded diagnostics.
+invalid bounds fail closed as EvaluationError. check consumes CheckResult; success drops
+its fact report, failure retains bounded diagnostics.
 check_fact_expect(name,value,expected) exactly delegates to check(name,fact(name,value).expect(expected)).
-comparison_fact().expect_valid() checks exact unique correspondence; direct alignment() remains typed.
+comparison_fact().expect_valid() checks exact unique correspondence; direct comparison() remains typed.
 close_to(expected) uses absolute=relative=1e-9 and accepts .absolute(t)/.relative(t) overrides:
 abs(actual-expected) <= absolute + relative*abs(expected). Invalid/nonfinite inputs are EvaluationError.
 Independent checks/sections continue; unavailable dependent analysis does not silently pass.
@@ -79,12 +79,12 @@ panic output without bound.
 
 ## Statistical semantic views
 
-correlation() returns CorrelationMetrics{pearson,spearman}; CorrelationExpectation::positive/negative
+correlation() returns Fact<CorrelationMetrics> with pearson/spearman metrics; CorrelationExpectation::positive/negative
 constrain rank association, or default().pearson(min,max)?.spearman(min,max)? sets optional bounds.
-linear_fit() returns LinearFitMetrics{linear,residual}; its measurement exposes slope()/intercept()/
+linear_fit() returns Fact<LinearFitMetrics> with linear/residual metrics; the fact exposes slope()/intercept()/
 r_squared() as fallible f64 facts. LinearFitExpectation::default().slope(min,max)?.intercept(min,max)?
 .r_squared(min)?.residual_mean_absolute(max)?.residual_max_absolute(max)? constrains regression.
-difference() returns DifferenceSummary (right minus left); DifferenceExpectation::default()
+difference() returns Fact<DifferenceSummary> (right minus left); DifferenceExpectation::default()
 .mean_absolute(max)?.p95_absolute(max)?.max_absolute(max)? constrains direct errors. All builders
 return Result and all bounds are inclusive. The advanced relation()/RelationExpectation composite
 remains for deliberate multi-class analysis and delegates to the same mathematical owners.

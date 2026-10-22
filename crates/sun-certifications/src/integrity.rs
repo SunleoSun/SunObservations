@@ -91,14 +91,14 @@ fn duplicate_issues<K: Ord + Clone>(keys: &[(K, usize)]) -> Vec<IntegrityIssue<K
     }
     issues
 }
-/// Exact sets also reject duplicates on either side through the canonical alignment contract.
+/// Exact sets also reject duplicates on either side through the canonical comparison contract.
 pub fn check_same_keys<L, R, K: Ord + Clone>(
     left: &[L],
     right: &[R],
     left_key: impl Fn(&L) -> K,
     right_key: impl Fn(&R) -> K,
-) -> crate::Alignment<K> {
-    crate::join_by(left, right, left_key, right_key).alignment
+) -> crate::Comparison<K> {
+    crate::join_by(left, right, left_key, right_key).comparison
 }
 /// Checks the inclusive expected range without enumerating potentially huge missing ranges.
 pub fn check_contiguous<T>(
@@ -187,5 +187,5 @@ impl<I: Iterator<Item = f64> + Clone> NumericSeries<I> {
 }
 
 #[cfg(test)]
-#[path = "integrity_certification_test.rs"]
+#[path = "integrity_certification.rs"]
 mod tests;
