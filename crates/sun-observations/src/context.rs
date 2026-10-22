@@ -2,7 +2,6 @@
 use crate::{engine::ObservationEngine, plan::ResolvedPlan, scope::ScopeState, Observation};
 use std::{any::TypeId, cell::RefCell, marker::PhantomData, rc::Rc, sync::Arc};
 
-#[cfg(feature = "rayon")]
 pub mod rayon;
 pub mod thread;
 

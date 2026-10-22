@@ -1,10 +1,10 @@
-use obs::*;
 use serde::Serialize;
 use std::{
     path::Path,
     sync::{Arc, Barrier},
 };
-use sun_certifications::{certify, fact, CountRule};
+use sun_observations::certifications::{certify, fact, CountRule};
+use sun_observations::*;
 use sun_observations_certifications::pair;
 
 #[derive(Serialize, Observation)]
@@ -166,7 +166,6 @@ fn concurrent() {
         }
     });
 }
-#[cfg(feature = "rayon")]
 fn rayon() {
     use ::rayon::prelude::*;
     use context::rayon::ContextThreadPool;
@@ -360,7 +359,6 @@ fn runtime() {
                 global().set_selection(Selection::new().activate_all().exclude_tags(["excluded"]));
             }
         }
-        #[cfg(feature = "rayon")]
         {
             use ::rayon::prelude::*;
             let pool = context::rayon::ContextThreadPool::new(3).unwrap();
@@ -429,7 +427,6 @@ fn main() {
         "fanout" => fanout(&memory),
         "roundtrip" => roundtrip(),
         "runtime" => runtime(),
-        #[cfg(feature = "rayon")]
         "rayon" => rayon(),
         "global-flush" => {
             global().set_selection(Selection::new().activate_all());

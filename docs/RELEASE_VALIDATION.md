@@ -1,7 +1,7 @@
 # Framework release validation
 
 Release evidence and executable certification matrix for **SunObservations itself**.
-This is not the application-facing `sun-certifications` tutorial; use the
+This is not the application-facing `sun_observations::certifications` tutorial; use the
 [human guide](../README.md#certifications) for that.
 
 The suite is executable, not a collection of placeholders. Owner-adjacent modules are
@@ -12,16 +12,32 @@ context lifecycle, retention hysteresis and compile-diagnostic checks listed bel
 
 For application usage and operational boundaries, see the [framework human guide](../README.md).
 
+## Publication preparation
+
+The only publishable framework packages are `sun-observations-derive` and
+`sun-observations`, in that release order. The `sun-observations-certifications`
+package is internal (`publish = false`). Do not publish as part of validation.
+
+The main artifact includes its package-local README/rustdoc, both canonical skills,
+all executable examples, and all active benchmark harnesses. No compile-time include
+may reach outside its package directory. Before the derive version exists in the
+registry, verify the main artifact locally with a patch to the packaged derive;
+normal unpatched Cargo verification requires publishing derive first.
+
+No authoritative license file or manifest license decision is established in this
+repository. Project-owner license selection remains a publication blocker; validation
+does not invent a license.
+
 ## Compact capture and acceptance contracts
 
 | Contract | Executable owner |
 | --- | --- |
 | Global typed lazy emission, canonical selector/exclusion/policy/routing | crates/sun-observations/src/macros_certification.rs and engine/channel/plan certifications |
-| Scoped success/error/unwind, exclusive nesting, parallel/thread isolation, ignored serialization failures, escaped contexts/spans and automatic eviction prerequisites | crates/sun-observations-data-source/src/capture_certification.rs |
+| Scoped success/error/unwind, exclusive nesting, parallel/thread isolation, ignored serialization failures, escaped contexts/spans and automatic eviction prerequisites | crates/sun-observations/src/evidence/capture_certification.rs |
 | Rayon propagated capture isolation | certifications/rayon_propagation_certification.rs |
 | Bounded oldest-batch retention, order, exact stats, concurrent writes, drain/snapshot identity | crates/sun-observations/src/sinks/memory_certification.rs |
-| Equality shorthand, close_to, check_fact_expect parity, factories, all failure classes, correlation/fit/difference and typed correspondence | crates/sun-certifications/src/ergonomics_certification.rs |
-| One preparation/decode, stable compact numeric caches, bounded million-record diagnostics, dropped success reports | source_certification.rs, framework_certification.rs and dataset_certification.rs in their owning crates |
+| Equality shorthand, close_to, check_fact_expect parity, factories, all failure classes, correlation/fit/difference and typed correspondence | crates/sun-observations/src/certifications/ergonomics_certification.rs |
+| One preparation/decode, stable compact numeric caches, bounded million-record diagnostics, dropped success reports | source_certification.rs, framework_certification.rs and dataset_certification.rs in their owning modules |
 | Skill markers/stale API rejection, downstream compilation/execution, raw benchmark matrices | certifications/documentation_certification.rs |
 
 ### Intentional low-level usages
@@ -49,29 +65,34 @@ Run from the workspace root:
 
 ~~~sh
 cargo fmt --all --check
-cargo check --workspace
-cargo check --workspace --all-features --all-targets
+cargo check --workspace --all-targets
 cargo test --workspace
-cargo test --workspace --all-features
-cargo test -p sun-observations --all-features --lib certification
-cargo test -p sun-observations-certifications
-cargo test -p sun-observations-data-source
+cargo test -p sun-observations --lib certification
+cargo test -p sun-observations --test skill_sync_certification
 cargo test -p sun-observations-certifications --test documentation_certification
-cargo test -p sun-observations-certifications --all-features
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo build -p sun-observations --examples
+cargo clippy --workspace --all-targets -- -D warnings
+cargo package -p sun-observations-derive
+cargo package -p sun-observations --list
 ~~~
+
+`sun-observations` has an exact registry-version dependency on `sun-observations-derive`.
+For the first release, unpatched main-package verification cannot succeed until the matching
+derive version exists in the registry. Publish/verify the derive package first; then run a normal
+`cargo package -p sun-observations` (or `cargo publish -p sun-observations --dry-run`) before
+publishing the framework package.
 
 Inspect discovery with:
 
 ~~~sh
-cargo test -p sun-observations --all-features --lib -- --list
-cargo test -p sun-observations-certifications --all-features -- --list
+cargo test -p sun-observations --lib -- --list
+cargo test -p sun-observations-certifications -- --list
 ~~~
 
-The default-feature package does not build the Rayon test target. The all-features gate
-is mandatory for releases including Rayon. The temporary downstream crate is compiled and
-run offline with a genuinely renamed sdk dependency; it needs the already-fetched workspace
-dependencies and a working Cargo/toolchain. It is not an ignored/manual example.
+Rayon integration is part of the ordinary framework build; there is no feature gate to enable.
+The temporary downstream crate is compiled and run offline with a genuinely renamed sdk
+dependency; it needs the already-fetched workspace dependencies and a working Cargo/toolchain.
+It is not an ignored/manual example.
 
 ## Contract matrix
 
@@ -109,29 +130,30 @@ Each row is enforced by the full release commands, not solely the name-filtered 
 
 ## Analysis certification
 
-Ownership is explicit: sun-certifications owns generic integrity/comparison/statistics/
-relations/grouping/anomalies/lag/expectations/aggregation; sun-observations-data-source
-owns snapshots, envelope querying, strict decoding and provenance. No runtime/persisted
+Ownership is explicit inside sun-observations: certifications owns generic integrity/comparison/
+statistics/relations/grouping/anomalies/lag/expectations/aggregation, independent of runtime
+concepts and state; evidence owns capture, snapshots, envelope querying, strict decoding
+and provenance, composing runtime and certification. No runtime/persisted
 FORMAT v1 behavior changes. Public behavior certification uses the generic framework,
 while its own bootstrap/reference tests use direct Rust assertions without circularity.
 
 | Contract | Executable evidence |
 | --- | --- |
-| Generic scalar/struct/collection/empty sources, naming and criteria | crates/sun-certifications/src/framework_certification.rs |
-| Tuple and dedicated composite keys, unordered sources, missing/duplicate evidence, dependent errors | framework_certification.rs plus join_certification.rs in sun-certifications |
+| Generic scalar/struct/collection/empty sources, naming and criteria | crates/sun-observations/src/certifications/framework_certification.rs |
+| Tuple and dedicated composite keys, unordered sources, missing/duplicate evidence, dependent errors | framework_certification.rs plus join_certification.rs in src/certifications |
 | One key/field projection per preparation; repeated comparison retains same mapping; cached group projection | framework_certification.rs |
-| Numeric/robust summaries, population/sample moments, quantiles, MAD, cancellation, nonfinite/overflow/underflow and independent two-pass references | sun-certifications/src/stats_certification.rs |
-| Counts, uniqueness, compressed contiguous ranges, finite/range/positive/nonnegative criteria | sun-certifications/src/integrity_certification.rs |
-| Sorted/generic/dense/sparse joins versus independent BTreeMap oracle | sun-certifications/src/join_certification.rs |
-| Pearson/Spearman ties/signed zero, covariance/OLS/R², difference/residual, bounded disagreements, independent math reference | sun-certifications/src/relation_certification.rs |
-| Zero-MAD explicit policy, modified-z reference, jumps/thresholds/ties | sun-certifications/src/anomaly_certification.rs |
-| Positive/zero/negative lag, boundaries/interior gaps, duplicates, undefined/invalid/extreme keys, single projection and exhaustive reference | sun-certifications/src/lag_certification.rs |
-| Collect-all HARD+STATISTICAL+ERROR, nested paths, direct report inspection, silent successful Display, final assertion caller location | sun-certifications/src/framework_certification.rs |
-| 1M-row bounded failure report, success aggregation without retained giant reports | sun-certifications/src/framework_certification.rs |
-| Fixed snapshot/Arc identity, all envelope selectors, strict source errors, decode-once operations | sun-observations-data-source/src/dataset_certification.rs |
-| Observation groups preserve generic source-local identity, summaries and explicit per-group failures | sun-observations-data-source/src/grouping_certification.rs |
+| Numeric/robust summaries, population/sample moments, quantiles, MAD, cancellation, nonfinite/overflow/underflow and independent two-pass references | sun-observations/src/certifications/stats_certification.rs |
+| Counts, uniqueness, compressed contiguous ranges, finite/range/positive/nonnegative criteria | sun-observations/src/certifications/integrity_certification.rs |
+| Sorted/generic/dense/sparse joins versus independent BTreeMap oracle | sun-observations/src/certifications/join_certification.rs |
+| Pearson/Spearman ties/signed zero, covariance/OLS/R², difference/residual, bounded disagreements, independent math reference | sun-observations/src/certifications/relation_certification.rs |
+| Zero-MAD explicit policy, modified-z reference, jumps/thresholds/ties | sun-observations/src/certifications/anomaly_certification.rs |
+| Positive/zero/negative lag, boundaries/interior gaps, duplicates, undefined/invalid/extreme keys, single projection and exhaustive reference | sun-observations/src/certifications/lag_certification.rs |
+| Collect-all HARD+STATISTICAL+ERROR, nested paths, direct report inspection, silent successful Display, final assertion caller location | sun-observations/src/certifications/framework_certification.rs |
+| 1M-row bounded failure report, success aggregation without retained giant reports | sun-observations/src/certifications/framework_certification.rs |
+| Fixed snapshot/Arc identity, all envelope selectors, strict source errors, decode-once operations | sun-observations/src/evidence/dataset_certification.rs |
+| Observation groups preserve generic source-local identity, summaries and explicit per-group failures | sun-observations/src/evidence/grouping_certification.rs |
 | Real production capture, wrong-direction/scale controls, negative ambiguity, 100k/1M-record traces, group sums and lag after drain | certifications/analysis_certification.rs |
-| Ordinary input + production internal evidence + ordinary output, hierarchical transfer, reference formula, rejection category and forbidden downstream absence | examples/skill_workflows.rs under sun-observations-data-source; certifications/documentation_certification.rs |
+| Ordinary input + production internal evidence + ordinary output, hierarchical transfer, reference formula, rejection category and forbidden downstream absence | crates/sun-observations/examples/skill_workflows.rs; certifications/documentation_certification.rs |
 | Canonical skill manifests/mirrors/API families; skill and focused-reference Rust blocks compiled downstream; README doctests including capture; local Markdown paths/anchors, guide order, historical classification and benchmark medians checked | certifications/documentation_certification.rs |
 | End-to-end runtime delivery/scope/admission/domain correspondence/forbidden namespace under one proof | certifications/runtime_end_to_end_certification.rs |
 
@@ -143,7 +165,7 @@ Statistical references use relative/absolute tolerances; timing is never a corre
 [Pre-cache certification benchmark evidence](history/CERTIFICATION_BENCHMARKS.md) preserves 348 samples through 1M,
 ordinary/adapted overhead, prepare-once versus repeated preparation, bounded formatting,
 grouping/anomalies/lag and storage estimates. The current harness runs with
-`cargo test -p sun-observations-data-source --release --bench certifications -- --measure`;
+`cargo test -p sun-observations --release --bench certifications -- --measure`;
 this does not recreate the pre-cache samples. Current-representation capture/cache
 measurements are separate in [CAPTURE_BENCHMARKS.md](CAPTURE_BENCHMARKS.md).
 [Earlier algorithm/extension measurements](history/ANALYSIS_BENCHMARKS.md) remain historical evidence.

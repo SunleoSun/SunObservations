@@ -1,6 +1,6 @@
 ---
 name: certifications
-description: Certify semantic Rust contracts over ordinary values, collections, artifacts, reference results and optional Observation evidence with sun-certifications; use named prepared sources, typed-key comparison, statistics, expectations and hierarchical collect-all bounded diagnostics.
+description: Certify semantic Rust contracts over ordinary values, collections, artifacts, reference results and optional Observation evidence with sun_observations::certifications; use named prepared sources, typed-key comparison, statistics, expectations and hierarchical collect-all bounded diagnostics.
 ---
 
 # Semantic certification methodology and API
@@ -19,7 +19,7 @@ description: Certify semantic Rust contracts over ordinary values, collections, 
 
 ## Core proof API
 
-`use sun_certifications::*`. Ordinary evidence needs no Serde or Observation; Observation-backed adapters come from `sun-observations-data-source`. The generic crate does not depend on the runtime.
+`use sun_observations::certifications::*`. Ordinary evidence needs no Serde or Observation; Observation-backed adapters come from `sun_observations::evidence`. Both layers ship in the sun-observations package without features. The generic certification layer remains independent of runtime concepts and state.
 
 Canonical flow: **source → fact / Fact → expect → CheckResult → check → Certification → assert_certify**. Analysis and Fact are neutral; failed expect returns data, never panics. One acceptance owner; final assertion only at the proof boundary.
 
@@ -169,10 +169,10 @@ Low-level `RelationExpectation::evaluate(RelationReport<K>)->Result<RelationRepo
 
 ## Ordinary + Observation-backed composition
 
-`CapturedRun::certify` is the completeness-aware data-source bridge. Start every capture proof with **run.certify(name)**, not standalone certify: eviction, emission failure or escaped contexts/workers/spans adds an EvaluationError prerequisite; healthy capture adds no extra check. A retained subset never establishes completeness. Capture mechanics belong to the sun-observations skill. Decode TypedView once; reuse its source. Filter proc/scope or include execution identity for repeated keys. Provenance optional; ordinary sources work identically.
+`CapturedRun::certify` is the completeness-aware evidence bridge. Start every capture proof with **run.certify(name)**, not standalone certify: eviction, emission failure or escaped contexts/workers/spans adds an EvaluationError prerequisite; healthy capture adds no extra check. A retained subset never establishes completeness. Capture mechanics belong to the sun-observations skill. Decode TypedView once; reuse its source. Filter proc/scope or include execution identity for repeated keys. Provenance optional; ordinary sources work identically.
 
 ```rust
-use sun_certifications::*;
+use sun_observations::certifications::*;
 fn ordinary() {
     let returned = 3usize;
     let rows = [1u64, 2, 3];
@@ -188,8 +188,8 @@ fn ordinary() {
 ```
 
 ```rust
-use sun_certifications::*;
-use sun_observations_data_source::{CapturedRun, DecodeError};
+use sun_observations::certifications::*;
+use sun_observations::evidence::{CapturedRun, DecodeError};
 use serde::{Serialize, Deserialize};
 use sun_observations::Observation;
 #[derive(Serialize,Deserialize,Observation)]

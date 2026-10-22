@@ -7,7 +7,7 @@ use std::sync::{
 
 #[test]
 fn admitted_sink_failure_consumes_budget_and_serialization_failure_reaches_no_sink() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "admitted sink failure consumes budget and serialization failure reaches no sink",
     );
     struct Failure;
@@ -66,7 +66,7 @@ fn admitted_sink_failure_consumes_budget_and_serialization_failure_reaches_no_si
 struct Event;
 #[test]
 fn activation_union_and_exclusion_veto_remain_lazy_at_every_boundary() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "activation union and exclusion veto remain lazy at every boundary",
     );
     let engine = ObservationEngine::new();
@@ -151,7 +151,7 @@ impl Observation for Probe {
 }
 #[test]
 fn admitted_failures_consume_policy_but_rejections_do_not_and_sinkless_callbacks_run() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "admitted failures consume policy but rejections do not and sinkless callbacks run",
     );
     let engine = ObservationEngine::new();
@@ -203,8 +203,9 @@ fn admitted_failures_consume_policy_but_rejections_do_not_and_sinkless_callbacks
 }
 #[test]
 fn engine_recreation_cannot_reuse_retired_tls_identity() {
-    let mut certification =
-        sun_certifications::certify("engine recreation cannot reuse retired tls identity");
+    let mut certification = sun_observations::certifications::certify(
+        "engine recreation cannot reuse retired tls identity",
+    );
     let mut identities = std::collections::HashSet::new();
     for i in 0..100 {
         let engine = ObservationEngine::new();
@@ -240,7 +241,7 @@ mod admission {
 
     #[test]
     fn global_and_scope_selectors_union_but_either_exclusion_vetoes() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "global and scope selectors union but either exclusion vetoes",
         );
         let engine = ObservationEngine::new();
@@ -297,7 +298,7 @@ mod admission {
 
     #[test]
     fn namespace_routing_fans_out_and_envelope_uses_engine_identity_and_clocks() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "namespace routing fans out and envelope uses engine identity and clocks",
         );
         let engine = ObservationEngine::new();
@@ -333,14 +334,15 @@ mod admission {
         certification.check_fact_expect(
             "engine.process_id()",
             &(engine.process_id()),
-            sun_certifications::NotEqual(&(ObservationEngine::new().process_id())),
+            sun_observations::certifications::NotEqual(&(ObservationEngine::new().process_id())),
         );
         certification.assert_certify();
     }
 
     #[test]
     fn warn_does_not_bypass_selection() {
-        let mut certification = sun_certifications::certify("warn does not bypass selection");
+        let mut certification =
+            sun_observations::certifications::certify("warn does not bypass selection");
         let engine = ObservationEngine::new();
         certification.check_fact_expect(
             "engine .observe_if_active::<Event, _>(|| panic!(\"must stay lazy\")) .unwrap()",
@@ -354,7 +356,7 @@ mod admission {
 
     #[test]
     fn serialization_failure_is_returned_without_writing_a_record() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "serialization failure is returned without writing a record",
         );
         struct Bad;
@@ -383,7 +385,7 @@ mod admission {
 
     #[test]
     fn message_works_without_registration_and_policy_defaults_to_always() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "message works without registration and policy defaults to always",
         );
         #[derive(Serialize)]
@@ -449,8 +451,9 @@ mod admission {
 
     #[test]
     fn sinkless_admission_still_serializes_and_calls_message() {
-        let mut certification =
-            sun_certifications::certify("sinkless admission still serializes and calls message");
+        let mut certification = sun_observations::certifications::certify(
+            "sinkless admission still serializes and calls message",
+        );
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct Probed {
             calls: Arc<AtomicUsize>,
@@ -512,7 +515,7 @@ mod admission {
 
     #[test]
     fn flush_barrier_visits_shared_sinks_once_even_without_routes() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "flush barrier visits shared sinks once even without routes",
         );
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -541,7 +544,7 @@ mod admission {
 
     #[test]
     fn sink_failures_are_counted_and_other_channels_still_receive() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "sink failures are counted and other channels still receive",
         );
         struct Broken;

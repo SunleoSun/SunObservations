@@ -1,11 +1,8 @@
-extern crate analysis as sun_observations_data_source;
-extern crate obs as sun_observations;
-
-use analysis::*;
-use obs::{MemorySink, Observation, ObservationEngine, Selection};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use sun_certifications::*;
+use sun_observations::certifications::*;
+use sun_observations::evidence::*;
+use sun_observations::{MemorySink, Observation, ObservationEngine, Selection};
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "pipeline::input")]
@@ -32,14 +29,14 @@ fn engine() -> (ObservationEngine, Arc<MemorySink>) {
 fn capture(n: u64, slope: f64) -> CapturedRun<()> {
     capture_observations(CaptureConfig::new().activate_namespace("pipeline"), || {
         for row in 0..n {
-            obs::observe!(Input {
+            sun_observations::observe!(Input {
                 row,
                 value: row as f64
             })
             .unwrap();
         }
         for row in (0..n).rev() {
-            obs::observe!(Output {
+            sun_observations::observe!(Output {
                 row,
                 value: slope * row as f64 + 3.
             })
@@ -100,14 +97,14 @@ fn same_observation_types_certify_positive_negative_and_wrong_scale_scenarios() 
 fn runtime_missing_and_duplicate_evidence_is_a_hard_failure_not_suspicion() {
     let dataset = capture_observations(CaptureConfig::new().activate_namespace("pipeline"), || {
         for row in [1, 2, 2, 4] {
-            obs::observe!(Input {
+            sun_observations::observe!(Input {
                 row,
                 value: row as f64
             })
             .unwrap();
         }
         for row in [2, 3, 4] {
-            obs::observe!(Output {
+            sun_observations::observe!(Output {
                 row,
                 value: row as f64
             })
@@ -318,7 +315,7 @@ fn captured_large_grouped_source_and_shifted_evidence_remains_exact_after_drain(
     }
 }
 
-#[path = "../crates/sun-observations-data-source/examples/module_relation.rs"]
+#[path = "../crates/sun-observations/examples/module_relation.rs"]
 mod example;
 #[test]
 fn public_cross_module_example_executes() {

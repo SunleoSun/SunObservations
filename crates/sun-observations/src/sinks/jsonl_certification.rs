@@ -9,7 +9,7 @@ use std::{
 
 #[test]
 fn continuous_producers_do_not_starve_periodic_flush_and_share_one_worker() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "continuous producers do not starve periodic flush and share one worker",
     );
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -59,7 +59,7 @@ fn continuous_producers_do_not_starve_periodic_flush_and_share_one_worker() {
         certification.check_fact_expect(
             "worker",
             &(worker),
-            sun_certifications::NotEqual(&(std::thread::current().id())),
+            sun_observations::certifications::NotEqual(&(std::thread::current().id())),
         );
         stop.store(true, Ordering::Release);
         worker
@@ -77,7 +77,7 @@ fn continuous_producers_do_not_starve_periodic_flush_and_share_one_worker() {
 }
 #[test]
 fn span_end_async_failure_surfaces_at_engine_barrier_not_as_a_missing_checked_error() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "span end async failure surfaces at engine barrier not as a missing checked error",
     );
     use crate::{Observation, Phase};
@@ -126,8 +126,9 @@ fn span_end_async_failure_surfaces_at_engine_barrier_not_as_a_missing_checked_er
 
 #[test]
 fn retention_can_remove_span_start_without_splitting_newest_end() {
-    let mut certification =
-        sun_certifications::certify("retention can remove span start without splitting newest end");
+    let mut certification = sun_observations::certifications::certify(
+        "retention can remove span start without splitting newest end",
+    );
     use crate::{Observation, Phase};
     #[derive(serde::Serialize, Observation)]
     #[observation(namespace = "retained_span::work")]
@@ -174,7 +175,7 @@ fn retention_can_remove_span_start_without_splitting_newest_end() {
 
 #[test]
 fn retention_accepts_valid_deep_payload_without_an_implicit_format_depth_limit() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "retention accepts valid deep payload without an implicit format depth limit",
     );
     let directory = tempfile::tempdir().unwrap();
@@ -237,8 +238,9 @@ impl Write for GateFile {
 }
 #[test]
 fn bounded_backlog_fifo_barrier_and_disconnect_drain_real_file() {
-    let mut certification =
-        sun_certifications::certify("bounded backlog fifo barrier and disconnect drain real file");
+    let mut certification = sun_observations::certifications::certify(
+        "bounded backlog fifo barrier and disconnect drain real file",
+    );
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("backlog.jsonl");
     let (entered, waiting) = mpsc::channel();
@@ -343,7 +345,7 @@ impl Write for FaultWriter {
 }
 #[test]
 fn independent_background_failures_are_sticky_do_not_retry_and_release_concurrent_barriers() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "independent background failures are sticky do not retry and release concurrent barriers",
     );
     for fault in [Fault::Write, Fault::Flush, Fault::Panic] {
@@ -397,7 +399,7 @@ fn independent_background_failures_are_sticky_do_not_retry_and_release_concurren
 }
 #[test]
 fn engine_error_barrier_counts_checked_operations_and_healthy_fanout_survives() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "engine error barrier counts checked operations and healthy fanout survives",
     );
     use crate::Observation;
@@ -455,7 +457,7 @@ fn engine_error_barrier_counts_checked_operations_and_healthy_fanout_survives() 
 }
 #[test]
 fn retention_is_a_newest_complete_suffix_across_cycles_and_rejects_corrupt_history() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "retention is a newest complete suffix across cycles and rejects corrupt history",
     );
     let directory = tempfile::tempdir().unwrap();
@@ -514,8 +516,9 @@ mod persistence {
 
     #[test]
     fn append_preserves_existing_lines_and_schema_roundtrips() {
-        let mut certification =
-            sun_certifications::certify("append preserves existing lines and schema roundtrips");
+        let mut certification = sun_observations::certifications::certify(
+            "append preserves existing lines and schema roundtrips",
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("observations.jsonl");
         let point = record("jsonl::point");
@@ -558,7 +561,7 @@ mod persistence {
     #[test]
     fn concurrent_lines_are_complete_json_objects() {
         let mut certification =
-            sun_certifications::certify("concurrent lines are complete json objects");
+            sun_observations::certifications::certify("concurrent lines are complete json objects");
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("parallel.jsonl");
         let sink = Arc::new(JsonlSink::append(&path).unwrap());
@@ -593,8 +596,9 @@ mod persistence {
 
     #[test]
     fn engine_output_matches_envelope_without_routing_metadata() {
-        let mut certification =
-            sun_certifications::certify("engine output matches envelope without routing metadata");
+        let mut certification = sun_observations::certifications::certify(
+            "engine output matches envelope without routing metadata",
+        );
         use crate::{start_scope, Observation, ObservationEngine, ScopeConfig, Selection};
         #[derive(serde::Serialize, Observation)]
         #[observation(namespace = "jsonl::engine::event", level = ERROR, tags("expensive"))]
@@ -692,7 +696,7 @@ mod persistence {
 
     #[test]
     fn lazy_worker_and_periodic_flush_run_off_producer_without_sleeps() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "lazy worker and periodic flush run off producer without sleeps",
         );
         use std::sync::mpsc;
@@ -746,8 +750,9 @@ mod persistence {
 
     #[test]
     fn file_open_is_lazy_and_background_failure_is_sticky() {
-        let mut certification =
-            sun_certifications::certify("file open is lazy and background failure is sticky");
+        let mut certification = sun_observations::certifications::certify(
+            "file open is lazy and background failure is sticky",
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("not-yet.jsonl");
         let sink = JsonlSink::append(&path).unwrap();
@@ -775,7 +780,7 @@ mod persistence {
     #[test]
     fn normal_drop_drains_all_accepted_records() {
         let mut certification =
-            sun_certifications::certify("normal drop drains all accepted records");
+            sun_observations::certifications::certify("normal drop drains all accepted records");
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("drop.jsonl");
         {
@@ -801,7 +806,7 @@ mod persistence {
 
     #[test]
     fn concurrent_flush_barriers_do_not_deadlock_or_lose_records() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "concurrent flush barriers do not deadlock or lose records",
         );
         let directory = tempfile::tempdir().unwrap();
@@ -829,7 +834,7 @@ mod persistence {
 
     #[test]
     fn repeated_compaction_retains_complete_newest_lines_with_hysteresis() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "repeated compaction retains complete newest lines with hysteresis",
         );
         let directory = tempfile::tempdir().unwrap();
@@ -883,8 +888,9 @@ mod persistence {
 
     #[test]
     fn threshold_crossing_trims_to_target_not_just_to_maximum() {
-        let mut certification =
-            sun_certifications::certify("threshold crossing trims to target not just to maximum");
+        let mut certification = sun_observations::certifications::certify(
+            "threshold crossing trims to target not just to maximum",
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("hysteresis.jsonl");
         let mut original = String::new();
@@ -947,8 +953,9 @@ mod persistence {
 
     #[test]
     fn oversized_newest_record_is_never_split_or_deleted() {
-        let mut certification =
-            sun_certifications::certify("oversized newest record is never split or deleted");
+        let mut certification = sun_observations::certifications::certify(
+            "oversized newest record is never split or deleted",
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("oversize.jsonl");
         let sink =
@@ -982,7 +989,7 @@ mod persistence {
 
     #[test]
     fn writer_panics_are_observable_and_do_not_deadlock_flush_or_drop() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "writer panics are observable and do not deadlock flush or drop",
         );
         struct Panics;
@@ -1007,8 +1014,9 @@ mod persistence {
 
     #[test]
     fn invalid_file_settings_and_writer_retention_are_rejected() {
-        let mut certification =
-            sun_certifications::certify("invalid file settings and writer retention are rejected");
+        let mut certification = sun_observations::certifications::certify(
+            "invalid file settings and writer retention are rejected",
+        );
         for config in [
             JsonlConfig::new().flush_ms(0),
             JsonlConfig::new().max_file_size_bytes(0),
@@ -1032,7 +1040,8 @@ mod persistence {
 
     #[test]
     fn writer_failures_are_reported() {
-        let mut certification = sun_certifications::certify("writer failures are reported");
+        let mut certification =
+            sun_observations::certifications::certify("writer failures are reported");
         struct Broken;
         impl Write for Broken {
             fn write(&mut self, _: &[u8]) -> io::Result<usize> {

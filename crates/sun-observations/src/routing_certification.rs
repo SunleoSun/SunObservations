@@ -2,8 +2,9 @@ use super::*;
 
 #[test]
 fn routes_match_subtrees_and_fan_out_without_duplicate_channels() {
-    let mut certification =
-        sun_certifications::certify("routes match subtrees and fan out without duplicate channels");
+    let mut certification = sun_observations::certifications::certify(
+        "routes match subtrees and fan out without duplicate channels",
+    );
     let mut routes = Routing::default();
     routes.register("compute", "all").unwrap();
     routes.register("compute::train", "training").unwrap();

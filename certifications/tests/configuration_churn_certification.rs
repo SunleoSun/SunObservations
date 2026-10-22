@@ -1,6 +1,6 @@
-use obs::*;
 use serde::Serialize;
 use std::sync::{Arc, Barrier};
+use sun_observations::*;
 #[derive(Serialize, Observation)]
 #[observation(namespace = "churn::event")]
 struct Event {
@@ -9,7 +9,7 @@ struct Event {
 }
 #[test]
 fn warm_workers_switch_each_configuration_generation_without_resetting_counter() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "warm workers switch each configuration generation without resetting counter",
     );
     let engine = ObservationEngine::new();

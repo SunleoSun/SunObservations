@@ -154,6 +154,6 @@ to avoid deep cloning. Implement flush as your queue-prefix barrier (default: no
 Human consumers opt into wants_render_text and write_delivery; capability must remain
 fixed while attached. ObservationDelivery clones share record and optional text;
 None requires the consumer's fallback. Custom human text is literal, not sanitized,
-and never changes structured data/message. See [human.rs](../examples/human.rs) for
+and never changes structured data/message. See [human.rs](../crates/sun-observations/examples/human.rs) for
 table streams and the [evidence API manual](../crates/sun-observations/agent-skills/sun-observations/SKILL.md)
 for exact extension signatures.

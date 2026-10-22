@@ -12,7 +12,7 @@ struct Lazy {
 
 #[test]
 fn macro_checks_selection_exclusion_and_policy_before_building_fields() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "macro checks selection exclusion and policy before building fields",
     );
     let sink = capture(global(), "macro_tests");

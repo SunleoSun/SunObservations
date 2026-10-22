@@ -1,10 +1,12 @@
-#![doc = include_str!("../../../README.md")]
+#![doc = include_str!("../README.md")]
 extern crate self as sun_observations;
 
 pub mod capture;
+pub mod certifications;
 pub mod channel;
 pub mod context;
 pub mod engine;
+pub mod evidence;
 pub mod level;
 mod macros;
 pub mod namespace;

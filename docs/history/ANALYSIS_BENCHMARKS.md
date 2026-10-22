@@ -4,10 +4,11 @@ Historical benchmark evidence, not current API guidance. Measurements and design
 descriptions below refer to the earlier representation. See the
 [documentation map](../README.md#historical-evidence) for dataset chronology.
 
-Historical algorithm/extension samples retained across the ownership migration. Generic
-algorithms now belong to sun-certifications; the executable adapter harness delegates to
-that owner. Grouped numeric projection now caches values once, so these timings describe
-the earlier representation, not a claim of byte-identical current measurements. See
+These samples were recorded across the earlier multi-package ownership migration:
+generic algorithms lived in `sun-certifications` and the Observation adapter lived in
+`sun-observations-data-source`. The current harness is unified under `sun-observations`.
+Grouped numeric projection now caches values once, so these timings describe the earlier
+representation, not a claim of byte-identical current measurements. See
 [pre-cache certification benchmarks](CERTIFICATION_BENCHMARKS.md) for the next
 measurement stage, and [capture/cache benchmarks](../CAPTURE_BENCHMARKS.md) for
 the current representation. These are distinct datasets, not a controlled speedup series.
@@ -21,16 +22,16 @@ task-supplied RUSTFLAGS, CPU affinity, LTO or native-CPU tuning. The machine was
 not isolated. These are measurements, not universal latency guarantees.
 
 ```sh
-cargo bench -p sun-observations-data-source --bench analysis
+cargo bench -p sun-observations --bench analysis
 ```
 
-The identical executable can be run through the repository Cargo test wrapper:
+The current equivalent executable can also be run through the repository Cargo test wrapper:
 
 ```sh
-cargo test -p sun-observations-data-source --release --bench analysis -- --measure
+cargo test -p sun-observations --release --bench analysis -- --measure
 ```
 
-The harness is crates/sun-observations-data-source/benches/analysis.rs. It reuses the
+The current harness is `crates/sun-observations/benches/analysis.rs`. It reuses the
 existing benchmark child-process report support: unique run directory beside the
 active Cargo profiles, metrics.csv and stderr.txt, replay to console, and child
 failure propagation. The original baseline measured run was analysis-cjX2jh under

@@ -12,14 +12,14 @@ These samples predate scoped capture and numeric-result caching. See [current ca
 Reference host: AMD Ryzen 9 5950X, 64 GiB RAM, Windows 11/NTFS, MSVC target, Rust/Cargo 1.96.0, optimized release profile. The host was neither pinned nor isolated. Source fixtures are deterministic; timed boundaries are explicit in the harness. Decode is measured separately from subsequent typed-view operations; numeric-pair analyses reuse cached comparison. Fixture construction is outside the timed boundary unless it is the named preparation operation.
 
 ```text
-cargo test -p sun-observations-data-source --release --bench certifications -- --measure
+cargo test -p sun-observations --release --bench certifications -- --measure
 ```
 
 The command now executes the current harness, not the historical implementation.
 Exact reproduction of the recorded samples requires the original implementation
 and measurement environment; new runs must be retained as separate datasets.
 
-Harness: [certifications.rs](../../crates/sun-observations-data-source/benches/certifications.rs). Raw evidence: [348 CSV samples](../../scripts/certification_metrics.csv) and [complete final run](../../scripts/certification_benchmark_run.txt), including command status and output. Without `--measure` the harness exits without timing work, so normal all-target validation does not run expensive benchmarks.
+Harness: [certifications.rs](../../crates/sun-observations/benches/certifications.rs). Raw evidence: [348 CSV samples](../../scripts/certification_metrics.csv) and [complete final run](../../scripts/certification_benchmark_run.txt), including command status and output. Without `--measure` the harness exits without timing work, so normal all-target validation does not run expensive benchmarks.
 
 The recorded metric keys ending in `_alignment` below and in the raw samples are historical identifiers; the current harness emits `_comparison` keys. No samples have been relabeled or rerun for this vocabulary refactor.
 

@@ -1,6 +1,6 @@
-use obs::*;
 use serde::Serialize;
 use std::sync::{Arc, Barrier};
+use sun_observations::*;
 #[derive(Serialize, Observation)]
 #[observation(namespace = "fifo::event")]
 struct Event {
@@ -9,7 +9,7 @@ struct Event {
 }
 #[test]
 fn real_file_multi_producer_integrity_preserves_each_producer_order() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "real file multi producer integrity preserves each producer order",
     );
     let directory = tempfile::tempdir().unwrap();

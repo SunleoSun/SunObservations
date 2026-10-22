@@ -1,13 +1,11 @@
-extern crate analysis as sun_observations_data_source;
-extern crate obs as sun_observations;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
     process::Command,
 };
-use sun_certifications::*;
-#[path = "../crates/sun-observations-data-source/examples/skill_workflows.rs"]
+use sun_observations::certifications::*;
+#[path = "../crates/sun-observations/examples/skill_workflows.rs"]
 mod workflows;
 fn certification_api_coverage(text: &str) -> CertificationReport {
     let mut c = certify("agent-facing method-level API");
@@ -339,7 +337,7 @@ fn root() -> PathBuf {
 }
 fn canonical_skill_path(name: &str) -> PathBuf {
     let owner = match name {
-        "certifications" => "sun-certifications",
+        "certifications" => "sun-observations",
         "sun-observations" => "sun-observations",
         _ => panic!("unknown skill {name}"),
     };
@@ -561,7 +559,7 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
             );
             if name == "sun-observations" {
                 for generic_api in [
-                    "use sun_certifications::*",
+                    "use sun_observations::certifications::*",
                     "check_fact_expect",
                     "expect_valid",
                     "CheckClass",
@@ -610,7 +608,10 @@ fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_
 fn canonical_skill_and_focused_reference_rust_blocks_compile_and_execute() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
-    let mut source = String::from("#![allow(dead_code,unused_imports)]\n");
+    fs::copy(root().join("README.md"), dir.path().join("README.md")).unwrap();
+    let mut source = String::from(
+        "#![allow(dead_code,unused_imports)]\n#![doc = include_str!(\"../README.md\")]\n",
+    );
     let mut index = 0;
     for name in ["sun-observations", "certifications"] {
         for block in blocks(&skill(name)) {
@@ -675,15 +676,11 @@ version="0.0.0"
 edition="2021"
 [workspace]
 [dependencies]
-sun-certifications={{path={:?}}}
-sun-observations={{path={:?},features=["rayon"]}}
-sun-observations-data-source={{path={:?}}}
+sun-observations={{path={:?}}}
 serde={{version="1",features=["derive"]}}
 serde_json="1"
 "#,
-        path("sun-certifications"),
-        path("sun-observations"),
-        path("sun-observations-data-source")
+        path("sun-observations")
     );
     fs::write(dir.path().join("Cargo.toml"), manifest).unwrap();
     fs::write(dir.path().join("src/lib.rs"), source).unwrap();

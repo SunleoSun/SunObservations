@@ -12,7 +12,7 @@ struct Child;
 struct Sibling;
 #[test]
 fn explicit_identity_selection_and_routes_share_segment_boundaries() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "explicit identity selection and routes share segment boundaries",
     );
     let engine = ObservationEngine::new();
@@ -87,7 +87,8 @@ mod grammar {
 
     #[test]
     fn lowercase_segment_contract() {
-        let mut certification = sun_certifications::certify("lowercase segment contract");
+        let mut certification =
+            sun_observations::certifications::certify("lowercase segment contract");
         for valid in ["a", "alpha_2", "alpha::beta2::gamma_3"] {
             certification.check_fact_expect(
                 "validate_namespace(valid).is_ok()",
@@ -118,7 +119,8 @@ mod grammar {
 
     #[test]
     fn subtree_is_segment_aware() {
-        let mut certification = sun_certifications::certify("subtree is segment aware");
+        let mut certification =
+            sun_observations::certifications::certify("subtree is segment aware");
         certification.check_fact_expect(
             "matches_subtree(\"compute::train\", \"compute::train\")",
             matches_subtree("compute::train", "compute::train"),

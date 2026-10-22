@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn positives_are_namespace_or_any_tag() {
-    let mut certification = sun_certifications::certify("positives are namespace or any tag");
+    let mut certification =
+        sun_observations::certifications::certify("positives are namespace or any tag");
     let selection = Selection::new()
         .activate_namespace("compute::train")
         .activate_tags(["detail", "costly"]);
@@ -36,7 +37,8 @@ fn positives_are_namespace_or_any_tag() {
 
 #[test]
 fn any_exclusion_vetoes_all_activations() {
-    let mut certification = sun_certifications::certify("any exclusion vetoes all activations");
+    let mut certification =
+        sun_observations::certifications::certify("any exclusion vetoes all activations");
     let selection = Selection::new()
         .activate_all()
         .activate_tags(["detail"])

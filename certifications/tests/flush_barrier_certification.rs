@@ -1,4 +1,3 @@
-use obs::*;
 use serde::Serialize;
 use std::{
     fs,
@@ -6,6 +5,7 @@ use std::{
     sync::{mpsc, Arc, Barrier, Mutex},
     time::Duration,
 };
+use sun_observations::*;
 use sun_observations_certifications::read;
 #[derive(Serialize, Observation)]
 #[observation(namespace = "barrier::event")]
@@ -38,7 +38,7 @@ impl Write for FileProbe {
 }
 #[test]
 fn real_file_engine_barrier_cannot_overtake_prior_bounded_chunks() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "real file engine barrier cannot overtake prior bounded chunks",
     );
     let directory = tempfile::tempdir().unwrap();

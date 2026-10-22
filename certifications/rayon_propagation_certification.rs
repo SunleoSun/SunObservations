@@ -1,7 +1,6 @@
-extern crate obs as sun_observations;
-use sun_certifications::*;
+use sun_observations::certifications::*;
 
-#[derive(serde::Serialize, serde::Deserialize, obs::Observation)]
+#[derive(serde::Serialize, serde::Deserialize, sun_observations::Observation)]
 #[observation(namespace = "rayon_capture::event", tags("evidence"))]
 struct Captured {
     run: u64,
@@ -13,13 +12,14 @@ fn scoped_parallel_captures_follow_rayon_context_without_cross_talk() {
     let workers: Vec<_> = (0..2)
         .map(|id| {
             std::thread::spawn(move || {
-                let run = analysis::capture_observations(
-                    analysis::CaptureConfig::new().activate_tag("evidence"),
+                let run = sun_observations::evidence::capture_observations(
+                    sun_observations::evidence::CaptureConfig::new().activate_tag("evidence"),
                     || {
-                        let pool = obs::context::rayon::ContextThreadPool::new(2).unwrap();
+                        let pool =
+                            sun_observations::context::rayon::ContextThreadPool::new(2).unwrap();
                         pool.install(|| {
                             (0..512u64).into_par_iter().for_each(|row| {
-                                obs::observe!(Captured { run: id, row }).unwrap();
+                                sun_observations::observe!(Captured { run: id, row }).unwrap();
                             })
                         });
                     },

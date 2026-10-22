@@ -4,10 +4,6 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-[features]
-default = []
-rayon = ["obs/rayon", "dep:rayon"]
-
 [[test]]
 name = "documentation_certification"
 path = "documentation_certification.rs"
@@ -21,14 +17,12 @@ name = "human_delivery_certification"
 path = "human_delivery_certification.rs"
 
 [dependencies]
-sun-certifications = { path = "../crates/sun-certifications" }
-analysis = { package = "sun-observations-data-source", path = "../crates/sun-observations-data-source" }
-obs = { package = "sun-observations", path = "../crates/sun-observations" }
+sun-observations = { path = "../crates/sun-observations" }
 serde.workspace = true
 serde_json.workspace = true
 tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
-rayon = { version = "1.10", optional = true }
+rayon = "1.10"
 
 [[test]]
 name = "concurrent_scopes_certification"
@@ -39,7 +33,6 @@ path = "thread_propagation_certification.rs"
 [[test]]
 name = "rayon_propagation_certification"
 path = "rayon_propagation_certification.rs"
-required-features = ["rayon"]
 [[test]]
 name = "channel_fanout_certification"
 path = "channel_fanout_certification.rs"

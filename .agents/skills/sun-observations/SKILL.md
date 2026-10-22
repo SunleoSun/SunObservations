@@ -7,7 +7,7 @@ description: Produce typed production evidence with SunObservations structured l
 
 ## Boundary and evidence design
 
-Produce typed production facts for structured logging/diagnostics/profiling, never scenario acceptance thresholds. Prefer canonical returned results/persisted artifacts over duplicate instrumentation. Generic analysis/acceptance belongs to sun-certifications, capture/query/decode/provenance to sun-observations-data-source, emission/runtime to sun-observations.
+Produce typed production facts for structured logging/diagnostics/profiling, never scenario acceptance thresholds. Prefer canonical returned results/persisted artifacts over duplicate instrumentation. One dependency, sun-observations, provides all capabilities without features. Generic analysis/acceptance belongs to sun_observations::certifications (independent of runtime concepts/state), capture/query/decode/provenance to sun_observations::evidence, emission/runtime to the root runtime modules.
 
 Design **Boundary** evidence for semantic transfers (InputPrepared, PredictionProduced, ArtifactPersisted), then **Decision** for selection/rejection/suppression; add **Diagnostic** metrics/calibration/gradient summaries only for a concrete diagnosis/certification. Before adding evidence, identify **which certification/consumer uses it**, its semantic contract, and why a canonical return/artifact cannot prove it more authoritatively. Do not instrument arbitrary locals or add test-only production getters/counters/callbacks/alternate cfg(test) behavior to observe internal facts.
 
@@ -18,7 +18,7 @@ Design **Boundary** evidence for semantic transfers (InputPrepared, PredictionPr
 ```rust
 use serde::{Deserialize, Serialize};
 use sun_observations::*;
-use sun_observations_data_source::*;
+use sun_observations::evidence::*;
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "pipeline::prediction", level = INFO, tags("evidence"))]
 struct Prediction { row:u64, signal:f64 }
@@ -62,7 +62,7 @@ Hold `let _guard = start_scope(ScopeConfig::new("execution-id").activate_namespa
 | `Policy::{Always,Never,FirstN(u64),EveryN(u64),MaxPerScope(u64)}` | Per-concrete-type/current-scope counter shared by propagated workers. Always default; EveryN admits n,2n,…, zero rejects. FirstN/MaxPerScope bound admitted attempts, not persistence successes. |
 | `Context::capture()`; `context.enter()->ContextGuard`; `context.run(FnOnce)->R`; `scope_name()->Option<&str>` | Capture installed context; guard Drop restores predecessor on normal return, Result/? or unwind. Thread-local lifecycle, not automatic inheritance by unrelated workers/tasks. |
 | `context::thread::spawn(FnOnce+Send+'static)->JoinHandle<R>` | Capture caller context; R:Send+'static. Ordinary threads/async tasks do not propagate automatically. Join workers and propagate child failures. |
-| `context::rayon::ContextThreadPool::new(threads:usize)->Result<Self,ThreadPoolBuildError>` | Runtime rayon feature; construct in desired scope, 0 = Rayon default. `install(FnOnce+Send)->R`, R:Send, uses construction-bound context including nested work. Drop outside workers joins/releases context before returning. Last owner dropped inside its own detached job cannot join itself; capture stays incomplete until escaped work finishes. |
+| `context::rayon::ContextThreadPool::new(threads:usize)->Result<Self,ThreadPoolBuildError>` | Always available; construct in desired scope, 0 = Rayon default. `install(FnOnce+Send)->R`, R:Send, uses construction-bound context including nested work. Drop outside workers joins/releases context before returning. Last owner dropped inside its own detached job cannot join itself; capture stays incomplete until escaped work finishes. |
 
 ## Routing, sinks and delivery lifecycle
 
@@ -113,12 +113,12 @@ Optional scope:String/message:String/phase:"start" or "end"/span:String omitted 
 | `CapturedRun::result()->&T`; `dataset()->&ObservationDataset`; `typed::<O>()->Result<TypedView<O>,DecodeError>` | Application Result remains data; finalized fixed snapshot. Keep/reuse TypedView: each typed call decodes again. |
 | `status()->CaptureStatus`; `status().is_complete()` | CaptureStatus{retention:MemoryStats,emission_errors:u64,unfinished_contexts:bool}; complete iff no eviction/emission failure/escaped owners. Ignored serialization failures count against frozen admission context even if serialization changes installed context. |
 | `retention(MemorySinkConfig)` | Default finite 1,000,000 records; size for points **and both span halves**. Eviction may retain a subset, never silently complete evidence. |
-| `CapturedRun::certify` / `run.certify(name)` | Completeness-aware bridge to the generic proof owner; use the certifications skill for proof methodology/API. Integration belongs to data-source only. |
+| `CapturedRun::certify` / `run.certify(name)` | Completeness-aware bridge to the generic proof owner; use the certifications skill for proof methodology/API. Integration belongs to the evidence adapter only. |
 | `sun_observations::capture::ScopedCapture` | Low-level adapter primitive: `new(Selection,MemorySinkConfig)`, consuming `finish()->(Vec<Arc<ObservationRecord>>,CaptureStatus)`. Normal consumers use capture_observations. |
 
 ## Observation dataset/query/decode/provenance adapters
 
-Import from sun_observations_data_source; generic operations/types from sun_certifications. No algorithms/acceptance are reimplemented by adapters.
+Import capture/query/decode/provenance from sun_observations::evidence; generic operations/types from sun_observations::certifications. No algorithms/acceptance are reimplemented by adapters.
 
 | API | Result/semantics |
 | --- | --- |

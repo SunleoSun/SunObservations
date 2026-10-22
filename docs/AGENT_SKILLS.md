@@ -3,10 +3,12 @@
 Operational/tooling reference. For learning the framework, use the
 [human guide](../README.md); for other documentation roles, see the [map](README.md).
 
-Install the external Cargo subcommand from this checkout:
+Install the Cargo subcommand binary from the framework package (after release):
 
 ```text
-cargo install --path crates/cargo-sun-observations-skills
+cargo install sun-observations --bin cargo-sun-observations-skills
+# From this checkout before release:
+cargo install --path crates/sun-observations --bin cargo-sun-observations-skills
 ```
 
 In the consumer Cargo workspace, run:
@@ -26,14 +28,13 @@ truncating files shared through hard links.
 
 ## Canonical ownership
 
-- [certifications](../crates/sun-certifications/agent-skills/certifications/SKILL.md)
-  belongs to the `sun-certifications` Cargo package.
+- [certifications](../crates/sun-observations/agent-skills/certifications/SKILL.md)
+  belongs to the `sun-observations` Cargo package.
 - [sun-observations](../crates/sun-observations/agent-skills/sun-observations/SKILL.md)
-  belongs to the `sun-observations` Cargo package. Its adapter guidance does not
-  transfer capture/query/decode/provenance ownership away from
-  `sun-observations-data-source`.
+  belongs to the same `sun-observations` Cargo package. Capture/query/decode/
+  provenance remains owned by its evidence layer, not generic certification.
 
-Both owner manifests explicitly include `agent-skills/**` in their Cargo package
+The framework manifest explicitly includes `agent-skills/**` in their Cargo package
 contents. The delivery tool does not embed manuals or depend on its own version
 to select them. No ordinary build triggers synchronization.
 
@@ -57,8 +58,8 @@ checkout; for path/workspace sources it is that local package directory. The
 front matter must have exactly one `name:` matching the owned skill layout.
 A canonical source cannot escape its package directory through a symlink.
 
-No resolved owners, missing/invalid canonical skills, or multiple resolved package
-identities for one skill cause a nonzero exit with diagnostics before any skill
+No resolved sun-observations owner, either missing/invalid canonical skill, or multiple
+active resolved sun-observations identities cause a nonzero exit with diagnostics before any skill
 writes. Multiple versions are rejected even when their content is identical.
 The tool never chooses newest, direct, or installed-tool versions to break ties.
 Destination symlinks and non-file/non-directory collisions are rejected. An I/O
@@ -70,7 +71,7 @@ Edit only the package-local canonical skills. Regenerate the checked root mirror
 from the workspace root with the installed command above, or without installation:
 
 ```text
-cargo run -p cargo-sun-observations-skills -- sync
+cargo run -p sun-observations --bin cargo-sun-observations-skills -- sync
 ```
 
 Documentation certifications read canonical sources for API/methodology/example

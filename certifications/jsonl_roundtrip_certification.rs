@@ -1,4 +1,4 @@
-use sun_certifications::*;
+use sun_observations::certifications::*;
 use sun_observations_certifications::{certify as run_scenario, pair, validate};
 #[test]
 fn independent_v1_consumer_validates_diverse_payloads_and_lifecycle() {

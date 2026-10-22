@@ -64,8 +64,9 @@ fn emit(engine: &ObservationEngine, counters: &[Arc<AtomicUsize>; 3]) -> bool {
 
 #[test]
 fn exact_render_laziness_and_real_structured_sink_isolation() {
-    let mut certification =
-        sun_certifications::certify("exact render laziness and real structured sink isolation");
+    let mut certification = sun_observations::certifications::certify(
+        "exact render laziness and real structured sink isolation",
+    );
     for (active, excluded, policy, memory, jsonl, humans) in [
         (false, false, Policy::Always, true, true, 1),
         (true, true, Policy::Always, true, true, 1),
@@ -200,7 +201,7 @@ fn exact_render_laziness_and_real_structured_sink_isolation() {
 
 #[test]
 fn serialization_failure_never_renders_or_delivers_and_spans_never_render() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "serialization failure never renders or delivers and spans never render",
     );
     struct Bad(Arc<AtomicUsize>);
@@ -304,7 +305,7 @@ fn attachment_capability_can_reenter_configuration_without_engine_or_scope_locks
 
 #[test]
 fn human_capability_is_cold_and_route_mutations_preserve_counting_policy() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "human capability is cold and route mutations preserve counting policy",
     );
     let engine = ObservationEngine::new();

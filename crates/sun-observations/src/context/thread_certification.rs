@@ -9,7 +9,7 @@ struct Event {
 #[test]
 fn simultaneous_parents_transitive_children_unwind_and_plain_threads_are_isolated() {
     let mut certification =
-        sun_certifications::certify("transitive thread context isolation and unwind");
+        sun_observations::certifications::certify("transitive thread context isolation and unwind");
     let engine = Arc::new(ObservationEngine::new());
     let memory = Arc::new(MemorySink::new());
     engine.add_channel_sink("memory", memory.clone());
@@ -23,7 +23,8 @@ fn simultaneous_parents_transitive_children_unwind_and_plain_threads_are_isolate
             let engine = engine.clone();
             let barrier = barrier.clone();
             workers.push(parents.spawn(move || {
-                let mut certification = sun_certifications::certify(format!("parent {parent}"));
+                let mut certification =
+                    sun_observations::certifications::certify(format!("parent {parent}"));
                 let name = format!("parent-{parent}");
                 let _scope = start_scope(
                     ScopeConfig::new(&name)
@@ -36,7 +37,7 @@ fn simultaneous_parents_transitive_children_unwind_and_plain_threads_are_isolate
                     let engine = engine.clone();
                     children.push(context::thread::spawn(move || {
                         let mut certification =
-                            sun_certifications::certify("transitive child context");
+                            sun_observations::certifications::certify("transitive child context");
                         certification.check_fact_expect(
                             "child unwind propagates",
                             std::panic::catch_unwind(|| {
@@ -70,7 +71,7 @@ fn simultaneous_parents_transitive_children_unwind_and_plain_threads_are_isolate
                     let report = child.join().unwrap();
                     certification.check(
                         "transitive child",
-                        sun_certifications::fact("child", report.is_pass())
+                        sun_observations::certifications::fact("child", report.is_pass())
                             .details(report.to_string())
                             .expect(true),
                     );
@@ -119,7 +120,7 @@ fn simultaneous_parents_transitive_children_unwind_and_plain_threads_are_isolate
     for report in parent_reports {
         certification.check(
             "parent context",
-            sun_certifications::fact("parent", report.is_pass())
+            sun_observations::certifications::fact("parent", report.is_pass())
                 .details(report.to_string())
                 .expect(true),
         );
@@ -158,8 +159,9 @@ mod propagation {
 
     #[test]
     fn two_concurrent_parents_and_children_do_not_mix_scopes() {
-        let mut certification =
-            sun_certifications::certify("two concurrent parents and children do not mix scopes");
+        let mut certification = sun_observations::certifications::certify(
+            "two concurrent parents and children do not mix scopes",
+        );
         let sink = capture(global(), "thread_tests::inherited");
         let barrier = Arc::new(Barrier::new(2));
         let parents: Vec<_> = ["parent-a", "parent-b"]
@@ -214,7 +216,7 @@ mod propagation {
 
     #[test]
     fn inherited_threads_share_parent_counter_but_not_other_scopes() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "inherited threads share parent counter but not other scopes",
         );
         let sink = capture(global(), "thread_tests::policies");
@@ -254,7 +256,8 @@ mod propagation {
 
     #[test]
     fn plain_std_spawn_does_not_inherit_tls() {
-        let mut certification = sun_certifications::certify("plain std spawn does not inherit tls");
+        let mut certification =
+            sun_observations::certifications::certify("plain std spawn does not inherit tls");
         let _scope = start_scope(ScopeConfig::new("parent"));
         certification.check_fact_expect(
             "ordinary thread has no inherited context",

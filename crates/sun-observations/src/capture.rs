@@ -1,4 +1,4 @@
-//! Runtime context attachment used by the Observation data-source capture adapter.
+//! Runtime context attachment used by the Observation evidence capture adapter.
 use crate::{
     context, scope::ScopeState, ContextGuard, MemorySink, MemorySinkConfig, MemoryStats,
     ObservationRecord, ScopeConfig, Selection, Sink,

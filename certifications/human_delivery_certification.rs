@@ -1,7 +1,3 @@
-use obs::{
-    ConsoleSink, JsonlSink, MemorySink, Observation, ObservationDelivery, ObservationEngine,
-    ObservationRecord, Selection, Sink,
-};
 use serde::Serialize;
 use std::{
     io,
@@ -10,7 +6,11 @@ use std::{
         Arc, Mutex,
     },
 };
-use sun_certifications::*;
+use sun_observations::certifications::*;
+use sun_observations::{
+    ConsoleSink, JsonlSink, MemorySink, Observation, ObservationDelivery, ObservationEngine,
+    ObservationRecord, Selection, Sink,
+};
 
 #[derive(Default)]
 struct Legacy(Mutex<Vec<ObservationRecord>>);

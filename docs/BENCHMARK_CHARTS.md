@@ -86,7 +86,7 @@ To intentionally collect new machine-specific samples:
 cargo bench -p sun-observations --bench runtime
 cargo bench -p sun-observations --bench batch
 cargo bench -p sun-observations --bench human
-cargo test -p sun-observations-data-source --release --bench capture -- --measure
+cargo test -p sun-observations --release --bench capture -- --measure
 ~~~
 
 See [artifact layout](BENCHMARKS.md#generated-artifacts),

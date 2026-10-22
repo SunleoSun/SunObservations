@@ -2,15 +2,12 @@
 name = "sun-observations"
 version.workspace = true
 edition.workspace = true
-description = "Typed, scoped runtime observations with lazy admission and namespace routing"
-include = ["Cargo.toml", "src/**", "agent-skills/**", "benches/**", "tests/**"]
-
-[features]
-default = []
-rayon = ["dep:rayon"]
+description = "Typed runtime observations, production capture and generic semantic certification"
+readme = "README.md"
+include = ["Cargo.toml", "README.md", "src/**", "agent-skills/**", "examples/**", "benches/**", "tests/**"]
 
 [dependencies]
-sun-observations-derive = { path = "../sun-observations-derive", version = "0.1.0" }
+sun-observations-derive = { path = "../sun-observations-derive", version = "=0.1.0" }
 serde.workspace = true
 serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -18,7 +15,11 @@ uuid = { version = "1", features = ["v4"] }
 parking_lot = "0.12"
 crossbeam-channel = "0.5"
 tempfile = "3"
-rayon = { version = "1.10", optional = true }
+rayon = "1.10"
+
+[[bin]]
+name = "cargo-sun-observations-skills"
+path = "src/bin/cargo-sun-observations-skills.rs"
 
 [[bench]]
 name = "human"
@@ -40,47 +41,23 @@ harness = false
 name = "investigation_allocations"
 harness = false
 
+[[bench]]
+name = "analysis"
+harness = false
+
+[[bench]]
+name = "capture"
+harness = false
+
+[[bench]]
+name = "certifications"
+harness = false
+
 [[test]]
 name = "benchmark_reports"
 path = "benches/support/report_process.rs"
 
 [dev-dependencies]
-# The framework README is runtime rustdoc and includes cross-crate capture workflows.
-sun-observations-data-source = { path = "../sun-observations-data-source", version = "0.1.0" }
-sun-certifications = { path = "../sun-certifications", version = "0.1.0" }
 trybuild = "1"
 # Benchmark-only equivalent-schema raw-payload comparison; no production representation change.
 serde_json = { workspace = true, features = ["raw_value"] }
-
-[[example]]
-name = "human"
-path = "../../examples/human.rs"
-
-[[example]]
-name = "basic"
-path = "../../examples/basic.rs"
-
-[[example]]
-name = "scoped"
-path = "../../examples/scoped.rs"
-
-[[example]]
-name = "channels"
-path = "../../examples/channels.rs"
-
-[[example]]
-name = "jsonl"
-path = "../../examples/jsonl.rs"
-
-[[example]]
-name = "threads"
-path = "../../examples/threads.rs"
-
-[[example]]
-name = "spans"
-path = "../../examples/spans.rs"
-
-[[example]]
-name = "rayon"
-path = "../../examples/rayon.rs"
-required-features = ["rayon"]

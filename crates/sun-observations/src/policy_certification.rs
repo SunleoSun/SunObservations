@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn non_counting_policies_do_not_touch_counter_and_counting_never_wraps() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "non counting policies do not touch counter and counting never wraps",
     );
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,7 +43,7 @@ fn non_counting_policies_do_not_touch_counter_and_counting_never_wraps() {
 
 #[test]
 fn admission_sequences() {
-    let mut certification = sun_certifications::certify("admission sequences");
+    let mut certification = sun_observations::certifications::certify("admission sequences");
     for (policy, expected) in [
         (Policy::Always, vec![true; 6]),
         (Policy::Never, vec![false; 6]),

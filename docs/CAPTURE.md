@@ -1,12 +1,13 @@
-# Observation capture and data-source reference
+# Observation capture and evidence reference
 
-Technical reference for `sun-observations-data-source`. Start with the
+Technical reference for `sun_observations::evidence`. Start with the
 [production workflow](../README.md#observe-and-certify-real-production-behavior);
 this page specifies capture, access and provenance boundaries.
 
 Observation-specific evidence access for the logging + diagnostics + profiling +
-semantic certification workspace. This adapter depends on sun-observations and
-sun-certifications. The generic framework never depends on the runtime or adapter.
+semantic certification workspace. The evidence adapter composes the runtime and
+generic certification layers. Generic certification remains independent of runtime
+concepts and state.
 Persisted FORMAT v1 is unchanged; human rendering is never analysis data.
 
 ## Scoped real-production capture
@@ -72,10 +73,10 @@ If row identities repeat across runs, first query proc/scope or include executio
 in typed domain keys. Never join cross-owner events by insertion order.
 
 ```rust
-use sun_certifications::try_fact;
+use sun_observations::certifications::try_fact;
 use serde::{Deserialize, Serialize};
 use sun_observations::{observe, Observation};
-use sun_observations_data_source::{capture_observations, CaptureConfig, EnvelopeQuery};
+use sun_observations::evidence::{capture_observations, CaptureConfig, EnvelopeQuery};
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "module::boundary")]
@@ -95,7 +96,7 @@ run.certify("production boundary")
 
 Count/integrity, uniqueness/contiguity, joins/comparison, numeric/robust summaries,
 relations/differences/residuals, grouping, outliers/jumps, lag, expectations and proof
-aggregation all live in **sun-certifications**. Import those types/functions there.
+aggregation all live in **sun_observations::certifications**. Import those types/functions there.
 Adapter convenience methods numeric/group_by/join_by/join_sorted_by/join_u64_by/
 lag_relation_by delegate to that owner; they are not parallel algorithms. Lazy numeric
 conveniences can replay selectors; prefer source().numeric() for cached expensive projection.
@@ -108,8 +109,8 @@ available without asserting; scenario acceptance belongs in a CheckResult/Certif
 
 See the [generic API reference](CERTIFICATIONS_API.md),
 [current capture/cache measurements](CAPTURE_BENCHMARKS.md), and executable
-[module transfer](../crates/sun-observations-data-source/examples/module_relation.rs) /
-[mixed evidence workflow](../crates/sun-observations-data-source/examples/skill_workflows.rs).
+[module transfer](../crates/sun-observations/examples/module_relation.rs) /
+[mixed evidence workflow](../crates/sun-observations/examples/skill_workflows.rs).
 The self-contained [evidence skill](../crates/sun-observations/agent-skills/sun-observations/SKILL.md) documents
 the full usable runtime/adapter API; the
-[certification skill](../crates/sun-certifications/agent-skills/certifications/SKILL.md) documents the complete generic API.
+[certification skill](../crates/sun-observations/agent-skills/certifications/SKILL.md) documents the complete generic API.

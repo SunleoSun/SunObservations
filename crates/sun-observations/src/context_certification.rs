@@ -3,8 +3,9 @@ use crate::{start_scope, ScopeConfig};
 
 #[test]
 fn nested_scopes_restore_parent_and_then_empty_context() {
-    let mut certification =
-        sun_certifications::certify("nested scopes restore parent and then empty context");
+    let mut certification = sun_observations::certifications::certify(
+        "nested scopes restore parent and then empty context",
+    );
     certification.check_fact_expect(
         "Context::capture().scope_name()",
         &(Context::capture().scope_name()),
@@ -40,8 +41,9 @@ fn nested_scopes_restore_parent_and_then_empty_context() {
 
 #[test]
 fn empty_context_masks_scope_and_unwind_restores_it() {
-    let mut certification =
-        sun_certifications::certify("empty context masks scope and unwind restores it");
+    let mut certification = sun_observations::certifications::certify(
+        "empty context masks scope and unwind restores it",
+    );
     let _scope = start_scope(ScopeConfig::new("parent"));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         Context::default().run(|| {
@@ -65,7 +67,7 @@ fn empty_context_masks_scope_and_unwind_restores_it() {
 #[test]
 fn out_of_order_drop_does_not_resurrect_old_scope() {
     let mut certification =
-        sun_certifications::certify("out of order drop does not resurrect old scope");
+        sun_observations::certifications::certify("out of order drop does not resurrect old scope");
     let outer = start_scope(ScopeConfig::new("outer"));
     let inner = start_scope(ScopeConfig::new("inner"));
     drop(outer);
@@ -85,8 +87,9 @@ fn out_of_order_drop_does_not_resurrect_old_scope() {
 
 #[test]
 fn retired_sink_destructors_run_without_tls_borrows() {
-    let mut certification =
-        sun_certifications::certify("retired sink destructors run without tls borrows");
+    let mut certification = sun_observations::certifications::certify(
+        "retired sink destructors run without tls borrows",
+    );
     use crate::{Observation, ObservationEngine, Selection, Sink};
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -133,7 +136,8 @@ fn retired_sink_destructors_run_without_tls_borrows() {
 
 #[test]
 fn snapshot_can_outlive_original_guard() {
-    let mut certification = sun_certifications::certify("snapshot can outlive original guard");
+    let mut certification =
+        sun_observations::certifications::certify("snapshot can outlive original guard");
     let scope = start_scope(ScopeConfig::new("captured"));
     let context = Context::capture();
     drop(scope);

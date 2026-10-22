@@ -16,7 +16,7 @@ The map below separates guidance, reference, tooling and version-specific eviden
 | [Agent skills](AGENT_SKILLS.md) | Operational/tooling reference | Installing and synchronizing package-owned API manuals |
 
 Exhaustive agent API inventories remain package-owned:
-[certifications](../crates/sun-certifications/agent-skills/certifications/SKILL.md) and
+[certifications](../crates/sun-observations/agent-skills/certifications/SKILL.md) and
 [evidence](../crates/sun-observations/agent-skills/sun-observations/SKILL.md).
 Root skill files are synchronized mirrors, never separate authorities.
 

@@ -8,7 +8,7 @@ use std::sync::Arc;
 struct Event;
 #[test]
 fn independent_pools_keep_construction_context_and_exact_nested_parallel_budgets() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "independent pools keep construction context and exact nested parallel budgets",
     );
     let engine = Arc::new(ObservationEngine::new());
@@ -148,7 +148,7 @@ mod propagation {
 
     #[test]
     fn dedicated_pools_inherit_each_parent_for_nested_parallel_iterations() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "dedicated pools inherit each parent for nested parallel iterations",
         );
         let sink = capture(global(), "rayon_tests::parallel");
@@ -216,7 +216,7 @@ mod propagation {
 
     #[test]
     fn pool_workers_share_policy_state_and_pool_binding_is_immutable() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "pool workers share policy state and pool binding is immutable",
         );
         let sink = capture(global(), "rayon_tests::limit");
@@ -251,7 +251,7 @@ mod propagation {
     #[test]
     fn empty_pool_context_masks_callers_scope() {
         let mut certification =
-            sun_certifications::certify("empty pool context masks callers scope");
+            sun_observations::certifications::certify("empty pool context masks callers scope");
         let pool = ContextThreadPool::new(2).unwrap();
         let _scope = start_scope(ScopeConfig::new("caller"));
         let scopes = pool.install(|| {

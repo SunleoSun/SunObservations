@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 use sun_observations_certifications::{certify as capture, pair};
 #[test]
 fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutation() {
-    use sun_certifications::{certify as proof, *};
+    use sun_observations::certifications::{certify as proof, *};
     let records = capture(env!("CARGO_BIN_EXE_scenario"), "runtime");
-    let points = 480 + if cfg!(feature = "rayon") { 30 } else { 0 };
+    let points = 510;
     let mut c = proof("runtime production contract");
     c.check(
         "total delivery",
@@ -68,10 +68,8 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
                     expected.insert((child, sequence));
                 }
             }
-            if cfg!(feature = "rayon") {
-                for sequence in 0..30 {
-                    expected.insert((99, sequence));
-                }
+            for sequence in 0..30 {
+                expected.insert((99, sequence));
             }
             let actual: BTreeSet<_> = own
                 .iter()

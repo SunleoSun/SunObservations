@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 #[test]
 fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "retired sink can reenter context and configuration during generation eviction",
     );
     use std::sync::{
@@ -61,7 +61,7 @@ fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction
 struct Event<T: 'static>(T);
 #[test]
 fn tls_eviction_reuses_shared_plan_and_distinct_types_scopes_engines_do_not_alias() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "tls eviction reuses shared plan and distinct types scopes engines do not alias",
     );
     let a = ObservationEngine::new();
@@ -137,7 +137,7 @@ mod admission {
     }
     #[test]
     fn mutations_invalidate_selection_routes_and_sink_snapshots_without_resetting_counters() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "mutations invalidate selection routes and sink snapshots without resetting counters",
         );
         let engine = ObservationEngine::new();
@@ -206,7 +206,7 @@ mod admission {
 
     #[test]
     fn route_addition_attachment_and_detachment_each_invalidate_independently() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "route addition attachment and detachment each invalidate independently",
         );
         let engine = ObservationEngine::new();
@@ -233,7 +233,7 @@ mod admission {
 
     #[test]
     fn shared_cache_generation_changes_are_visible_to_already_warm_children() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "shared cache generation changes are visible to already warm children",
         );
         let engine = Arc::new(ObservationEngine::new());
@@ -276,7 +276,7 @@ mod admission {
 
     #[test]
     fn same_sink_on_two_matching_channels_receives_shared_duplicate_deliveries() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "same sink on two matching channels receives shared duplicate deliveries",
         );
         let engine = ObservationEngine::new();
@@ -301,8 +301,9 @@ mod admission {
 
     #[test]
     fn engine_identity_and_nested_scope_cache_do_not_alias() {
-        let mut certification =
-            sun_certifications::certify("engine identity and nested scope cache do not alias");
+        let mut certification = sun_observations::certifications::certify(
+            "engine identity and nested scope cache do not alias",
+        );
         let a = ObservationEngine::new();
         let b = ObservationEngine::new();
         a.set_selection(Selection::new().activate_all());

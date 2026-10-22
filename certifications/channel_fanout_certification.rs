@@ -1,4 +1,4 @@
-use sun_certifications::*;
+use sun_observations::certifications::*;
 use sun_observations_certifications::certify as run_scenario;
 
 #[test]

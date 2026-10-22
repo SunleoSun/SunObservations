@@ -8,9 +8,9 @@ representation, not fresh measurements of every checkout. See the
 
 Host verified for this run: AMD Ryzen 9 5950X, Windows 11 10.0.26200, x86_64-pc-windows-msvc, rustc 1.96.0 (ac68faa20), Cargo 1.96.0. Default optimized release profile; no pinning/isolation or allocator/RSS profiling. Three raw samples at every scale, no samples discarded. Timings are evidence, never correctness assertions.
 
-Run: cargo test -p sun-observations-data-source --release --bench capture -- --measure
+Run: cargo test -p sun-observations --release --bench capture -- --measure
 
-Harness: [capture.rs](../crates/sun-observations-data-source/benches/capture.rs). [Raw samples](../scripts/capture_metrics.csv) contain all 156 timings (13 operations × 4 scales × 3 samples). The child-process report directory was C:/Temp/sun-observations-build/benchmarks/capture-aUxlHo; the child exited successfully. Report I/O and record destruction are outside emission timings.
+Harness: [capture.rs](../crates/sun-observations/benches/capture.rs). [Raw samples](../scripts/capture_metrics.csv) contain all 156 timings (13 operations × 4 scales × 3 samples). The child-process report directory was C:/Temp/sun-observations-build/benchmarks/capture-aUxlHo; the child exited successfully. Report I/O and record destruction are outside emission timings.
 
 - Direct configured emission uses an intentionally independent engine with one MemorySink and a scope, the low-level baseline. Scoped capture calls the real global observe! macro with identical typed payload/retention and canonical selection. Both include first plan resolution, serialization, envelope construction and synchronous delivery; configuration/context entry and finalization are outside these rows. Capture does not alter global routes/selection.
 - Finalization is the canonical ScopedCapture::finish + ObservationDataset::from_shared path after emission: context cleanup, health snapshot, draining shared handles and exposing a fixed dataset. It does not decode or deep-clone payloads. Completeness and exact dataset size are checked outside timing.

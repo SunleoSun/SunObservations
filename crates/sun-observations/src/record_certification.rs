@@ -2,8 +2,9 @@ use crate::{test_support::record, ObservationRecord, Phase};
 
 #[test]
 fn point_record_roundtrips_and_omits_absent_metadata() {
-    let mut certification =
-        sun_certifications::certify("point record roundtrips and omits absent metadata");
+    let mut certification = sun_observations::certifications::certify(
+        "point record roundtrips and omits absent metadata",
+    );
     let record = record("records::point");
     let value = serde_json::to_value(&record).unwrap();
     certification.check_fact_expect(
@@ -28,7 +29,8 @@ fn point_record_roundtrips_and_omits_absent_metadata() {
 
 #[test]
 fn lifecycle_and_message_roundtrip() {
-    let mut certification = sun_certifications::certify("lifecycle and message roundtrip");
+    let mut certification =
+        sun_observations::certifications::certify("lifecycle and message roundtrip");
     let mut record = record("records::span");
     record.scope = Some("run-a".into());
     record.message = Some("hello".into());

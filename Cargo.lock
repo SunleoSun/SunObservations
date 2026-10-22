@@ -30,15 +30,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
-name = "cargo-sun-observations-skills"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "tempfile",
-]
-
-[[package]]
 name = "cc"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -472,14 +463,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
-name = "sun-certifications"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "sun-observations"
 version = "0.1.0"
 dependencies = [
@@ -489,8 +472,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "sun-certifications",
- "sun-observations-data-source",
  "sun-observations-derive",
  "tempfile",
  "trybuild",
@@ -505,19 +486,6 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
- "sun-certifications",
- "sun-observations",
- "sun-observations-data-source",
- "tempfile",
-]
-
-[[package]]
-name = "sun-observations-data-source"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "sun-certifications",
  "sun-observations",
  "tempfile",
 ]

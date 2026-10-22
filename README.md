@@ -23,7 +23,7 @@ A Fact records evidence; an Expectation decides acceptance. Checks collect resul
 then one final assertion proves the whole named contract. No runtime or Serde is needed:
 
 ```rust
-use sun_certifications::{certify, fact, try_fact};
+use sun_observations::certifications::{certify, fact, try_fact};
 
 let output = [1u64, 2, 3];
 let parsed = "3".parse::<usize>();
@@ -50,9 +50,9 @@ Capture requires no engine injection, channel, route, file, or global reconfigur
 
 ```rust
 use serde::{Deserialize, Serialize};
-use sun_certifications::try_fact;
+use sun_observations::certifications::try_fact;
 use sun_observations::{observe, Observation, ObservationError};
-use sun_observations_data_source::{capture_observations, CaptureConfig};
+use sun_observations::evidence::{capture_observations, CaptureConfig};
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "billing::rate_selected", tags("evidence"))]
@@ -100,32 +100,33 @@ ignored emission errors, or retained unfinished contexts/workers/spans. A retain
 subset cannot silently pass. Application and decode errors above also become checks;
 independent checks continue even when dependent comparisons cannot be prepared.
 
-### Add the crates you need
+### Add one framework dependency
 
-For an edition-2021 application next to this checkout (adjust paths):
+For an edition-2021 application, the complete framework uses one package:
 
 ```toml
 [dependencies]
-sun-certifications = { path = "../SunObservations/crates/sun-certifications" }
-# Add these only for production evidence and capture:
-sun-observations = { path = "../SunObservations/crates/sun-observations" }
-sun-observations-data-source = { path = "../SunObservations/crates/sun-observations-data-source" }
+sun-observations = "0.1"
+# Only needed for your serializable Observation payloads:
 serde = { version = "1", features = ["derive"] }
 ```
 
-These instructions use the checkout, not an assumed crates.io release. The runtime
-re-exports the derive macro; no separate derive dependency is needed.
+For local development before the first release, replace the version with
+`{ path = "../SunObservations/crates/sun-observations" }`. The package re-exports
+the derive macro; no separate derive dependency is needed. Runtime, capture,
+certification and Rayon capabilities are available without feature flags.
 
 ## How the framework fits together
 
-| Crate | Use it to… | Owns |
+| Namespace | Use it to… | Owns |
 | --- | --- | --- |
-| `sun-certifications` | Prove contracts over ordinary values, collections, artifacts and references | Preparation, comparison, analysis, expectations, collect-all reports |
-| `sun-observations` | Expose otherwise invisible production facts and measure lifecycles | Typed evidence, selection, scopes/policies, propagation, routing, sinks, spans |
-| `sun-observations-data-source` | Turn production evidence into the same generic sources | Capture/completeness, snapshots, queries, strict decode, provenance |
+| `sun_observations::certifications` | Prove contracts over ordinary values, collections, artifacts and references | Preparation, comparison, analysis, expectations, collect-all reports |
+| `sun_observations` | Expose otherwise invisible production facts and measure lifecycles | Typed evidence, selection, scopes/policies, propagation, routing, sinks, spans |
+| `sun_observations::evidence` | Turn production evidence into the same generic sources | Capture/completeness, snapshots, queries, strict decode, provenance |
 
 There is **one certification system**, not a logging-specific parallel one. The
-generic crate never depends on the runtime; the adapter depends on both.
+generic certification layer remains independent of runtime concepts and state;
+the evidence adapter composes runtime and generic certification.
 
 Choose your next task:
 
@@ -173,7 +174,7 @@ Use `source(name, &value)` for one value, `source_slice` or `proof.collection` f
 rows. A singular `&Vec<T>` is one Vec value, not a row collection. Keep borrowed inputs alive.
 
 ```rust
-use sun_certifications::*;
+use sun_observations::certifications::*;
 
 let ids = [10u64, 11, 12];
 let status = String::from("ready");
@@ -199,7 +200,7 @@ dedicated key types express identity. Include execution identity when keys repea
 between runs; insertion/arrival order is not a cross-owner identity.
 
 ```rust
-use sun_certifications::*;
+use sun_observations::certifications::*;
 
 #[derive(Clone)]
 struct Row { fold: u8, row: u64, label: u8, value: f64 }
@@ -231,7 +232,7 @@ values. It does not prove equality or causality. Combine correspondence with the
 metrics that express the actual contract:
 
 ```rust
-use sun_certifications::*;
+use sun_observations::certifications::*;
 
 let expected = [(1u64, 2.0), (2, 4.0), (3, 7.0)];
 let actual = [(3u64, 7.000001), (1, 2.0), (2, 4.0)];
@@ -271,7 +272,7 @@ scenario-owned thresholds. Outliers use robust MAD; jumps inspect **source order
 so sort into domain time order first when arrival order is not meaningful.
 
 ```rust
-use sun_certifications::*;
+use sun_observations::certifications::*;
 
 let samples = [(0u8, 10.0), (0, 10.1), (0, 9.9), (1, 10.0), (1, 10.2), (1, 9.8)];
 let mut proof = certify("sensor partitions");
@@ -297,7 +298,7 @@ For unknown stale/off-by-one relations, search a bounded range of **temporal key
 not vector offsets. A positive lag `d` pairs left key `k` with right key `k+d`:
 
 ```rust
-use sun_certifications::*;
+use sun_observations::certifications::*;
 
 let sent = [(0i64, 2.0), (1, 9.0), (2, 3.0), (3, 7.0), (4, -1.0), (5, 5.0), (6, 11.0), (7, 4.0)];
 let received: Vec<_> = sent.iter().map(|(key, value)| (key + 1, *value)).collect();
@@ -402,7 +403,7 @@ scope name does not reuse a budget, but makes persisted execution identity ambig
 ### Propagate execution context
 
 ```rust
-use sun_certifications::{certify, fact};
+use sun_observations::certifications::{certify, fact};
 use sun_observations::{context, start_scope, Context, ScopeConfig};
 
 let _scope = start_scope(ScopeConfig::new("request-42"));
@@ -421,10 +422,10 @@ worker boundary; guard drop restores it. `Context::default()` is explicitly empt
 Plain OS threads and async tasks do **not** inherit context. Join workers and propagate
 their failures; do not hold thread-local guards across async suspension/migration.
 
-With the runtime `rayon` feature, `context::rayon::ContextThreadPool::new(4)?` binds
+With the built-in Rayon integration, `context::rayon::ContextThreadPool::new(4)?` binds
 the context **at construction**, including nested jobs; `pool.install(|| work())` does
 not adopt a later caller's context. Build a pool for each intended execution boundary.
-See executable [threads](examples/threads.rs) and [Rayon](examples/rayon.rs) workflows.
+See executable [threads](crates/sun-observations/examples/threads.rs) and [Rayon](crates/sun-observations/examples/rayon.rs) workflows.
 
 ### Route, retain and persist
 
@@ -500,7 +501,7 @@ impl Observation for Epoch {
 Rendering runs once on the producer only when a routed human sink requests it;
 multiple human sinks share the text. It is literal/multiline output, not persisted
 data. `None` uses Console's envelope/message/data fallback. Tables are independent
-header/row/footer point Observations, not spans: see [human.rs](examples/human.rs).
+header/row/footer point Observations, not spans: see [human.rs](crates/sun-observations/examples/human.rs).
 
 ### Measure lifecycles with spans
 
@@ -547,7 +548,7 @@ construct an `ObservationDataset`, query envelope fields, then strictly decode:
 ```rust
 use serde::{Deserialize, Serialize};
 use sun_observations::{MemorySink, Observation};
-use sun_observations_data_source::{EnvelopeQuery, ObservationDataset};
+use sun_observations::evidence::{EnvelopeQuery, ObservationDataset};
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "jobs::completed")]
 struct Completed { job: u64 }
@@ -591,18 +592,20 @@ through `typed.sources()[index]`. See the [capture/adapter reference](docs/CAPTU
 | Real production behavior | `capture_observations(..., production_call)` → `run.certify` → ordinary + typed sources → one assertion |
 | Negative-path behavior | Check rejection category, forbidden downstream absence, promised effects absent, explanatory evidence and an independent healthy path |
 
-The [mixed evidence workflow](crates/sun-observations-data-source/examples/skill_workflows.rs)
+The [mixed evidence workflow](crates/sun-observations/examples/skill_workflows.rs)
 combines canonical input/output, internal evidence, an independent formula, grouping
 and lag. Its documentation certification also runs the negative-path absence proof
 and independently parses the JSONL artifact.
-[Module transfer](crates/sun-observations-data-source/examples/module_relation.rs)
+[Module transfer](crates/sun-observations/examples/module_relation.rs)
 shows direction/scale controls and bounded diagnostics.
 
+Run the [ordinary keyed/statistical certification](crates/sun-observations/examples/certification.rs)
+with `cargo run -p sun-observations --example certification`.
 Run linked runtime examples with `cargo run -p sun-observations --example NAME`:
-[basic](examples/basic.rs), [scoped](examples/scoped.rs), [channels](examples/channels.rs),
-[jsonl](examples/jsonl.rs), [human](examples/human.rs), [spans](examples/spans.rs),
-[threads](examples/threads.rs); for [rayon](examples/rayon.rs) add `--features rayon`.
-Adapter examples use `cargo run -p sun-observations-data-source --example skill_workflows`
+[basic](crates/sun-observations/examples/basic.rs), [scoped](crates/sun-observations/examples/scoped.rs), [channels](crates/sun-observations/examples/channels.rs),
+[jsonl](crates/sun-observations/examples/jsonl.rs), [human](crates/sun-observations/examples/human.rs), [spans](crates/sun-observations/examples/spans.rs),
+[threads](crates/sun-observations/examples/threads.rs); [rayon](crates/sun-observations/examples/rayon.rs) needs no feature flag.
+Adapter examples use `cargo run -p sun-observations --example skill_workflows`
 or `--example module_relation`. The jsonl example appends `observations.jsonl`;
 the mixed workflow writes a temporary artifact, independently validated by its
 documentation certification.
@@ -647,7 +650,7 @@ no result is a universal speedup, SLA, or correctness threshold.
 | Generic certification semantics | [Focused API reference](docs/CERTIFICATIONS_API.md) |
 | Observation capture, query, decode, provenance | [Capture/adapter reference](docs/CAPTURE.md) |
 | Delivery/storage | [Operations](docs/OPERATIONS.md), [FORMAT v1](docs/FORMAT.md) |
-| Exhaustive agent API inventory | Package-owned [certifications skill](crates/sun-certifications/agent-skills/certifications/SKILL.md), [evidence skill](crates/sun-observations/agent-skills/sun-observations/SKILL.md) |
+| Exhaustive agent API inventory | Package-owned [certifications skill](crates/sun-observations/agent-skills/certifications/SKILL.md), [evidence skill](crates/sun-observations/agent-skills/sun-observations/SKILL.md) |
 | Agent tooling | [Installation/synchronization](docs/AGENT_SKILLS.md); root `.agents/skills` are byte-synchronized mirrors, not edit targets |
 | How SunObservations validates itself | [Framework release validation](docs/RELEASE_VALIDATION.md), **not** an application certification tutorial |
 

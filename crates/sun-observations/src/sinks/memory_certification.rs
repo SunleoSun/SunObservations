@@ -1,6 +1,6 @@
 use super::*;
 use crate::test_support::record;
-use sun_certifications::*;
+use sun_observations::certifications::*;
 #[test]
 fn bounded_oldest_batch_retention_preserves_identity_order_and_lifetime_stats() {
     let memory = MemorySink::with_config(MemorySinkConfig::new(10, 0.3).unwrap());
@@ -101,8 +101,9 @@ mod snapshots {
 
     #[test]
     fn concurrent_writes_and_independent_snapshots() {
-        let mut certification =
-            sun_certifications::certify("concurrent writes and independent snapshots");
+        let mut certification = sun_observations::certifications::certify(
+            "concurrent writes and independent snapshots",
+        );
         let memory = Arc::new(MemorySink::new());
         std::thread::scope(|scope| {
             for _ in 0..8 {

@@ -6,7 +6,7 @@ use std::sync::Arc;
 struct Event;
 #[test]
 fn concurrent_scope_budgets_are_exact_independent_and_survive_guard_drop() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "concurrent scope budgets are exact independent and survive guard drop",
     );
     let engine = Arc::new(ObservationEngine::new());
@@ -52,7 +52,7 @@ fn concurrent_scope_budgets_are_exact_independent_and_survive_guard_drop() {
 }
 #[test]
 fn nested_selection_and_policy_are_fresh_while_guards_restore_or_mask_execution() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "nested selection and policy are fresh while guards restore or mask execution",
     );
     #[derive(Serialize, Observation)]
@@ -138,8 +138,9 @@ fn nested_selection_and_policy_are_fresh_while_guards_restore_or_mask_execution(
 
 #[test]
 fn saturated_counter_never_wraps_under_concurrent_admission() {
-    let mut certification =
-        sun_certifications::certify("saturated counter never wraps under concurrent admission");
+    let mut certification = sun_observations::certifications::certify(
+        "saturated counter never wraps under concurrent admission",
+    );
     use std::sync::atomic::{AtomicU64, Ordering};
     let counter = AtomicU64::new(u64::MAX - 2);
     let rejections = std::thread::scope(|threads| {
@@ -183,7 +184,7 @@ mod lifecycle {
 
     #[test]
     fn counters_are_isolated_between_scopes_even_with_equal_names() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "counters are isolated between scopes even with equal names",
         );
         let engine = ObservationEngine::new();
@@ -215,7 +216,7 @@ mod lifecycle {
 
     #[test]
     fn first_n_and_max_per_scope_reset_and_overrides_do_not_escape() {
-        let mut certification = sun_certifications::certify(
+        let mut certification = sun_observations::certifications::certify(
             "first n and max per scope reset and overrides do not escape",
         );
         let engine = ObservationEngine::new();
@@ -253,7 +254,7 @@ mod lifecycle {
     #[test]
     fn filtered_occurrences_do_not_advance_policy() {
         let mut certification =
-            sun_certifications::certify("filtered occurrences do not advance policy");
+            sun_observations::certifications::certify("filtered occurrences do not advance policy");
         let engine = ObservationEngine::new();
         let _scope =
             start_scope(ScopeConfig::new("policy").override_policy::<Event>(Policy::EveryN(2)));

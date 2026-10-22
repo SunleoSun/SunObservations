@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn severity_has_only_three_wire_values() {
-    let mut certification = sun_certifications::certify("severity has only three wire values");
+    let mut certification =
+        sun_observations::certifications::certify("severity has only three wire values");
     for level in [
         ObservationLevel::INFO,
         ObservationLevel::WARN,

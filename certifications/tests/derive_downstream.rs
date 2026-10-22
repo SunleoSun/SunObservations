@@ -1,6 +1,7 @@
 use std::{fs, process::Command};
 #[test]
-fn renamed_temporary_downstream_dependency_derives_emits_and_rejects_invalid_metadata() {
+fn single_renamed_dependency_exposes_runtime_evidence_certifications_and_rayon_and_rejects_invalid_metadata(
+) {
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir(directory.path().join("src")).unwrap();
     let runtime = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -11,8 +12,10 @@ fn renamed_temporary_downstream_dependency_derives_emits_and_rejects_invalid_met
     fs::write(directory.path().join("Cargo.toml"), manifest).unwrap();
     let pass = r#"
 use sdk::{Observation, Selection, MemorySink};
-use serde::Serialize;
-#[derive(Serialize, Observation)]
+use serde::{Deserialize, Serialize};
+use sdk::certifications::*;
+use sdk::evidence::{capture_observations, CaptureConfig};
+#[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "downstream::stable", level = INFO, tags("detail"))]
 struct Renamed<T> { value: T }
 #[derive(Serialize, Observation)]
@@ -31,6 +34,29 @@ fn main() {
     sdk::global().flush_channels().unwrap();
     assert_eq!(memory.len(), 3);
     assert_eq!(memory.records()[0].namespace, "downstream::stable");
+    let ordinary = [1u32, 2];
+    let mut proof = certify("ordinary values");
+    proof.check("count", source_slice("ordinary", &ordinary).count().expect(2usize));
+    proof.assert_certify();
+    let run = capture_observations(CaptureConfig::new().activate_namespace("downstream"), || {
+        let pool = sdk::context::rayon::ContextThreadPool::new(2).unwrap();
+        pool.install(|| {
+            sdk::observe!(Renamed { value: 1u32 }).unwrap();
+            sdk::observe!(Renamed { value: 2u32 }).unwrap();
+        });
+        [2u32, 1]
+    });
+    let typed = run.typed::<Renamed<u32>>().unwrap();
+    let mut proof = run.certify("captured Rayon transfer");
+    let left = typed.source("emitted");
+    let right = proof.collection("returned", run.result());
+    let pair = left.compare_with(&right).on(|row| row.value, |row| *row);
+    proof.check("keys", pair.comparison_fact().expect_valid());
+    proof.check("values", pair.equal(|row| row.value, |row| *row, 2).expect_valid());
+    let numbers = pair.numeric(|row| row.value as f64, |row| *row as f64);
+    proof.check("correlation", numbers.correlation().expect(CorrelationExpectation::positive(0.99).unwrap()));
+    proof.check("difference", numbers.difference().expect(DifferenceExpectation::default().max_absolute(0.0).unwrap()));
+    proof.assert_certify();
 }
 "#;
     let source = directory.path().join("src/main.rs");

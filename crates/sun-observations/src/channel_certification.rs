@@ -22,7 +22,7 @@ impl Sink for Failing {
 }
 #[test]
 fn overlapping_graph_preserves_multiplicity_identity_failure_and_unique_flush() {
-    let mut certification = sun_certifications::certify(
+    let mut certification = sun_observations::certifications::certify(
         "overlapping graph preserves multiplicity identity failure and unique flush",
     );
     let engine = ObservationEngine::new();
@@ -109,8 +109,9 @@ mod dispatch {
     }
     #[test]
     fn one_channel_fans_out_without_deep_record_clones() {
-        let mut certification =
-            sun_certifications::certify("one channel fans out without deep record clones");
+        let mut certification = sun_observations::certifications::certify(
+            "one channel fans out without deep record clones",
+        );
         let engine = ObservationEngine::new();
         let a = Arc::new(MemorySink::new());
         let b = Arc::new(MemorySink::new());
@@ -135,7 +136,7 @@ mod dispatch {
     #[test]
     fn failing_sink_does_not_block_other_targets() {
         let mut certification =
-            sun_certifications::certify("failing sink does not block other targets");
+            sun_observations::certifications::certify("failing sink does not block other targets");
         let memory = Arc::new(MemorySink::new());
         let sinks: Vec<Arc<dyn Sink>> = vec![Arc::new(Failing), memory.clone()];
         certification.check_fact_expect(

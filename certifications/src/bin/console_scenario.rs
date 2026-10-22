@@ -1,6 +1,6 @@
-use obs::{ConsoleSink, Observation, ObservationEngine, Selection, Sink};
 use serde::Serialize;
 use std::sync::Arc;
+use sun_observations::{ConsoleSink, Observation, ObservationEngine, Selection, Sink};
 
 #[derive(Serialize)]
 struct Line {
@@ -20,13 +20,15 @@ fn main() {
         ConsoleSink::stderr()
     });
     if mode.ends_with("flush") {
-        obs::global().set_selection(Selection::new().activate_all());
-        obs::global()
+        sun_observations::global().set_selection(Selection::new().activate_all());
+        sun_observations::global()
             .register_namespace_channel("console", "human")
             .unwrap();
-        obs::global().add_channel_sink("human", sink.clone());
+        sun_observations::global().add_channel_sink("human", sink.clone());
         for index in 0..4000 {
-            obs::global().observe_if_active(|| Line { index }).unwrap();
+            sun_observations::global()
+                .observe_if_active(|| Line { index })
+                .unwrap();
         }
         sink.flush().unwrap();
     } else {
