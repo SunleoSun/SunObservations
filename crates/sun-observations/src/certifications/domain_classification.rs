@@ -58,18 +58,6 @@ impl InputProjection for DomainValue {
         out
     }
 }
-impl InputProjection for Assignment {
-    fn rows(&self, path: &InputPath) -> Vec<DomainRow> {
-        get(self, path)
-            .map(|value| {
-                vec![DomainRow {
-                    context: vec![],
-                    value: value.clone(),
-                }]
-            })
-            .unwrap_or_default()
-    }
-}
 fn compatible(a: &RowContext, b: &RowContext) -> bool {
     a.iter()
         .all(|(p, i)| b.iter().all(|(q, j)| p != q || i == j))
@@ -131,7 +119,18 @@ fn gates_match(
     Ok(true)
 }
 impl ValueSpace {
-    fn slot(&self, value: &DomainValue, schema: &DomainSchema) -> CaseDomainCoordinateSlot {
+    pub(super) fn slot(
+        &self,
+        value: &DomainValue,
+        schema: &DomainSchema,
+    ) -> CaseDomainCoordinateSlot {
+        if let (Self::Enum(_), DomainValue::Enum(tag, _)) = (self, value) {
+            return if self.contains(value) {
+                CaseDomainCoordinateSlot::EnumVariant(*tag)
+            } else {
+                CaseDomainCoordinateSlot::ExcludedVariant(*tag)
+            };
+        }
         let mut anchors = vec![];
         for v in self.anchors() {
             push_value(&mut anchors, normalize(schema, v))
@@ -150,23 +149,9 @@ impl ValueSpace {
             return CaseDomainCoordinateSlot::Negative(distance);
         }
         if let ValueSpace::Ranges(rs) = self {
-            if let DomainRegion::Range { branch, .. } = self.region(value) {
+            if let DomainRegion::Range { branch, tercile } = self.region(value) {
                 let (a, b) = &rs[branch];
-                let fraction = match (a, b, value) {
-                    (DomainValue::UInt(a), DomainValue::UInt(b), DomainValue::UInt(v)) => {
-                        (v - a) as f64 / (b - a + 1) as f64
-                    }
-                    (DomainValue::Int(a), DomainValue::Int(b), DomainValue::Int(v)) => {
-                        (v - a) as f64 / (b.saturating_sub(*a).saturating_add(1)) as f64
-                    }
-                    (DomainValue::Real(a), DomainValue::Real(b), DomainValue::Real(v)) => {
-                        (v - a) / (b - a)
-                    }
-                    _ => 0.,
-                };
-                return CaseDomainCoordinateSlot::Stratum(
-                    (fraction * RANGE_STRATA as f64).clamp(0., (RANGE_STRATA - 1) as f64) as u64,
-                );
+                return CaseDomainCoordinateSlot::Stratum(range_stratum_bin(a, b, tercile, value));
             }
         }
         CaseDomainCoordinateSlot::Real(value.key())
@@ -176,12 +161,6 @@ impl<T: DomainInput> CompiledDomain<T> {
     pub(super) fn coordinate(
         &self,
         input: &DomainValue,
-    ) -> Result<CaseDomainCoordinate, AnalysisError> {
-        self.classify_projection(input)
-    }
-    pub(super) fn coordinate_of(
-        &self,
-        input: &Assignment,
     ) -> Result<CaseDomainCoordinate, AnalysisError> {
         self.classify_projection(input)
     }

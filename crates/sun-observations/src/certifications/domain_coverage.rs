@@ -46,6 +46,17 @@ impl DomainTarget {
         if wanted.is_empty() {
             return false;
         }
+        if self.composition.is_some() {
+            return occupied.iter().any(|c| {
+                wanted.iter().all(|(sector, slot)| {
+                    if matches!(sector.region, DomainRegion::Range { .. }) {
+                        c.iter().any(|(other, _)| other == sector)
+                    } else {
+                        c.contains(&(sector.clone(), slot.clone()))
+                    }
+                })
+            });
+        }
         if self.violated.len() > 1 {
             return occupied.iter().any(|c| {
                 let negative_ids: BTreeSet<_> = c

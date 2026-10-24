@@ -629,12 +629,13 @@ pub enum DomainRegion {
         branch: usize,
         tercile: DomainTercile,
     },
+    Enum,
     Discrete(usize),
     Below,
     Above,
     Gap(usize),
     Relation,
-    ExcludedVariant(usize),
+    ExcludedVariant,
     OutsideSelection,
 }
 impl DomainRegion {
@@ -645,7 +646,7 @@ impl DomainRegion {
                 | Self::Above
                 | Self::Gap(_)
                 | Self::Relation
-                | Self::ExcludedVariant(_)
+                | Self::ExcludedVariant
                 | Self::OutsideSelection
         )
     }
@@ -654,9 +655,11 @@ impl DomainRegion {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CaseDomainCoordinateSlot {
     Anchor(usize),
+    EnumVariant(usize),
     Stratum(u64),
     Combination,
     Negative(DomainNegativeDistance),
+    ExcludedVariant(usize),
     Real(DomainValueKey),
 }
 /// Exact scalar identity, independent of formatted diagnostics.

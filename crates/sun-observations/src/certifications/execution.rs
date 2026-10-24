@@ -805,8 +805,11 @@ pub struct CoverageReport {
 #[derive(Default)]
 struct CoverageTracker {
     anchors: BTreeSet<(CaseDomainCoordinateSector, CaseDomainCoordinateSlot)>,
-    enums: BTreeSet<CaseDomainCoordinateSector>,
-    pairs: BTreeSet<(CaseDomainCoordinateSector, CaseDomainCoordinateSector)>,
+    enums: BTreeSet<(CaseDomainCoordinateSector, CaseDomainCoordinateSlot)>,
+    pairs: BTreeSet<(
+        (CaseDomainCoordinateSector, CaseDomainCoordinateSlot),
+        (CaseDomainCoordinateSector, CaseDomainCoordinateSlot),
+    )>,
     negative: BTreeSet<CaseDomainCoordinateSector>,
     catalog: domain::compilation::DomainCoverageCatalog,
 }
@@ -824,29 +827,51 @@ impl CoverageTracker {
             } else {
                 let anchor = (e.sector.clone(), e.slot.clone());
                 if self.catalog.positive_anchors.contains(&anchor) {
-                    self.anchors.insert(anchor);
+                    self.anchors.insert(anchor.clone());
                 }
-                if self.catalog.enum_values.contains(&e.sector) {
-                    self.enums.insert(e.sector.clone());
-                    enums.push(e.sector.clone());
+                if self.catalog.enum_values.contains(&anchor) {
+                    self.enums.insert(anchor.clone());
+                    enums.push((e.path.clone(), anchor));
                 }
             }
         }
-        for (i, a) in enums.iter().enumerate() {
-            for b in &enums[i + 1..] {
-                let pair = (a.clone(), b.clone());
-                if self.catalog.pairwise_combinations.contains(&pair) {
-                    self.pairs.insert(pair);
+        for (i, (path_a, a)) in enums.iter().enumerate() {
+            let count_a = enums.iter().filter(|(p, _)| p == path_a).count();
+            for (path_b, b) in &enums[i + 1..] {
+                if path_a == path_b || a.0.constraint == b.0.constraint {
+                    continue;
                 }
+                let count_b = enums.iter().filter(|(p, _)| p == path_b).count();
+                if count_a > 1 && count_b > 1 {
+                    continue;
+                }
+                let pair = if a <= b {
+                    (a.clone(), b.clone())
+                } else {
+                    (b.clone(), a.clone())
+                };
+                self.pairs.insert(pair);
             }
         }
     }
     fn report(self) -> CoverageReport {
         CoverageReport {
-            positive_anchors: (self.anchors.len(), self.catalog.positive_anchors.len()),
-            enum_values: (self.enums.len(), self.catalog.enum_values.len()),
-            pairwise_combinations: (self.pairs.len(), self.catalog.pairwise_combinations.len()),
-            negative_sectors: (self.negative.len(), self.catalog.negative_sectors.len()),
+            positive_anchors: (
+                self.anchors.len(),
+                self.catalog.positive_anchors.len().max(self.anchors.len()),
+            ),
+            enum_values: (
+                self.enums.len(),
+                self.catalog.enum_values.len().max(self.enums.len()),
+            ),
+            pairwise_combinations: (
+                self.pairs.len(),
+                self.catalog.pairwise_total.max(self.pairs.len()),
+            ),
+            negative_sectors: (
+                self.negative.len(),
+                self.catalog.negative_sectors.len().max(self.negative.len()),
+            ),
         }
     }
 }
