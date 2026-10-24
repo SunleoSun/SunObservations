@@ -43,4 +43,6 @@ mod framework_certification;
 #[cfg(test)]
 mod generative_certification;
 #[cfg(test)]
+mod planned_controls_certification;
+#[cfg(test)]
 mod test_support;

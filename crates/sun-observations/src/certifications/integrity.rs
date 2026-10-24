@@ -204,5 +204,8 @@ impl<I: Iterator<Item = f64> + Clone> NumericSeries<I> {
 }
 
 #[cfg(test)]
+#[path = "integrity_generative_certification.rs"]
+mod generative;
+#[cfg(test)]
 #[path = "integrity_certification.rs"]
 mod tests;

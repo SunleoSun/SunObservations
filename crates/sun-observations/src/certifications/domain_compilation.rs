@@ -1973,7 +1973,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                 .any(|(parent, _)| parent == left_path)
     }
 
-    fn enum_pair_target_count(&self) -> usize {
+    pub(crate) fn enum_pair_target_count(&self) -> usize {
         self.enum_pair_blocks
             .iter()
             .filter(|block| !block.covered_by_anchor)
@@ -1985,7 +1985,7 @@ impl<T: DomainInput> CompiledDomain<T> {
             .fold(0usize, usize::saturating_add)
     }
 
-    fn enum_pair_target(&self, mut index: usize) -> Option<DomainTarget> {
+    pub(crate) fn enum_pair_target(&self, mut index: usize) -> Option<DomainTarget> {
         for block in self
             .enum_pair_blocks
             .iter()
@@ -2034,7 +2034,7 @@ impl<T: DomainInput> CompiledDomain<T> {
             })
             .min(CONTEXT_LIMIT)
     }
-    fn higher_order_enum_target(&self, mut index: usize) -> Option<DomainTarget> {
+    pub(crate) fn higher_order_enum_target(&self, mut index: usize) -> Option<DomainTarget> {
         if index >= self.higher_order_enum_count() {
             return None;
         }
@@ -2069,7 +2069,7 @@ impl<T: DomainInput> CompiledDomain<T> {
             depth: 1,
         })
     }
-    fn collection_composition_pair_count(&self) -> usize {
+    pub(crate) fn collection_composition_pair_count(&self) -> usize {
         self.collection_composition_groups
             .iter()
             .map(|group| {
@@ -2081,7 +2081,7 @@ impl<T: DomainInput> CompiledDomain<T> {
             })
             .fold(0usize, usize::saturating_add)
     }
-    fn collection_composition_spread_count(&self) -> usize {
+    pub(crate) fn collection_composition_spread_count(&self) -> usize {
         self.collection_composition_groups
             .iter()
             .filter(|group| group.representatives.len() >= 3)
@@ -2091,7 +2091,7 @@ impl<T: DomainInput> CompiledDomain<T> {
         self.collection_composition_pair_count()
             .saturating_add(self.collection_composition_spread_count())
     }
-    fn collection_composition_target(&self, mut index: usize) -> Option<DomainTarget> {
+    pub(crate) fn collection_composition_target(&self, mut index: usize) -> Option<DomainTarget> {
         let pair_total = self.collection_composition_pair_count();
         if index < pair_total {
             for group in &self.collection_composition_groups {
@@ -2170,7 +2170,10 @@ impl<T: DomainInput> CompiledDomain<T> {
         forced.push((value_path.clone(), value.clone()));
         forced
     }
-    fn solve_target(&self, target: &DomainTarget) -> Result<Option<Assignment>, AnalysisError> {
+    pub(crate) fn solve_target(
+        &self,
+        target: &DomainTarget,
+    ) -> Result<Option<Assignment>, AnalysisError> {
         let Some((coll_path, var_path, values)) = &target.composition else {
             return self.solve(&target.forced, &target.violated);
         };
@@ -2255,7 +2258,7 @@ impl<T: DomainInput> CompiledDomain<T> {
         }
         Ok(None)
     }
-    fn materialize_value(
+    pub(crate) fn materialize_value(
         &self,
         env: &Assignment,
         target: &DomainTarget,
@@ -2568,7 +2571,11 @@ impl<T: DomainInput> CompiledDomain<T> {
         let ranges = self.range_sectors.len() * TERCILE_STRATA as usize;
         ranges.max(self.higher_order_enum_count())
     }
-    fn free_target(&self, index: usize, seed: u64) -> Result<Option<DomainTarget>, AnalysisError> {
+    pub(crate) fn free_target(
+        &self,
+        index: usize,
+        seed: u64,
+    ) -> Result<Option<DomainTarget>, AnalysisError> {
         let level = index / 2;
         if index % 2 == 1 {
             return Ok(self.higher_order_enum_target(level));

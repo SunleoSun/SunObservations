@@ -3,6 +3,10 @@ use crate::certifications::{
 };
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path = "grouping_certification.rs"]
+mod certification;
+
 /// Sorted key/index membership over a prepared view, without copying values or sources.
 /// Groups ascend by key; members retain their original typed-view order.
 pub struct GroupedView<'a, T, K> {

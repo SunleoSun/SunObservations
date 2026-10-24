@@ -279,5 +279,8 @@ impl<I: Iterator<Item = f64> + Clone> NumericSeries<I> {
 }
 
 #[cfg(test)]
+#[path = "anomaly_generative_certification.rs"]
+mod generative;
+#[cfg(test)]
 #[path = "anomaly_certification.rs"]
 mod tests;

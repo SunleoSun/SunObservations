@@ -9,6 +9,7 @@ Measurement navigation, not a tutorial or performance guarantee. For learning us
 | --- | --- |
 | Runtime admission, selectors, sinks, threads, retention | [Runtime report](BENCHMARKS.md) |
 | Scoped capture, bounded memory, reused cached analysis | [Capture/cache report](CAPTURE_BENCHMARKS.md) |
+| Generative compile, lazy planning, materialization, planned checks | [Generative certification report](GENERATIVE_CERTIFICATION_BENCHMARKS.md), separate current dataset |
 | Production writer chunk tradeoff | [Bounded-writer follow-up](BATCH_BENCHMARKS.md) |
 | Generic preparation, ordinary vs adapted values, analysis through 1M | [Pre-cache certification dataset](history/CERTIFICATION_BENCHMARKS.md), explicitly historical |
 | Earlier algorithms and experiments | [Historical evidence map](README.md#historical-evidence) |

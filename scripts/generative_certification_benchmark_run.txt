@@ -1,0 +1,98 @@
+Status: Ok
+Command_status: Ok
+Exit_code: 0
+Timed_out: false
+Duration_ms: 47686
+Subprocess_succeeded: true
+Stdout_truncated: false
+Stderr_truncated: false
+Stdout:
+Command: cargo test --release -p sun-observations --bench generative_certifications -- --measure
+Platform: Windows-11-10.0.26200-SP0
+Processor: AMD64 Family 25 Model 33 Stepping 0, AuthenticAMD
+Logical CPUs: 32
+Python: 3.13.15
+Rust: rustc 1.96.0 (ac68faa20 2026-05-25)
+Revision: 852c909dffd753be99f7b8ec7930e0378daf36c7 + working-tree benchmark/certification changes
+Environment: SUN_CERT_SEED=184729361 SUN_CERT_CASES_BUDGET=64 SUN_CERT_REPORT=0
+Verified: 999 rows; 22 operation families; 333 configurations; all three samples present; execution/hard-stop counters checked
+Dataset: selected sample-0 rows
+CSV_BEGIN
+operation,shape,budget,dimensions,cardinality,potential,constraints,negative_pairs,length,records,checks,sample,iterations,milliseconds,executed,positive,single_negative,multi_negative,stopped
+domain_compile,enum_product,64,4,2,16,8,28,0,0,0,0,5,0.298400,0,0,0,0,false
+planner_next_materialize,enum_product,64,4,2,16,8,28,0,0,0,0,5,1.055700,16,16,0,0,false
+planner_pair_target_selection,enum_product,64,4,2,16,8,28,0,0,0,0,5,0.013020,62,0,0,0,false
+target_solve,enum_product,64,4,2,16,8,28,0,0,0,0,5,0.410460,62,0,0,0,false
+input_materialize,enum_product,64,4,2,16,8,28,0,0,0,0,5,0.032700,62,0,0,0,false
+domain_compile,enum_product,64,4,4,256,8,28,0,0,0,0,5,0.246940,0,0,0,0,false
+planner_next_materialize,enum_product,64,4,4,256,8,28,0,0,0,0,5,1.512200,64,64,0,0,false
+planner_pair_target_selection,enum_product,64,4,4,256,8,28,0,0,0,0,5,0.011920,64,0,0,0,false
+target_solve,enum_product,64,4,4,256,8,28,0,0,0,0,5,0.411960,64,0,0,0,false
+input_materialize,enum_product,64,4,4,256,8,28,0,0,0,0,5,0.033140,64,0,0,0,false
+domain_compile,enum_product,64,4,8,4096,8,28,0,0,0,0,5,0.245180,0,0,0,0,false
+planner_next_materialize,enum_product,64,4,8,4096,8,28,0,0,0,0,5,0.957700,64,64,0,0,false
+planner_pair_target_selection,enum_product,64,4,8,4096,8,28,0,0,0,0,5,0.011580,64,0,0,0,false
+target_solve,enum_product,64,4,8,4096,8,28,0,0,0,0,5,0.442920,64,0,0,0,false
+input_materialize,enum_product,64,4,8,4096,8,28,0,0,0,0,5,0.033300,64,0,0,0,false
+domain_compile,enum_product,64,4,16,65536,8,28,0,0,0,0,5,0.261800,0,0,0,0,false
+planner_next_materialize,enum_product,64,4,16,65536,8,28,0,0,0,0,5,1.283860,64,64,0,0,false
+planner_pair_target_selection,enum_product,64,4,16,65536,8,28,0,0,0,0,5,0.011600,64,0,0,0,false
+target_solve,enum_product,64,4,16,65536,8,28,0,0,0,0,5,0.587700,64,0,0,0,false
+input_materialize,enum_product,64,4,16,65536,8,28,0,0,0,0,5,0.033800,64,0,0,0,false
+domain_compile,enum_product,64,4,32,1048576,8,6,0,0,0,0,5,0.306120,0,0,0,0,false
+planner_next_materialize,enum_product,64,4,32,1048576,8,6,0,0,0,0,5,1.828300,64,64,0,0,false
+planner_pair_target_selection,enum_product,64,4,32,1048576,8,6,0,0,0,0,5,0.011620,64,0,0,0,false
+target_solve,enum_product,64,4,32,1048576,8,6,0,0,0,0,5,1.110780,64,0,0,0,false
+input_materialize,enum_product,64,4,32,1048576,8,6,0,0,0,0,5,0.033200,64,0,0,0,false
+full_planned,scalar_frontier,8,0,0,1000000000001,1,0,0,0,0,0,5,0.039380,8,5,3,0,false
+full_planned,scalar_frontier,64,0,0,1000000000001,1,0,0,0,0,0,5,0.341280,64,58,6,0,false
+full_planned,scalar_frontier,256,0,0,1000000000001,1,0,0,0,0,0,5,1.658500,208,202,6,0,false
+full_planned,scalar_frontier,1024,0,0,1000000000001,1,0,0,0,0,0,5,1.656160,208,202,6,0,false
+full_planned,enum_noop,8,8,32,1099511627776,8,0,0,0,0,0,5,1.133220,8,8,0,0,false
+full_planned,enum_noop,64,8,32,1099511627776,8,0,0,0,0,0,5,4.233320,64,64,0,0,false
+full_planned,enum_noop,256,8,32,1099511627776,8,0,0,0,0,0,5,17.639980,256,256,0,0,false
+full_planned,enum_noop,1024,8,32,1099511627776,8,0,0,0,0,0,5,63.058960,1024,1024,0,0,false
+checks_real_cases,without_generation,256,0,0,0,0,0,0,0,0,0,5,0.003460,256,256,0,0,false
+checks_real_cases,without_generation,256,0,0,0,0,0,0,0,1,0,5,0.104160,256,256,0,0,false
+checks_real_cases,without_generation,256,0,0,0,0,0,0,0,5,0,5,0.522260,256,256,0,0,false
+checks_real_cases,without_generation,256,0,0,0,0,0,0,0,20,0,5,2.021480,256,256,0,0,false
+negative_exploration,single_and_pair,256,0,0,0,4,6,0,0,0,0,5,3.684580,256,226,24,6,false
+negative_exploration,single_and_pair,256,0,0,0,5,10,0,0,0,0,5,38.100080,256,226,20,10,false
+negative_exploration,single_and_pair,256,0,0,0,7,21,0,0,0,0,5,427.854240,256,228,12,16,false
+negative_exploration,single_only,256,0,0,0,1,0,0,0,0,0,5,1.809740,208,202,6,0,false
+negative_exploration,positive_only,256,8,32,1099511627776,8,0,0,0,0,0,5,25.510640,256,256,0,0,false
+classification,collection_each,64,0,2,2,2,1,1,0,0,0,5,0.000840,1,0,0,0,false
+classification,collection_each,64,0,8,8,2,1,1,0,0,0,5,0.000900,1,0,0,0,false
+classification,collection_each,64,0,32,32,2,0,1,0,0,0,5,0.002080,1,0,0,0,false
+classification,collection_each,64,0,2,256,2,1,8,0,0,0,5,0.003400,1,0,0,0,false
+classification,collection_each,64,0,8,16777216,2,1,8,0,0,0,5,0.003060,1,0,0,0,false
+classification,collection_each,64,0,32,1099511627776,2,0,8,0,0,0,5,0.002480,1,0,0,0,false
+classification,collection_each,64,0,2,18446744073709551616,2,1,64,0,0,0,5,0.012200,1,0,0,0,false
+classification,collection_each,64,0,8,340282366920938463463374607431768211455,2,1,64,0,0,0,5,0.027500,1,0,0,0,false
+classification,collection_each,64,0,32,340282366920938463463374607431768211455,2,0,64,0,0,0,5,0.027240,1,0,0,0,false
+classification,collection_each,64,0,2,340282366920938463463374607431768211455,2,1,256,0,0,0,5,0.103680,1,0,0,0,false
+classification,collection_each,64,0,8,340282366920938463463374607431768211455,2,1,256,0,0,0,5,0.104680,1,0,0,0,false
+classification,collection_each,64,0,32,340282366920938463463374607431768211455,2,0,256,0,0,0,5,0.104380,1,0,0,0,false
+classification,real_inputs,11,0,0,0,1,0,0,10,0,0,5,0.028820,10,0,0,0,false
+data_source_prefill,classify_execute_then_one_generated,11,0,0,0,1,0,0,10,0,0,5,0.047080,11,11,0,0,false
+classification,real_inputs,101,0,0,0,1,0,0,100,0,0,5,0.297160,100,0,0,0,false
+data_source_prefill,classify_execute_then_one_generated,101,0,0,0,1,0,0,100,0,0,5,0.368500,101,101,0,0,false
+classification,real_inputs,10001,0,0,0,1,0,0,10000,0,0,5,29.658620,10000,0,0,0,false
+data_source_prefill,classify_execute_then_one_generated,10001,0,0,0,1,0,0,10000,0,0,5,15.584000,10001,10001,0,0,false
+failure_hard_stop,budget_1,4096,4,32,1048577048576,5,0,0,0,0,0,5,0.060480,1,1,0,0,true
+failure_hard_stop,budget_5,4096,4,32,1048577048576,5,0,0,0,0,0,5,4.454440,129,127,2,0,true
+failure_hard_stop,no_failures,4096,4,32,1048577048576,5,0,0,0,0,0,5,190.645880,4096,4090,6,0,false
+planned_plain_result,real_cases,8,0,0,0,0,0,0,8,0,0,5,0.000360,8,8,0,0,false
+planned_captured_run,real_cases_one_observation,8,0,0,0,0,0,0,8,0,0,5,0.011300,8,8,0,0,false
+planned_plain_result,real_cases,64,0,0,0,0,0,0,64,0,0,5,0.001140,64,64,0,0,false
+planned_captured_run,real_cases_one_observation,64,0,0,0,0,0,0,64,0,0,5,0.087520,64,64,0,0,false
+planned_plain_result,real_cases,256,0,0,0,0,0,0,256,0,0,5,0.004060,256,256,0,0,false
+planned_captured_run,real_cases_one_observation,256,0,0,0,0,0,0,256,0,0,5,0.293700,256,256,0,0,false
+capture_only,one_observation,0,0,0,0,0,0,0,1,0,0,5,0.001000,1,0,0,0,false
+CSV_END
+   Compiling sun-observations v0.1.0 (C:\Drive\MyPrograms\SunObservations\crates\sun-observations)
+    Finished `release` profile [optimized] target(s) in 29.01s
+     Running benches\generative_certifications.rs (C:\Temp\sun-observations-build\release\deps\generative_certifications-3cf89752fb0a2123.exe)
+
+Stderr:
+<no output>

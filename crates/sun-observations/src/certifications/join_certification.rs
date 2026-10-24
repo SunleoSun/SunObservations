@@ -14,7 +14,7 @@ fn cardinality_mismatch_cannot_report_complete_correspondence() {
 use crate::certifications::test_support::shuffle;
 use std::collections::BTreeMap;
 
-fn reference(left: &[u64], right: &[u64]) -> Comparison<u64> {
+pub(super) fn reference(left: &[u64], right: &[u64]) -> Comparison<u64> {
     let groups = |values: &[u64]| {
         let mut groups = BTreeMap::<u64, Vec<usize>>::new();
         for (i, &k) in values.iter().enumerate() {

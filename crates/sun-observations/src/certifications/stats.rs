@@ -241,5 +241,8 @@ impl Moments {
 }
 
 #[cfg(test)]
+#[path = "stats_generative_certification.rs"]
+mod generative;
+#[cfg(test)]
 #[path = "stats_certification.rs"]
 mod tests;

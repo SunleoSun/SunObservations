@@ -284,5 +284,8 @@ impl LagExpectation {
 }
 
 #[cfg(test)]
+#[path = "lag_generative_certification.rs"]
+mod generative;
+#[cfg(test)]
 #[path = "lag_certification.rs"]
 mod tests;
