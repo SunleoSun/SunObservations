@@ -202,22 +202,22 @@ where
 }
 /// Registration supports heterogeneous planned checks and already-evaluated eager checks.
 #[doc(hidden)]
-pub trait RegisterCheck<'a, I, X: CertificationExecution, F> {
-    fn register(self, certification: &mut PlannedCertification<'a, I, X, F>);
+pub trait RegisterCheck<'a, I, X: CertificationExecution, F, S = fn(&I, u64) -> X> {
+    fn register(self, certification: &mut PlannedCertification<'a, I, X, F, S>);
 }
-impl<'a, I, X: CertificationExecution, F, A, V, E, K> RegisterCheck<'a, I, X, F>
+impl<'a, I, X: CertificationExecution, F, S, A, V, E, K> RegisterCheck<'a, I, X, F, S>
     for CheckPlan<I, X, A, V, E, K>
 where
     Self: CaseCheck<I, X> + 'a,
 {
-    fn register(self, c: &mut PlannedCertification<'a, I, X, F>) {
+    fn register(self, c: &mut PlannedCertification<'a, I, X, F, S>) {
         c.checks.push(Box::new(self))
     }
 }
-impl<'a, I, X: CertificationExecution, F, T: fmt::Debug, V: fmt::Debug> RegisterCheck<'a, I, X, F>
-    for CheckResult<T, V>
+impl<'a, I, X: CertificationExecution, F, S, T: fmt::Debug, V: fmt::Debug>
+    RegisterCheck<'a, I, X, F, S> for CheckResult<T, V>
 {
-    fn register(self, c: &mut PlannedCertification<'a, I, X, F>) {
+    fn register(self, c: &mut PlannedCertification<'a, I, X, F, S>) {
         let name = self.source().to_string();
         c.eager.check(name, self);
     }
@@ -260,12 +260,23 @@ impl<I: DomainInput> PlannedDomain<I> for CompiledDomain<I> {
     }
 }
 
+/// Executor arity is kept distinct while sharing all outcome and evidence handling.
+enum Executor<F, S> {
+    Ordinary(F),
+    Seeded(S),
+}
+
+#[cfg(test)]
+#[path = "execution_certification.rs"]
+mod certification;
+
 /// Real input execution with optional deterministic Domain exploration.
-pub struct PlannedCertification<'a, I, X: CertificationExecution, F> {
+pub struct PlannedCertification<'a, I, X: CertificationExecution, F, S = fn(&I, u64) -> X> {
     eager: Certification,
-    executor: F,
+    executor: Executor<F, S>,
     domain: Option<Box<dyn PlannedDomain<I> + 'a>>,
     domain_registered: bool,
+    pairwise_coverage_required: bool,
     inputs: Vec<I>,
     checks: Vec<Box<dyn CaseCheck<I, X> + 'a>>,
     budget: usize,
@@ -281,6 +292,22 @@ impl Certification {
         self,
         executor: F,
     ) -> PlannedCertification<'a, I, X, F> {
+        self.with_executor(Executor::Ordinary(executor))
+    }
+
+    /// Supplies a deterministic case-local seed, independent of execution order.
+    /// Generated seeds use canonical Domain coordinates; real seeds use data-source ordinals.
+    pub fn executor_with_seed<'a, I, X: CertificationExecution, F: FnMut(&I, u64) -> X>(
+        self,
+        executor: F,
+    ) -> PlannedCertification<'a, I, X, fn(&I) -> X, F> {
+        self.with_executor(Executor::Seeded(executor))
+    }
+
+    fn with_executor<'a, I, X: CertificationExecution, F, S>(
+        self,
+        executor: Executor<F, S>,
+    ) -> PlannedCertification<'a, I, X, F, S> {
         let mut config_error = None;
         fn setting(name: &str, default: u64, error: &mut Option<AnalysisError>) -> u64 {
             match std::env::var(name) {
@@ -306,6 +333,7 @@ impl Certification {
             executor,
             domain: None,
             domain_registered: false,
+            pairwise_coverage_required: false,
             inputs: vec![],
             checks: vec![],
             budget: usize::try_from(budget).unwrap_or(usize::MAX),
@@ -318,7 +346,9 @@ impl Certification {
         }
     }
 }
-impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'a, I, X, F> {
+impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X>
+    PlannedCertification<'a, I, X, F, S>
+{
     pub fn data_source(&mut self, inputs: impl IntoIterator<Item = I>) -> &mut Self {
         self.inputs.extend(inputs);
         self
@@ -337,6 +367,12 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'
             Err(error) if self.config_error.is_none() => self.config_error = Some(error),
             Err(_) => {}
         }
+        self
+    }
+    /// Requires every feasible enum value and pairwise combination within the normal budgets.
+    /// A missing Domain or a catalog without pairwise combinations cannot satisfy this requirement.
+    pub fn require_pairwise_coverage(&mut self) -> &mut Self {
+        self.pairwise_coverage_required = true;
         self
     }
     pub fn cases_budget(&mut self, budget: usize) -> &mut Self {
@@ -364,7 +400,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'
             marker: PhantomData,
         }
     }
-    pub fn check<P: RegisterCheck<'a, I, X, F>>(&mut self, plan: P) -> &mut Self {
+    pub fn check<P: RegisterCheck<'a, I, X, F, S>>(&mut self, plan: P) -> &mut Self {
         plan.register(self);
         self
     }
@@ -406,15 +442,16 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'
         if let Some(domain) = &compiled {
             coverage.catalog(domain.coverage_catalog());
         }
+        let certification_seed = local_seed(self.seed, &self.identity);
         let mut planner = compiled
             .as_deref()
-            .map(|domain| CaseCoveragePlanner::new(domain, local_seed(self.seed, &self.identity)));
+            .map(|domain| CaseCoveragePlanner::new(domain, certification_seed));
         let available = planner
             .as_ref()
             .map(|p| p.available)
             .unwrap_or([true, false, false]);
         let mut failures = FailureCoveragePlanner::new(self.failure_budget, available);
-        for input in std::mem::take(&mut self.inputs) {
+        for (ordinal, input) in std::mem::take(&mut self.inputs).into_iter().enumerate() {
             if failures.full() {
                 break;
             }
@@ -437,6 +474,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'
             if let Some((kind, check, diagnostic, class)) = execute_case(
                 &mut self.executor,
                 &input,
+                || local_seed(certification_seed, &("data_source", ordinal)),
                 &coordinate,
                 &self.checks,
                 self.diagnostic_bytes,
@@ -473,6 +511,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'
                         if let Some((kind, check, diagnostic, class)) = execute_case(
                             &mut self.executor,
                             &input,
+                            || local_seed(certification_seed, &coordinate_key(&coordinate)),
                             &coordinate,
                             &self.checks,
                             self.diagnostic_bytes,
@@ -493,6 +532,19 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X> PlannedCertification<'
         report.stopped = failures.full();
         report.failures = failures.failures;
         report.coverage = coverage.report();
+        if self.pairwise_coverage_required && report.evaluation_error.is_none() {
+            let (covered, total) = report.coverage.pairwise_combinations;
+            let (values, total_values) = report.coverage.enum_values;
+            if total == 0 {
+                report.evaluation_error = Some(domain_error(
+                    "required pairwise coverage needs a Domain with feasible pairwise combinations (total > 0)",
+                ));
+            } else if covered != total || values != total_values {
+                report.evaluation_error = Some(domain_error(format!(
+                    "required pairwise coverage not reached: {covered} / {total}; enum values: {values} / {total_values}",
+                )));
+            }
+        }
         report
     }
     #[track_caller]
@@ -508,14 +560,18 @@ enum FailureKind {
     Prerequisite,
     Check(usize),
 }
-fn execute_case<I, X: CertificationExecution, F: FnMut(&I) -> X>(
-    executor: &mut F,
+fn execute_case<I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X>(
+    executor: &mut Executor<F, S>,
     input: &I,
+    seed: impl FnOnce() -> u64,
     coordinate: &CaseDomainCoordinate,
     checks: &[Box<dyn CaseCheck<I, X> + '_>],
     limit: usize,
 ) -> Option<(FailureKind, String, String, CheckClass)> {
-    let execution = match case_unwind(|| executor(input)) {
+    let execution = match case_unwind(|| match executor {
+        Executor::Ordinary(executor) => executor(input),
+        Executor::Seeded(executor) => executor(input, seed()),
+    }) {
         Ok(e) => e,
         Err(message) => {
             return Some((

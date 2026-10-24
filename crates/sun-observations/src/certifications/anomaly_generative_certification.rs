@@ -1,5 +1,5 @@
 use super::*;
-use crate::certifications::test_support::{assert_pairwise_certified, Mismatches};
+use crate::certifications::test_support::Mismatches;
 use crate::certifications::*;
 
 #[derive(Clone, Debug, PartialEq, DomainInput)]
@@ -181,5 +181,6 @@ fn generated_jump_threshold_floor_sign_and_tie_interactions_match_adjacent_refer
     c.seed(521).cases_budget(256);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }

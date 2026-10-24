@@ -1,5 +1,5 @@
 use super::*;
-use crate::certifications::test_support::{assert_pairwise_certified, KeyScenario, Mismatches};
+use crate::certifications::test_support::{KeyScenario, Mismatches};
 use crate::certifications::*;
 use std::collections::BTreeMap;
 
@@ -105,7 +105,8 @@ fn generated_key_integrity_retains_exact_indices_ranges_and_extreme_boundaries()
     c.seed(463).cases_budget(128);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }
 
 #[derive(Clone, Debug, PartialEq, DomainInput)]
@@ -188,5 +189,6 @@ fn generated_numeric_integrity_checks_exact_nonfinite_sign_and_boundary_evidence
     c.seed(753).cases_budget(128);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }

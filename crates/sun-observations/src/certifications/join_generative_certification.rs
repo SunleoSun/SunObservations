@@ -1,5 +1,5 @@
 use super::*;
-use crate::certifications::test_support::{assert_pairwise_certified, shuffle, Mismatches};
+use crate::certifications::test_support::{shuffle, Mismatches};
 use crate::certifications::*;
 
 #[derive(Clone, Debug, PartialEq, DomainInput)]
@@ -109,5 +109,6 @@ fn generated_join_structure_matches_map_reference_and_presorted_contract() {
     c.seed(179).cases_budget(160);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }

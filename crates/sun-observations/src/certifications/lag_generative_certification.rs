@@ -1,7 +1,5 @@
 use super::*;
-use crate::certifications::test_support::{
-    assert_pairwise_certified, reference_linear, reference_rank, shuffle, Mismatches,
-};
+use crate::certifications::test_support::{reference_linear, reference_rank, shuffle, Mismatches};
 use crate::certifications::*;
 
 #[derive(Clone, Debug, PartialEq, DomainInput)]
@@ -258,7 +256,8 @@ fn generated_lag_interactions_match_exhaustive_alignment_and_metric_oracle() {
     c.seed(719).cases_budget(384);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }
 #[derive(DomainInput)]
 struct AlignmentScenario {
@@ -288,7 +287,8 @@ fn higher_order_alignment_explores_every_shape_gap_order_triple_within_small_bud
     c.seed(197).cases_budget(128);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
+    c.require_pairwise_coverage();
     let report = c.report();
-    assert_pairwise_certified(&report);
+    report.assert_certify();
     assert_eq!(seen.len(), 72);
 }

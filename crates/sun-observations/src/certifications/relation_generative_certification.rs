@@ -1,6 +1,6 @@
 use super::*;
 use crate::certifications::test_support::{
-    assert_pairwise_certified, reference_linear, reference_rank, shuffle, ulps, Mismatches, Rng,
+    reference_linear, reference_rank, shuffle, ulps, Mismatches, Rng,
 };
 use crate::certifications::{
     certification, collection, domain, fact, linear_fit, CheckClass, CorrelationMetrics, Domain,
@@ -86,14 +86,15 @@ const SCALE_X: f64 = 3.;
 const SCALE_Y: f64 = 5.;
 const TRANSLATION_STEPS: i64 = 1 << 20;
 
+#[derive(Debug, PartialEq)]
 struct Generated {
     pairs: Vec<(f64, f64)>,
     order: Vec<usize>,
     left_unit: f64,
     right_unit: f64,
 }
-fn generate(scenario: &RelationScenario, salt: u64) -> Generated {
-    let mut rng = Rng::new(salt);
+fn generate(scenario: &RelationScenario, seed: u64) -> Generated {
+    let mut rng = Rng::new(seed);
     let n = scenario.count.len();
     let offset = match scenario.offset {
         Offset::Zero => 0,
@@ -138,7 +139,7 @@ fn generate(scenario: &RelationScenario, salt: u64) -> Generated {
     match scenario.order {
         Order::Sorted => {}
         Order::Reversed => order.reverse(),
-        Order::Shuffled => shuffle(&mut order, salt ^ 0x5eed),
+        Order::Shuffled => shuffle(&mut order, seed ^ 0x5eed),
     }
     Generated {
         pairs: x
@@ -225,8 +226,8 @@ struct RelationRun {
     translation: f64,
     facade: Facade,
 }
-fn run(scenario: &RelationScenario, salt: u64) -> Result<RelationRun, NumericError> {
-    let generated = generate(scenario, salt);
+fn run(scenario: &RelationScenario, seed: u64) -> Result<RelationRun, NumericError> {
+    let generated = generate(scenario, seed);
     let pairs = &generated.pairs;
     let inserted: Vec<(f64, f64)> = generated.order.iter().map(|i| pairs[*i]).collect();
     let map = |f: &dyn Fn((f64, f64)) -> (f64, f64)| -> Vec<(f64, f64)> {
@@ -747,14 +748,45 @@ fn metamorphic_transformations_preserve_mathematical_relationships(
 }
 
 #[test]
+fn generated_fixture_replay_ignores_execution_ordinals_after_real_prefill() {
+    fn collect(prefill: Option<RelationScenario>) -> Vec<(RelationScenario, Generated)> {
+        let mut seen = vec![];
+        let mut c =
+            certification("fixture replay").executor_with_seed(|input: &RelationScenario, seed| {
+                seen.push((input.clone(), generate(input, seed)));
+                Ok::<_, ()>(())
+            });
+        c.data_source(prefill);
+        c.domain(scenario_domain());
+        c.seed(719).cases_budget(64);
+        c.assert_certify();
+        seen
+    }
+    let original = collect(None);
+    assert_eq!(original, collect(None));
+    let prefilled = collect(Some(original.last().unwrap().0.clone()));
+    assert_eq!(prefilled.len(), 64);
+    let mut moved = false;
+    let mut compared = 0;
+    for (ordinal, (scenario, fixture)) in prefilled.iter().enumerate().skip(1) {
+        if let Some((previous_ordinal, (_, expected))) = original
+            .iter()
+            .enumerate()
+            .find(|(_, (input, _))| input == scenario)
+        {
+            assert_eq!(fixture, expected);
+            moved |= ordinal != previous_ordinal;
+            compared += 1;
+        }
+    }
+    assert!(compared >= 32);
+    assert!(moved);
+}
+
+#[test]
 fn generated_association_scenarios_match_references_facades_and_metamorphic_laws() {
-    let mut salt = 0;
-    let mut c = certification("relation over generated association scenarios").executor(
-        move |scenario: &RelationScenario| {
-            salt += 1;
-            run(scenario, salt)
-        },
-    );
+    let mut c =
+        certification("relation over generated association scenarios").executor_with_seed(run);
     c.domain(scenario_domain());
     c.seed(184729361).cases_budget(320);
     let case = c.case();
@@ -811,8 +843,9 @@ fn generated_association_scenarios_match_references_facades_and_metamorphic_laws
             .expect(Vec::<String>::new())
             .description("swap, negation, scaling and translation laws"),
     );
+    c.require_pairwise_coverage();
     let report = c.report();
-    assert_pairwise_certified(&report);
+    report.assert_certify();
     assert_eq!(report.cases_executed(), 320);
     assert_eq!(report.checks.len(), 9);
 }

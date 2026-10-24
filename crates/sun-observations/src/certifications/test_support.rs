@@ -1,4 +1,3 @@
-use crate::certifications::PlannedCertificationReport;
 use std::fmt::Debug;
 
 pub fn close(actual: f64, expected: f64) {
@@ -23,20 +22,43 @@ pub fn median(values: &[f64]) -> f64 {
         (values[values.len() / 2 - 1] + values[values.len() / 2]) / 2.0
     }
 }
+/// Shifted two-pass centering keeps large offsets out of the independent covariance reference.
 pub fn reference_linear(values: &[(f64, f64)]) -> (f64, f64, f64, f64, f64) {
     let n = values.len() as f64;
-    let mx = values.iter().map(|p| p.0).sum::<f64>() / n;
-    let my = values.iter().map(|p| p.1).sum::<f64>() / n;
-    let xx = values.iter().map(|p| (p.0 - mx).powi(2)).sum::<f64>();
-    let yy = values.iter().map(|p| (p.1 - my).powi(2)).sum::<f64>();
-    let xy = values.iter().map(|p| (p.0 - mx) * (p.1 - my)).sum::<f64>();
+    let (origin_x, origin_y) = values[0];
+    let mx = values.iter().map(|p| p.0 - origin_x).sum::<f64>() / n;
+    let my = values.iter().map(|p| p.1 - origin_y).sum::<f64>() / n;
+    let xx = values
+        .iter()
+        .map(|p| (p.0 - origin_x - mx).powi(2))
+        .sum::<f64>();
+    let yy = values
+        .iter()
+        .map(|p| (p.1 - origin_y - my).powi(2))
+        .sum::<f64>();
+    let xy = values
+        .iter()
+        .map(|p| (p.0 - origin_x - mx) * (p.1 - origin_y - my))
+        .sum::<f64>();
     (
         xy / (xx * yy).sqrt(),
         xy / n,
         xy / xx,
-        my - xy / xx * mx,
+        (origin_y - xy / xx * origin_x) + (my - xy / xx * mx),
         xy * xy / (xx * yy),
     )
+}
+#[test]
+fn two_pass_reference_recovers_affine_intercept_at_large_offsets() {
+    let pairs: Vec<_> = (0..30)
+        .map(|i| {
+            let x = (1i64 << 40) + 3 * i + i64::from(i == 0);
+            (x as f64 * 0.125, (3 * x + 5) as f64 * 0.25)
+        })
+        .collect();
+    let (_, _, slope, intercept, _) = reference_linear(&pairs);
+    assert!((slope - 6.).abs() <= ulps(6.));
+    assert!((intercept - 1.25).abs() <= ulps(pairs[0].1));
 }
 pub fn reference_rank(values: &[f64]) -> Vec<f64> {
     values
@@ -107,16 +129,6 @@ pub fn ulps(magnitude: f64) -> f64 {
     8.0 * f64::EPSILON * magnitude.abs()
 }
 
-/// A passing generative proof must also have explored every feasible pairwise enum combination.
-#[track_caller]
-pub fn assert_pairwise_certified(report: &PlannedCertificationReport) {
-    assert!(report.is_pass(), "{report}");
-    let (covered, total) = report.coverage.pairwise_combinations;
-    assert!(total > 0, "{report:?}");
-    assert_eq!(covered, total, "{report:?}");
-    let (values, total_values) = report.coverage.enum_values;
-    assert_eq!(values, total_values, "{report:?}");
-}
 #[derive(Clone, Debug, PartialEq, crate::certifications::DomainInput)]
 pub enum KeyShape {
     Empty,

@@ -1,4 +1,4 @@
-use crate::certifications::test_support::{assert_pairwise_certified, median, shuffle, Mismatches};
+use crate::certifications::test_support::{median, shuffle, Mismatches};
 use crate::certifications::*;
 use std::{cell::Cell, collections::BTreeMap};
 
@@ -185,5 +185,6 @@ fn generated_groups_preserve_membership_summary_identity_and_error_isolation() {
     c.seed(3281).cases_budget(160);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }

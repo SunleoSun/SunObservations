@@ -1,7 +1,5 @@
 use super::*;
-use crate::certifications::test_support::{
-    assert_pairwise_certified, shuffle, ulps, Mismatches, Rng,
-};
+use crate::certifications::test_support::{shuffle, ulps, Mismatches, Rng};
 use crate::certifications::{certification, domain, fact, Domain, DomainInput};
 
 #[derive(Clone, Debug, PartialEq, DomainInput)]
@@ -94,8 +92,8 @@ const CANCELLING_TERM: i64 = 1 << 52;
 const TRANSLATION_STEPS: i64 = 1 << 20;
 const POSITIVE_SCALE: f64 = 3.;
 
-fn lattice(scenario: &StatsScenario, salt: u64) -> (Vec<i64>, f64) {
-    let mut rng = Rng::new(salt);
+fn lattice(scenario: &StatsScenario, seed: u64) -> (Vec<i64>, f64) {
+    let mut rng = Rng::new(seed);
     let base = match scenario.offset {
         Offset::Zero => 0,
         Offset::Large => LARGE_OFFSET,
@@ -120,7 +118,7 @@ fn lattice(scenario: &StatsScenario, salt: u64) -> (Vec<i64>, f64) {
     match scenario.order {
         Order::Sorted => units.sort_unstable(),
         Order::Reversed => units.sort_unstable_by(|a, b| b.cmp(a)),
-        Order::Shuffled => shuffle(&mut units, salt ^ 0x5eed),
+        Order::Shuffled => shuffle(&mut units, seed ^ 0x5eed),
     }
     let scale = match scenario.scale {
         Scale::Unit => 1.,
@@ -163,12 +161,12 @@ impl StatsRun {
         self.lattice.len()
     }
 }
-fn run(scenario: &StatsScenario, salt: u64) -> Result<StatsRun, NumericError> {
-    let (lattice, unit) = lattice(scenario, salt);
+fn run(scenario: &StatsScenario, seed: u64) -> Result<StatsRun, NumericError> {
+    let (lattice, unit) = lattice(scenario, seed);
     let values: Vec<f64> = lattice.iter().map(|m| *m as f64 * unit).collect();
     let probability = scenario.site.probability();
     let mut permuted = values.clone();
-    shuffle(&mut permuted, salt ^ 0xa5);
+    shuffle(&mut permuted, seed ^ 0xa5);
     permuted.rotate_left(values.len() / 3 + 1);
     let shift = TRANSLATION_STEPS as f64 * unit;
     let translated: Vec<f64> = values.iter().map(|v| v + shift).collect();
@@ -460,14 +458,45 @@ fn reflection_mirrors_quantiles_and_preserves_spread(run: &StatsRun) -> Vec<Stri
 }
 
 #[test]
+fn generated_fixture_replay_ignores_execution_ordinals_after_real_prefill() {
+    fn collect(prefill: Option<StatsScenario>) -> Vec<(StatsScenario, (Vec<i64>, f64))> {
+        let mut seen = vec![];
+        let mut c =
+            certification("fixture replay").executor_with_seed(|input: &StatsScenario, seed| {
+                seen.push((input.clone(), lattice(input, seed)));
+                Ok::<_, ()>(())
+            });
+        c.data_source(prefill);
+        c.domain(scenario_domain());
+        c.seed(719).cases_budget(64);
+        c.assert_certify();
+        seen
+    }
+    let original = collect(None);
+    assert_eq!(original, collect(None));
+    let prefilled = collect(Some(original.last().unwrap().0.clone()));
+    assert_eq!(prefilled.len(), 64);
+    let mut moved = false;
+    let mut compared = 0;
+    for (ordinal, (scenario, fixture)) in prefilled.iter().enumerate().skip(1) {
+        if let Some((previous_ordinal, (_, expected))) = original
+            .iter()
+            .enumerate()
+            .find(|(_, (input, _))| input == scenario)
+        {
+            assert_eq!(fixture, expected);
+            moved |= ordinal != previous_ordinal;
+            compared += 1;
+        }
+    }
+    assert!(compared >= 32);
+    assert!(moved);
+}
+
+#[test]
 fn generated_distribution_scenarios_match_exact_references_and_metamorphic_invariants() {
-    let mut salt = 0;
-    let mut c = certification("statistics over generated distribution scenarios").executor(
-        move |scenario: &StatsScenario| {
-            salt += 1;
-            run(scenario, salt)
-        },
-    );
+    let mut c =
+        certification("statistics over generated distribution scenarios").executor_with_seed(run);
     c.domain(scenario_domain());
     c.seed(184729361).cases_budget(256);
     let case = c.case();
@@ -524,24 +553,24 @@ fn generated_distribution_scenarios_match_exact_references_and_metamorphic_invar
         .expect(Vec::<String>::new())
         .description("reflection"),
     );
+    c.require_pairwise_coverage();
     let report = c.report();
-    assert_pairwise_certified(&report);
+    report.assert_certify();
     assert_eq!(report.cases_executed(), 256);
     assert_eq!(report.checks.len(), 9);
 }
 
 #[test]
 fn naive_summation_is_detected_by_cancelling_scenarios() {
-    let mut salt = 0;
-    let mut c =
-        certification("naive summation control").executor(move |scenario: &StatsScenario| {
-            salt += 1;
-            run(scenario, salt).map(|mut run| {
+    let mut c = certification("naive summation control").executor_with_seed(
+        |scenario: &StatsScenario, seed| {
+            run(scenario, seed).map(|mut run| {
                 let naive: f64 = run.lattice.iter().map(|m| *m as f64 * run.unit).sum();
                 run.base.summary.sum = naive;
                 run
             })
-        });
+        },
+    );
     c.domain(scenario_domain());
     c.seed(184729361).cases_budget(256);
     c.failure_budget(64);

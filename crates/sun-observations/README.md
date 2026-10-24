@@ -46,6 +46,8 @@ c.check(fact!(case.result().len())
 c.assert_certify();
 ```
 
+Use `.executor_with_seed(|input, seed: u64| ...)` when fixtures need deterministic case-local variation: generated seeds use canonical case coordinates, real seeds use registered data-source ordinals, and neither depends on other executions. Ordinary `.executor(...)` needs no RNG. Declare `c.require_pairwise_coverage();` to require all feasible enum values and pairwise combinations in normal `report()` / `assert_certify()` results, without increasing budgets. Missing or zero pairwise catalogs and incomplete coverage fail closed.
+
 Only inputs are generated. Real inputs run first and prefill coverage; generated inputs use the same executor. Positive inputs must return `Ok` and satisfy checks; negative inputs must return `Err`, without running positive checks. Panics fail the case. Wrap the executor body in `capture_observations` to additionally use `case.observations::<T>()`; capture completeness remains mandatory even for expected rejection.
 
 Domains support named structs, enum payloads, recursive collections, conditional branches, discrete choices, numeric ranges/unions and typed scalar relations. Every active field needs exactly one constructive specification. Compilation fails closed on incomplete, ambiguous, unsatisfiable or unsupported construction; it never certifies a partial solver result. Constructive arithmetic and search are bounded, and generated collections are limited to 1,000,000 elements each. Derive currently accepts concrete (non-generic) types. Shrinking, regex/string generation, maps/sets, uniqueness and collection ordering are not provided.

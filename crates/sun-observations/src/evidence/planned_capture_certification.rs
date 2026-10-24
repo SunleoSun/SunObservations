@@ -67,6 +67,53 @@ fn capture_completeness_cannot_be_bypassed_by_success_or_expected_rejection() {
         assert!(report.to_string().contains("incomplete capture"));
     }
 }
+#[test]
+fn seeded_capture_keeps_typed_observations_results_and_negative_rejection() {
+    let mut c =
+        certification("seeded production capture").executor_with_seed(|input: &Input, seed| {
+            capture_observations(CaptureConfig::new().activate_all(), || {
+                execute(input).map(|output| (output, seed))
+            })
+        });
+    c.domain(domain!(Input { count.in_range(1..=3) }));
+    c.seed(719).cases_budget(16);
+    let case = c.case();
+    c.check(fact!(case.result().0.len()).expect(fact!(case.input().count)));
+    c.check(
+        fact!(case.observations::<Row>().unwrap().values().len()).expect(fact!(case.input().count)),
+    );
+    let report = c.report();
+    report.assert_certify();
+    assert!(report.categories[0] > 0);
+    assert!(report.categories[1] > 0);
+}
+#[test]
+fn seeded_capture_completeness_precedes_even_expected_negative_rejection() {
+    for count in [0, 1] {
+        let mut c =
+            certification("seeded incomplete capture").executor_with_seed(|input: &Input, _| {
+                capture_observations(
+                    CaptureConfig::new()
+                        .activate_all()
+                        .retention(crate::MemorySinkConfig::new(1, 1.0).unwrap()),
+                    || {
+                        observe!(Row { index: 0 }).unwrap();
+                        observe!(Row { index: 1 }).unwrap();
+                        execute(input)
+                    },
+                )
+            });
+        c.data_source([Input { count }]);
+        c.domain(domain!(Input { count.in_range(1..=3) }));
+        c.cases_budget(8).failure_budget(1);
+        let report = c.report();
+        assert!(!report.is_pass());
+        assert!(report.stopped);
+        assert_eq!(report.cases_executed(), 1);
+        assert_eq!(report.failures[0].class, CheckClass::EvaluationError);
+        assert_eq!(report.failures[0].check, "execution completeness");
+    }
+}
 #[derive(Clone, Debug, PartialEq, DomainInput)]
 enum CountClass {
     Empty,

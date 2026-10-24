@@ -813,7 +813,7 @@ fn nested_enum_pairwise_coverage_counts_only_feasible_combinations() {
             NestedChoice::D { inner.all_enum_values() }
         }
     }));
-    c.cases_budget(32);
+    c.cases_budget(32).require_pairwise_coverage();
     let case = c.case();
     c.check(fact!(*case.result()).expect(1usize));
     let report = c.report();
@@ -852,7 +852,7 @@ fn conditional_enum_pairwise_coverage_counts_only_active_combinations() {
             backend.selected_enum_values([ConditionalBackend::Y, ConditionalBackend::Z])
         }
     }));
-    c.cases_budget(32);
+    c.cases_budget(32).require_pairwise_coverage();
     let case = c.case();
     c.check(fact!(*case.result()).expect(1usize));
     let report = c.report();

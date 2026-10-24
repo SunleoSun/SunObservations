@@ -1,5 +1,5 @@
 use super::*;
-use crate::certifications::test_support::{assert_pairwise_certified, KeyScenario, Mismatches};
+use crate::certifications::test_support::{KeyScenario, Mismatches};
 use std::{cell::Cell, fmt};
 
 struct Provenance;
@@ -111,5 +111,6 @@ fn generated_prepared_sources_are_faithful_named_provenance_preserving_owner_vie
     c.seed(463).cases_budget(128);
     let case = c.case();
     c.check(fact!(case.result().clone()).expect(Vec::<String>::new()));
-    assert_pairwise_certified(&c.report());
+    c.require_pairwise_coverage();
+    c.assert_certify();
 }

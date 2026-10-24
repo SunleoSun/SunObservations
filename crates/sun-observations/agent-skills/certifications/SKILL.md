@@ -95,6 +95,24 @@ c.assert_certify();
 - `cases_budget(n)` overrides `SUN_CERT_CASES_BUDGET` (default 64); `seed(n)` overrides `SUN_CERT_SEED` (default 184729361). `failure_budget(n)` defaults to five representative cases and stops further construction/execution when filled. Diagnostics stay bounded.
 - `assert_certify()` consumes the runner and is silent on success. `report()` returns an immutable result without asserting. `SUN_CERT_REPORT=1` or `report_mode(true)` requests a compact coverage/check summary, not a per-execution dump.
 
+For deterministic fixture variation, use `.executor_with_seed(|input, seed: u64| ...)`; the executor still receives an already materialized input. The framework derives the case-local seed from the global seed and certification identity, using canonical Domain coordinates for generated cases and the zero-based registered data-source ordinal for real cases. It never advances a shared execution RNG: reordering other executions or changing the budget does not change the seed of the same case. Domain/planner randomness remains framework-owned. Ordinary `.executor(|input| ...)` needs no seed or RNG state; both forms share Result, captured evidence, panic, rejection and failure-budget semantics.
+
+Call `c.require_pairwise_coverage();` to make exploration completeness part of `report().is_pass()` and `assert_certify()`. It requires all feasible enum values and pairwise enum combinations from the existing context-aware catalog, including conditional/nested contexts; infeasible combinations do not enter the denominator. Real cases prefill coverage. Missing Domain or zero pairwise total fails closed, not vacuously. Incomplete coverage yields an EvaluationError with covered/total counts; the requirement never increases the case budget or bypasses the failure stop. Without it, coverage remains informational.
+
+```rust
+use sun_observations::certifications::*;
+#[derive(DomainInput)] enum Choice { A, B }
+#[derive(DomainInput)] struct Scenario { left: Choice, right: Choice }
+fn planned() {
+let mut c = certification("seeded pairwise fixtures")
+    .executor_with_seed(|_: &Scenario, seed: u64| Ok::<_, ()>(seed));
+c.domain(domain!(Scenario { left.all_enum_values(), right.all_enum_values() }));
+c.seed(719).cases_budget(4);
+c.require_pairwise_coverage();
+c.assert_certify();
+}
+```
+
 ## Prepared sources, groups and typed comparison
 
 Names accept Into<Arc<str>>. Keep borrowed inputs alive. PreparedSource clones share slices/name/provenance, never payloads; registration does not borrow Certification. Projections/selectors express semantic fields.
