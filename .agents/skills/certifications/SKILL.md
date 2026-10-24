@@ -1,6 +1,6 @@
 ---
 name: certifications
-description: Build semantic proofs with sun_observations::certifications. Use when checking ordinary or captured evidence with facts, expectations, typed-key comparisons, statistics, anomalies, lag, or bounded reports.
+description: Build semantic proofs with sun_observations::certifications. Use when certifying production execution over real/generated typed inputs or checking ordinary/captured evidence, expectations, comparisons, statistics, anomalies, lag and bounded reports.
 ---
 
 # Semantic certification methodology and API
@@ -49,6 +49,51 @@ Canonical flow: **source → fact / Fact → expect → CheckResult → check �
 | `NumericRule::{Finite,Positive,NonNegative}`; `NumericRule::between(min:f64,max:f64) -> Result<Self,NumericError>` | Finite inclusive bounds validated at construction using `NumericRange::new(min,max)`; hard numeric acceptance, finite evidence even for sign checks. |
 | `AllValid` | Hard structural validity; prefer expect_valid(). |
 | `AtMostAnomalies(usize)`; `LagExpectation{best_lag:i64}`; `GroupExpectation::new(minimum_count:usize,mean_min:f64,mean_max:f64) -> Result<Self,NumericError>` | Statistical report acceptance below. |
+
+## Planned production execution
+
+Keep `certification(name)` for eager proofs. For repeated production execution use `certification(name).executor(|input: &Input| -> Result<Output, Error> { ... })` and bind `let case = c.case();` once. The typed symbolic root is necessary for Rust inference; it does not borrow the runner. Do not wrap the whole proof in a test closure.
+
+```rust
+use sun_observations::certifications::*;
+#[derive(DomainInput)] enum Mode { Fast, Accurate }
+#[derive(DomainInput)]
+struct Request { mode: Mode, window: usize, values: Vec<f64> }
+fn execute(input: &Request) -> Result<Vec<f64>, &'static str> {
+    let allowed = match input.mode { Mode::Fast => 1..=3, Mode::Accurate => 4..=6 };
+    if !allowed.contains(&input.window) || !(2..=8).contains(&input.values.len())
+        || input.window > input.values.len()
+        || input.values.iter().any(|v| !v.is_finite() || !(-1.0..=1.0).contains(v)) {
+        return Err("invalid request");
+    }
+    Ok(input.values[..input.window].to_vec())
+}
+fn planned() {
+let mut c = certification("production prediction").executor(execute);
+c.data_source([Request { mode: Mode::Fast, window: 2, values: vec![0.0; 2] }]);
+c.domain(domain!(Request {
+    mode.all_enum_values(),
+    when(mode.equal(Mode::Fast)) { window.in_range(1..=3) },
+    when(mode.equal(Mode::Accurate)) { window.in_range(4..=6) },
+    values { length().in_range(2..=8), each(in_range(-1.0..=1.0)) },
+    window.less_equal(values.length()),
+}));
+c.cases_budget(48);
+let case = c.case();
+c.check(fact!(case.result().len()).expect(fact!(case.input().window))
+    .description("one output per requested item"));
+c.assert_certify();
+}
+```
+
+- `data_source` contains real **inputs**, not result/Observation views. Inputs run first through the same executor and reduce generated duplication. Data-source-only planned execution does not require `DomainInput`; derive it only when registering a Domain. Real cases may exceed the total case budget, but a Domain requires some generated capacity.
+- `DomainInput` derives typed descriptors for concrete input structs/enums. `domain!` requires exactly one constructive source for every active field: `fixed_value`, `selected_values`, `in_range`, `one_of_ranges`, or a nested domain. Use `all_enum_values` / `selected_enum_values` for choices; payload blocks select their own enum variant fields. Collections use `length().in_range` and `each(...)` or `each { ... }`. `when(...)` activates another field's domain.
+- Numeric relations: `less_than`, `less_equal`, `greater_than`, `greater_equal`, `equal`, `not_equal`. Operands must have the same scalar type; collection length is `usize`; nested struct leaves may be referenced by paths such as `config.window.less_equal(values.length())`. No opaque Domain predicates, baseline templates, or implicit intersections. Incomplete, ambiguous or unsatisfiable construction fails closed before generated execution. No shrinking.
+- `fact!(value)` is eager. `fact!(case.input()...)` / `fact!(case.result()...)` are deferred, resolving on every successful positive case through ordinary Fact/Expectation acceptance. `check` registers heterogeneous plans or eager results; `.description(...)` is optional human context, never identity. Clone borrowed non-Copy evidence when an owned fact is needed.
+- Positive `Err`, accepted negative inputs, and executor panics fail. Expected negative rejection passes without evaluating positive checks. Independent positive checks still collect failures. Use unwind-enabled Rust builds for panic capture.
+- An executor returning `capture_observations(config, || production(input))` supplies `CapturedRun<Result<...>>`. Its `case.observations::<T>() -> Result<TypedView<T>, DecodeError>` is available only for captured execution; e.g. `fact!(case.observations::<Row>().unwrap().values().len())`. Completeness is mandatory even for negative rejection. Generic planning never generates from evidence.
+- `cases_budget(n)` overrides `SUN_CERT_CASES_BUDGET` (default 64); `seed(n)` overrides `SUN_CERT_SEED` (default 184729361). `failure_budget(n)` defaults to five representative cases and stops further construction/execution when filled. Diagnostics stay bounded.
+- `assert_certify()` consumes the runner and is silent on success. `report()` returns an immutable result without asserting. `SUN_CERT_REPORT=1` or `report_mode(true)` requests a compact coverage/check summary, not a per-execution dump.
 
 ## Prepared sources, groups and typed comparison
 

@@ -23,6 +23,35 @@ proof.check("identity", source.unique(|id| *id).expect_valid());
 proof.assert_certify();
 ```
 
+## Execute a production contract over inputs
+
+Keep eager proofs unchanged; attach an executor for repeated execution. Data-source-only execution does not require `DomainInput`; derive it when a Domain is needed. The symbolic `case` root carries input/output types without borrowing the runner.
+
+```rust
+use sun_observations::certifications::*;
+#[derive(DomainInput)]
+struct Request { count: usize }
+fn execute(input: &Request) -> Result<Vec<usize>, &'static str> {
+    if !(1..=9).contains(&input.count) { return Err("invalid count"); }
+    Ok((0..input.count).collect())
+}
+let mut c = certification("production count").executor(execute);
+c.data_source([Request { count: 3 }]);
+c.domain(domain!(Request { count.in_range(1..=9) }));
+c.cases_budget(32);
+let case = c.case();
+c.check(fact!(case.result().len())
+    .expect(fact!(case.input().count))
+    .description("one output per requested item"));
+c.assert_certify();
+```
+
+Only inputs are generated. Real inputs run first and prefill coverage; generated inputs use the same executor. Positive inputs must return `Ok` and satisfy checks; negative inputs must return `Err`, without running positive checks. Panics fail the case. Wrap the executor body in `capture_observations` to additionally use `case.observations::<T>()`; capture completeness remains mandatory even for expected rejection.
+
+Domains support named structs, enum payloads, recursive collections, conditional branches, discrete choices, numeric ranges/unions and typed scalar relations. Every active field needs exactly one constructive specification. Compilation fails closed on incomplete, ambiguous, unsatisfiable or unsupported construction; it never certifies a partial solver result. Constructive arithmetic and search are bounded, and generated collections are limited to 1,000,000 elements each. Derive currently accepts concrete (non-generic) types. Shrinking, regex/string generation, maps/sets, uniqueness and collection ordering are not provided.
+
+Success is silent. `SUN_CERT_REPORT=1` requests compact coverage diagnostics; `SUN_CERT_SEED` and `SUN_CERT_CASES_BUDGET` override the default seed (184729361) and case budget (64). Local `.seed(...)` / `.cases_budget(...)` take precedence. `.failure_budget(...)` defaults to five representative failing cases and stops further materialization/execution when filled. Mandatory real cases may exceed the case budget; registering a Domain requires some generated capacity. Reports are snapshots returned by consuming `c.report()`, or asserted once with `c.assert_certify()`.
+
 ## Capture typed production evidence
 
 Runtime entrypoints live at the crate root. The evidence layer owns capture, snapshots, queries, strict typed decoding and provenance, adapting evidence to generic sources without duplicating analysis or acceptance. The derive macro is re-exported; no separate dependency is needed.

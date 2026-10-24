@@ -81,6 +81,37 @@ certification(name) starts a proof; report() returns a nonpanicking immutable Ce
 plus bounded names/paths. Omitted failures remain counted; raw source length cannot grow
 panic output without bound.
 
+## Repeated production execution
+
+Eager `certification(name)` remains an aggregator. Attaching `.executor(...)` creates a consuming planned runner for `Result<O,E>` or an adapter such as `CapturedRun<Result<O,E>>`. Data-source-only planned execution does not require `DomainInput`; that trait is required only when a Domain is registered. Input domains and post-execution evidence are separate; evidence source/collection operations never generate inputs.
+
+```rust
+use sun_observations::certifications::*;
+#[derive(DomainInput)] struct Input { count: u8 }
+fn production(input: &Input) -> Result<Vec<u8>, &'static str> {
+    if input.count == 0 { return Err("empty request"); }
+    Ok((0..input.count).collect())
+}
+let mut c = certification("production output count").executor(production);
+c.data_source([Input { count: 3 }, Input { count: 0 }]);
+c.domain(domain!(Input { count.in_range(1..=u8::MAX) }));
+c.cases_budget(32);
+let case = c.case();
+c.check(fact!(case.result().len()).expect(fact!(usize::from(case.input().count)))
+    .description("one output per item"));
+c.assert_certify();
+```
+
+`let case = c.case();` supplies Rust's generic type context without borrowing the runner. `fact!(expression)` is eager unless it references this symbolic root. Deferred expectations resolve values then call the same canonical `Fact::expect`; heterogeneous plans are erased only by `check`. `description` is diagnostic context, not identity. Already evaluated CheckResults may also be registered.
+
+Every active field needs one constructive specification: `fixed_value`, `selected_values`, `in_range`, `one_of_ranges`, or a recursive struct/enum/collection domain. Choices use `all_enum_values` / `selected_enum_values`; payload variant blocks recursively describe their own fields. Collections use `length().in_range(...)` and `each(...)` / `each { ... }`. `when(field.equal(Variant)) { ... }` conditionally defines another field. Scalar relations are `less_than`, `less_equal`, `greater_than`, `greater_equal`, `equal` and `not_equal`; operands preserve their Rust types (collection lengths are usize), and nested struct leaves may participate through paths such as `config.window.less_equal(values.length())`. Opaque Domain predicates, implicit baselines and duplicate constructive sources are forbidden. Invalid or unprovable construction becomes EvaluationError before generated execution. Search, constructive arithmetic and generated collection sizes are bounded; unsupported construction never establishes partial coverage. Derive currently requires concrete named structs or enums.
+
+Real cases run first and occupy the same semantic coverage as generated cases. Generated positive inputs must succeed and satisfy checks. Generated or real negative inputs must be rejected, without running positive checks. Executor panics fail the case rather than aborting exploration (unwind builds). Capture completeness is an adapter-owned prerequisite, including expected rejection. Only captured execution offers `case.observations::<T>() -> Result<TypedView<T>, DecodeError>`.
+
+The default total budget is 64 (`SUN_CERT_CASES_BUDGET`); local `cases_budget` overrides it. Real inputs are mandatory even above budget unless the hard failure stop is reached; a registered Domain with zero generated capacity is EvaluationError. The default deterministic seed is 184729361 (`SUN_CERT_SEED` / local `seed`). Anchors precede seeded choices; unrelated test order does not affect selection. `failure_budget` defaults to five distributed semantic representatives, not five arbitrary first failures. Once filled, no further input is constructed or executed. Repeated equivalent failures do not consume another representative slot.
+
+`assert_certify` consumes the runner and remains silent on success; `report` consumes it and returns immutable counters/failures without asserting. `SUN_CERT_REPORT=1` / `report_mode(true)` requests compact coverage diagnostics. Failure diagnostics show only retained representatives, bounded input coordinates and per-case check details. The eager DiagnosticLimits count is not a second planned-case failure budget. Shrinking, string/regex generation, maps/sets, uniqueness and collection ordering are not implemented.
+
 ## Statistical semantic views
 
 correlation() returns Fact<CorrelationMetrics>. CorrelationExpectation::pearson_at_least, spearman_at_least and spearman_at_most construct meaningful bounds. with_bound(measure,min,max) and additional bound/and_pearson_bounds/and_spearman_bounds reject empty, nonfinite, reversed, or out-of-domain bounds at construction; Pearson/Spearman are constrained to [-1,1] and absolute correlations to [0,1].

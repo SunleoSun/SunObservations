@@ -221,9 +221,46 @@ pub fn negative_workflow() {
         .assert_certify();
 }
 
+pub fn planned_workflow() {
+    #[derive(DomainInput)]
+    struct Input {
+        count: u8,
+    }
+    let mut c = certification("repeated production prediction").executor(|input: &Input| {
+        let request = Request {
+            count: usize::from(input.count),
+        };
+        capture_observations(
+            CaptureConfig::new().activate_namespace("pipeline").unwrap(),
+            || execute(&request),
+        )
+    });
+    c.data_source([Input { count: 8 }, Input { count: 0 }]);
+    c.domain(domain!(Input { count.in_range(1..=u8::MAX) }));
+    c.cases_budget(24);
+    let case = c.case();
+    c.check(
+        fact!(case.result().len())
+            .expect(fact!(usize::from(case.input().count)))
+            .description("canonical output count"),
+    );
+    c.check(
+        fact!(case.observations::<Prediction>().unwrap().values().len())
+            .expect(fact!(usize::from(case.input().count)))
+            .description("one production prediction per row"),
+    );
+    c.check(
+        fact!(case.observations::<Rejected>().unwrap().values().len())
+            .expect(0usize)
+            .description("no rejection on successful input"),
+    );
+    c.assert_certify();
+}
+
 #[allow(dead_code)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::temp_dir().join(format!("sun-skills-{}.jsonl", std::process::id()));
+    planned_workflow();
     let result = workflows(&path);
     let _ = std::fs::remove_file(path);
     result

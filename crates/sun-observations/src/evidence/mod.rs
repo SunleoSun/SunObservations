@@ -7,4 +7,6 @@ pub use dataset::*;
 #[path = "grouping_certification.rs"]
 mod grouping_certification;
 #[cfg(test)]
+mod planned_capture_certification;
+#[cfg(test)]
 mod test_support;

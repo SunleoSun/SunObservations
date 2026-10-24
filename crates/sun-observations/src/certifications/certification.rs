@@ -145,14 +145,22 @@ impl fmt::Display for CertificationReport {
 }
 /// A named semantic proof; sections/checks collect independently until the final assertion.
 pub struct Certification {
+    pub(crate) identity: u64,
     report: CertificationReport,
     path: String,
     limits: DiagnosticLimits,
 }
+#[track_caller]
 pub fn certification(name: impl Into<String>) -> Certification {
+    let name = name.into();
+    let caller = std::panic::Location::caller();
     Certification {
+        identity: super::domain::compilation::local_seed(
+            0,
+            &(caller.file(), caller.line(), caller.column(), &name),
+        ),
         report: CertificationReport {
-            name: bounded_display(&name.into(), 512),
+            name: bounded_display(&name, 512),
             checks: 0,
             failed: 0,
             failures: Vec::new(),
@@ -219,7 +227,7 @@ impl Certification {
             );
             self.report.failures.push(CheckFailure {
                 section: bounded_display(&self.path, 512),
-                name: bounded_display(&name.into(), 256),
+                name: bounded_display(&result.description.unwrap_or_else(|| name.into()), 256),
                 class: result.class,
                 diagnostic: out.finish(),
             });

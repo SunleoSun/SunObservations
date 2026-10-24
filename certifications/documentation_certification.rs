@@ -711,6 +711,9 @@ fn canonical_skill_and_focused_reference_rust_blocks_compile_and_execute() {
 ",
                 );
             }
+            if block.contains("fn planned()") {
+                source.push_str("#[test] fn run_documented_workflow(){planned();}\n");
+            }
             if block.contains("fn inspect()") {
                 source.push_str(
                     "#[test] fn run_documented_workflow(){inspect().unwrap();}
@@ -798,6 +801,7 @@ fn mixed_evidence_workflow_proves_internal_transfer_and_negative_forbidden_absen
     let path = directory.path().join("evidence.jsonl");
     workflows::workflows(&path).unwrap();
     workflows::negative_workflow();
+    workflows::planned_workflow();
     let records: Vec<serde_json::Value> = fs::read_to_string(path)
         .unwrap()
         .lines()

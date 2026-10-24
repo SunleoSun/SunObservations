@@ -101,18 +101,42 @@ impl<T> CapturedRun<T> {
     pub fn to_typed<O: Observation + DeserializeOwned>(&self) -> Result<TypedView<O>, DecodeError> {
         self.dataset.to_typed::<O>()
     }
-    pub fn certification(&self, name: impl Into<String>) -> Certification {
-        let mut c = certification(name);
-        let completeness = if self.status.is_complete() {
+    fn completeness(&self) -> Result<bool, String> {
+        if self.status.is_complete() {
             Ok(true)
         } else {
             Err(format!("incomplete capture: {:?}", self.status))
-        };
+        }
+    }
+    pub fn certification(&self, name: impl Into<String>) -> Certification {
+        let mut c = certification(name);
+        let completeness = self.completeness();
         c.check(
             "capture completeness",
             try_fact("scoped Observation capture", completeness).expect(true),
         );
         c
+    }
+}
+impl<O, E: std::fmt::Debug> crate::certifications::CertificationExecution
+    for CapturedRun<Result<O, E>>
+{
+    type Output = O;
+    type Error = E;
+    fn outcome(&self) -> Result<&O, &E> {
+        self.result.as_ref()
+    }
+    fn prerequisite(&self) -> Result<(), crate::certifications::AnalysisError> {
+        self.completeness()
+            .map(|_| ())
+            .map_err(|message| crate::certifications::AnalysisError { message })
+    }
+}
+impl<I, O, E: std::fmt::Debug> crate::certifications::TestCase<'_, I, CapturedRun<Result<O, E>>> {
+    pub fn observations<T: Observation + DeserializeOwned>(
+        &self,
+    ) -> Result<TypedView<T>, DecodeError> {
+        self.execution.to_typed::<T>()
     }
 }
 /// Captures only the current propagated context. The guard restores its predecessor even on unwind.

@@ -3,6 +3,11 @@
 mod anomaly;
 mod certification;
 mod criteria;
+mod domain;
+mod execution;
+pub use domain::*;
+pub use execution::*;
+pub use sun_observations_derive::{domain, fact, DomainInput};
 mod expectations;
 mod numerical;
 pub use expectations::*;
@@ -27,9 +32,15 @@ pub use stats::*;
 #[cfg(test)]
 mod acceptance_certification;
 #[cfg(test)]
+mod domain_edge_certification;
+#[cfg(test)]
+mod domain_regression_certification;
+#[cfg(test)]
 mod ergonomics_certification;
 #[cfg(test)]
 #[path = "framework_certification.rs"]
 mod framework_certification;
+#[cfg(test)]
+mod generative_certification;
 #[cfg(test)]
 mod test_support;

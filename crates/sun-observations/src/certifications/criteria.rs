@@ -97,6 +97,7 @@ impl<T> Fact<T> {
             class,
             analysis_error,
             details: self.details,
+            description: None,
         }
     }
 }
@@ -125,8 +126,13 @@ pub struct CheckResult<T, V = Violation> {
     pub(crate) class: CheckClass,
     pub(crate) analysis_error: Option<AnalysisError>,
     pub(crate) details: String,
+    pub(crate) description: Option<String>,
 }
 impl<T, V> CheckResult<T, V> {
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
     pub fn source(&self) -> &str {
         &self.source
     }
