@@ -1,6 +1,146 @@
 use super::*;
 use std::collections::BTreeMap;
 
+#[test]
+fn planned_sections_preserve_each_nested_failure_separately_from_description() {
+    let mut c = certification("pipeline sections").executor(|n: &u64| Ok::<_, ()>(n * n));
+    c.data_source([3]).diagnostic_bytes(32).report_mode(true);
+    let case = c.case();
+    let outside = fact!(*case.result()).expect(10).description("outside");
+    c.section("transform", |s| {
+        s.check(fact!(*case.result()).expect(8).description("same name"));
+        s.section("range", |s| {
+            s.check(fact!(*case.result()).expect(7).description("same name"));
+            s.check(
+                fact!({
+                    let _ = case.input();
+                    panic!("analysis")
+                })
+                .expect(()),
+            );
+        });
+    });
+    c.check(outside);
+    let report = c.report();
+    assert!(!report.is_pass());
+    assert_eq!(report.failures.len(), 1);
+    let failures = &report.failures[0].checks;
+    assert_eq!(failures.len(), 4);
+    assert_eq!(
+        failures
+            .iter()
+            .map(|f| f.section.as_str())
+            .collect::<Vec<_>>(),
+        ["transform/", "transform/range/", "transform/range/", ""]
+    );
+    assert_eq!(failures[0].name, "same name");
+    assert_eq!(failures[1].name, "same name");
+    assert_eq!(failures[2].class, CheckClass::EvaluationError);
+    assert_eq!(failures[3].name, "outside");
+    assert_eq!(
+        report
+            .checks
+            .iter()
+            .map(|c| c.section.as_str())
+            .collect::<Vec<_>>(),
+        ["transform/", "transform/range/", "transform/range/", ""]
+    );
+    assert!(report.to_string().contains("transform/range/"));
+    let mut compact = report.clone();
+    compact.report_mode = false;
+    assert!(compact.to_string().contains("transform/range/"));
+}
+
+#[test]
+fn planned_sections_share_eager_paths_and_do_not_leak_into_siblings() {
+    let mut base = certification("mixed checks");
+    base.section("prerequisites", |s| {
+        s.section("schema", |s| {
+            s.check_fact_expect("version", 1, 2);
+        });
+    });
+    let mut c = base.executor(|n: &u64| Ok::<_, ()>(n * n));
+    c.data_source([3]);
+    let case = c.case();
+    c.section("transform", |s| {
+        s.section("range", |s| {
+            s.check(fact("eager value", 1).expect(2));
+            s.check(fact!(*case.result()).expect(9));
+        });
+    });
+    c.section("delivery", |s| {
+        s.check(fact("eager delivery", false).expect(true));
+    });
+    c.check(fact("root", false).expect(true));
+    let report = c.report();
+    assert!(report.failures.is_empty());
+    assert_eq!(
+        report
+            .eager
+            .failures()
+            .iter()
+            .map(|f| f.section.as_str())
+            .collect::<Vec<_>>(),
+        ["prerequisites/schema/", "transform/range/", "delivery/", ""]
+    );
+    let text = report.to_string();
+    for section in ["prerequisites/schema/", "transform/range/", "delivery/"] {
+        assert!(text.contains(section), "{text}");
+    }
+}
+
+#[test]
+fn planned_section_registration_unwind_restores_parent_and_discards_child_checks() {
+    let mut c = certification("registration unwind").executor(|n: &u64| Ok::<_, ()>(n * n));
+    c.data_source([3]).report_mode(true);
+    let case = c.case();
+    let panic = catch_unwind(AssertUnwindSafe(|| {
+        c.section("abandoned", |s| {
+            s.check(fact!(*case.result()).expect(0));
+            s.check(fact("eager", false).expect(true));
+            panic!("registration interrupted");
+        });
+    }));
+    assert!(panic.is_err());
+    c.section("accepted", |s| {
+        s.check(fact!(*case.result()).expect(9));
+    });
+    c.check(fact!(*case.result()).expect(9));
+    let report = c.report();
+    report.assert_certify();
+    assert_eq!(report.checks.len(), 2);
+    assert_eq!(report.checks[0].section, "accepted/");
+    assert_eq!(report.checks[1].section, "");
+    assert!(report.to_string().contains("accepted/"));
+    assert!(!report.to_string().contains("abandoned"));
+}
+
+#[test]
+fn planned_sections_preserve_bounded_utf8_paths_and_domain_execution() {
+    let mut c = certification("bounded section").executor_with_seed(|n: &u64, _seed| {
+        if (1..=3).contains(n) {
+            Ok(n * n)
+        } else {
+            Err(())
+        }
+    });
+    c.domain(domain!(u64 { in_range(1..=3) }))
+        .seed(71)
+        .cases_budget(16);
+    let case = c.case();
+    c.section("я".repeat(200), |s| {
+        s.section("界".repeat(200), |s| {
+            s.check(fact!(*case.result() > 0).expect(true));
+        });
+    });
+    let report = c.report();
+    report.assert_certify();
+    assert!(report.checks[0].section.len() <= 515);
+    assert!(report.checks[0].section.ends_with('…'));
+    assert!(report.categories[0] > 0);
+    assert!(report.categories[1] > 0);
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, DomainInput)]
 enum Choice {
     A,

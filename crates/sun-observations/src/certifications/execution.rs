@@ -211,7 +211,10 @@ where
     Self: CaseCheck<I, X> + 'a,
 {
     fn register(self, c: &mut PlannedCertification<'a, I, X, F, S>) {
-        c.checks.push(Box::new(self))
+        c.checks.push(RegisteredCheck {
+            section: c.eager.section_path().into(),
+            plan: Box::new(self),
+        })
     }
 }
 impl<'a, I, X: CertificationExecution, F, S, T: fmt::Debug, V: fmt::Debug>
@@ -270,6 +273,19 @@ enum Executor<F, S> {
 #[path = "execution_certification.rs"]
 mod certification;
 
+/// A deferred check bound to its registration-time semantic section.
+struct RegisteredCheck<'a, I, X: CertificationExecution> {
+    section: String,
+    plan: Box<dyn CaseCheck<I, X> + 'a>,
+}
+
+/// A registered expression and its semantic section, independent of case execution.
+#[derive(Clone, Debug)]
+pub struct PlannedCheckReport {
+    pub section: String,
+    pub expression: String,
+}
+
 /// Real input execution with optional deterministic Domain exploration.
 pub struct PlannedCertification<'a, I, X: CertificationExecution, F, S = fn(&I, u64) -> X> {
     eager: Certification,
@@ -278,7 +294,7 @@ pub struct PlannedCertification<'a, I, X: CertificationExecution, F, S = fn(&I, 
     domain_registered: bool,
     pairwise_coverage_required: bool,
     inputs: Vec<I>,
-    checks: Vec<Box<dyn CaseCheck<I, X> + 'a>>,
+    checks: Vec<RegisteredCheck<'a, I, X>>,
     budget: usize,
     failure_budget: usize,
     seed: u64,
@@ -404,6 +420,27 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X
         plan.register(self);
         self
     }
+    /// Registers checks under a nested semantic path; execution remains deferred.
+    pub fn section(
+        &mut self,
+        name: impl Into<String>,
+        checks: impl FnOnce(&mut Self),
+    ) -> &mut Self {
+        let child = self.eager.section_child(name.into());
+        let parent = std::mem::replace(&mut self.eager, child);
+        let start = self.checks.len();
+        let result = catch_unwind(AssertUnwindSafe(|| checks(self)));
+        let child = std::mem::replace(&mut self.eager, parent);
+        match result {
+            Ok(()) => self.eager.merge_section(child),
+            Err(panic) => {
+                self.checks.truncate(start);
+                std::panic::resume_unwind(panic);
+            }
+        }
+        self
+    }
+
     pub fn report(mut self) -> PlannedCertificationReport {
         let mut report = PlannedCertificationReport {
             name: self.eager.report().name,
@@ -419,7 +456,10 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X
             checks: self
                 .checks
                 .iter()
-                .map(|p| bounded_display(&p.expression(), 512))
+                .map(|p| PlannedCheckReport {
+                    section: p.section.clone(),
+                    expression: bounded_display(&p.plan.expression(), 512),
+                })
                 .collect(),
             report_mode: self.report_mode,
             eager: self.eager.report(),
@@ -471,7 +511,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X
             coverage.record(&coordinate);
             report.executed[0] += 1;
             report.categories[coordinate.category().index()] += 1;
-            if let Some((kind, check, diagnostic, class)) = execute_case(
+            if let Some((kind, checks)) = execute_case(
                 &mut self.executor,
                 &input,
                 || local_seed(certification_seed, &("data_source", ordinal)),
@@ -479,14 +519,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X
                 &self.checks,
                 self.diagnostic_bytes,
             ) {
-                failures.retain(
-                    &coordinate,
-                    kind,
-                    check,
-                    diagnostic,
-                    class,
-                    self.diagnostic_bytes,
-                );
+                failures.retain(&coordinate, kind, checks, self.diagnostic_bytes);
             }
         }
         if no_generated_capacity && report.evaluation_error.is_none() {
@@ -508,7 +541,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X
                         coverage.record(&coordinate);
                         report.executed[1] += 1;
                         report.categories[coordinate.category().index()] += 1;
-                        if let Some((kind, check, diagnostic, class)) = execute_case(
+                        if let Some((kind, checks)) = execute_case(
                             &mut self.executor,
                             &input,
                             || local_seed(certification_seed, &coordinate_key(&coordinate)),
@@ -516,14 +549,7 @@ impl<'a, I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u64) -> X
                             &self.checks,
                             self.diagnostic_bytes,
                         ) {
-                            failures.retain(
-                                &coordinate,
-                                kind,
-                                check,
-                                diagnostic,
-                                class,
-                                self.diagnostic_bytes,
-                            );
+                            failures.retain(&coordinate, kind, checks, self.diagnostic_bytes);
                         }
                     }
                 }
@@ -565,85 +591,96 @@ fn execute_case<I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u6
     input: &I,
     seed: impl FnOnce() -> u64,
     coordinate: &CaseDomainCoordinate,
-    checks: &[Box<dyn CaseCheck<I, X> + '_>],
+    checks: &[RegisteredCheck<'_, I, X>],
     limit: usize,
-) -> Option<(FailureKind, String, String, CheckClass)> {
+) -> Option<(FailureKind, Vec<CheckFailure>)> {
+    let single = |kind, name: &str, diagnostic, class| {
+        Some((
+            kind,
+            vec![CheckFailure {
+                section: String::new(),
+                name: bounded_display(&name, 256),
+                diagnostic: bounded_display(&diagnostic, limit),
+                class,
+            }],
+        ))
+    };
     let execution = match case_unwind(|| match executor {
         Executor::Ordinary(executor) => executor(input),
         Executor::Seeded(executor) => executor(input, seed()),
     }) {
         Ok(e) => e,
         Err(message) => {
-            return Some((
+            return single(
                 FailureKind::Panic,
-                "executor".into(),
+                "executor",
                 format!("panic: {message}"),
                 CheckClass::HardViolation,
-            ))
+            )
         }
     };
     let evaluated = case_unwind(|| {
         if let Err(error) = execution.prerequisite() {
-            return Some((
+            return single(
                 FailureKind::Prerequisite,
-                "execution completeness".into(),
+                "execution completeness",
                 bounded_display(&error.message, limit),
                 CheckClass::EvaluationError,
-            ));
+            );
         }
         match (coordinate.violated.is_empty(), execution.outcome()) {
             (false, Err(_)) => None,
-            (false, Ok(_)) => Some((
+            (false, Ok(_)) => single(
                 FailureKind::AcceptedNegative,
-                "rejection".into(),
+                "rejection",
                 "invalid input accepted".into(),
                 CheckClass::HardViolation,
-            )),
-            (true, Err(e)) => Some((
+            ),
+            (true, Err(e)) => single(
                 FailureKind::RejectedPositive,
-                "execution".into(),
+                "execution",
                 format!("valid input rejected: {}", bounded_debug(e, limit)),
                 CheckClass::HardViolation,
-            )),
+            ),
             (true, Ok(_)) => {
                 let case = TestCase {
                     input,
                     execution: &execution,
                 };
                 let mut first = None;
-                let mut details = LimitedWriter::new(limit);
+                let mut failures = Vec::new();
+                let mut remaining = limit;
                 for (index, check) in checks.iter().enumerate() {
-                    let failure = match case_unwind(|| check.evaluate(&case, limit)) {
+                    let failure = match case_unwind(|| check.plan.evaluate(&case, remaining)) {
                         Ok(failure) => failure,
                         Err(message) => Some(CheckFailure {
                             section: String::new(),
-                            name: check.description().into(),
-                            diagnostic: format!("check evaluation panic: {message}"),
+                            name: bounded_display(&check.plan.description(), 256),
+                            diagnostic: bounded_display(
+                                &format!("check evaluation panic: {message}"),
+                                remaining,
+                            ),
                             class: CheckClass::EvaluationError,
                         }),
                     };
-                    if let Some(failure) = failure {
-                        if first.is_none() {
-                            first = Some((
-                                FailureKind::Check(index),
-                                failure.name.clone(),
-                                failure.class,
-                            ));
-                        }
-                        let _ = writeln!(details, "{}: {}", failure.name, failure.diagnostic);
+                    if let Some(mut failure) = failure {
+                        failure.section = check.section.clone();
+                        remaining = remaining.saturating_sub(failure.diagnostic.len());
+                        first.get_or_insert(FailureKind::Check(index));
+                        failures.push(failure);
                     }
                 }
-                first.map(|(kind, name, class)| (kind, name, details.finish(), class))
+                first.map(|kind| (kind, failures))
             }
         }
     });
     evaluated.unwrap_or_else(|message| {
-        Some((
+        single(
             FailureKind::Prerequisite,
-            "execution evidence".into(),
+            "execution evidence",
             format!("evidence evaluation panic: {message}"),
             CheckClass::EvaluationError,
-        ))
+        )
     })
 }
 thread_local! {static CASE_PANIC_DEPTH:std::cell::Cell<usize>=const{std::cell::Cell::new(0)};}
@@ -796,9 +833,7 @@ impl FailureCoveragePlanner {
         &mut self,
         c: &CaseDomainCoordinate,
         kind: FailureKind,
-        check: String,
-        diagnostic: String,
-        class: CheckClass,
+        checks: Vec<CheckFailure>,
         limit: usize,
     ) {
         let index = c.category().index();
@@ -830,12 +865,24 @@ impl FailureCoveragePlanner {
                     e.name, e.value, e.sector.region, e.slot
                 );
             }
+            let first = &checks[0];
+            let check = first.name.clone();
+            let class = first.class;
+            let mut details = LimitedWriter::new(limit);
+            for failure in &checks {
+                let _ = writeln!(
+                    details,
+                    "{} {}: {}",
+                    failure.section, failure.name, failure.diagnostic
+                );
+            }
             self.failures.push(CaseFailure {
                 category: c.category(),
                 coordinate: writer.finish(),
                 check: bounded_display(&check, 256),
-                diagnostic: bounded_display(&diagnostic, limit),
+                diagnostic: details.finish(),
                 class,
+                checks,
             });
         }
     }
@@ -845,6 +892,8 @@ impl FailureCoveragePlanner {
 pub struct CaseFailure {
     pub category: CaseCategory,
     pub coordinate: String,
+    /// Independent check failures retain their own section paths, even when summary text is bounded.
+    pub checks: Vec<CheckFailure>,
     pub check: String,
     pub diagnostic: String,
     pub class: CheckClass,
@@ -944,7 +993,7 @@ pub struct PlannedCertificationReport {
     pub evaluation_error: Option<AnalysisError>,
     pub stopped: bool,
     pub coverage: CoverageReport,
-    pub checks: Vec<String>,
+    pub checks: Vec<PlannedCheckReport>,
     report_mode: bool,
     eager: CertificationReport,
 }
@@ -1033,14 +1082,19 @@ impl fmt::Display for PlannedCertificationReport {
             writeln!(
                 f,
                 "{}. {:?}
-{}  check: {}
-  {}",
+{}  check: {}",
                 i + 1,
                 fail.category,
                 fail.coordinate,
                 fail.check,
-                fail.diagnostic
             )?;
+            for check in &fail.checks {
+                writeln!(
+                    f,
+                    "  {} [{:?}] {}\n    {}",
+                    check.section, check.class, check.name, check.diagnostic
+                )?;
+            }
         }
         if self.eager.failed() > 0 {
             write!(f, "{}", self.eager)?;
@@ -1048,7 +1102,7 @@ impl fmt::Display for PlannedCertificationReport {
         if self.report_mode && !self.checks.is_empty() {
             writeln!(f, "checks:")?;
             for check in &self.checks {
-                writeln!(f, "  {check}")?;
+                writeln!(f, "  {} {}", check.section, check.expression)?;
             }
         }
         Ok(())

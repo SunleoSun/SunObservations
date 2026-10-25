@@ -487,6 +487,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sun-observations",
+ "syn 2.0.119",
  "tempfile",
 ]
 

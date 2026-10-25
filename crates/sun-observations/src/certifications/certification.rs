@@ -39,6 +39,7 @@ impl fmt::Write for LimitedWriter {
         }
     }
 }
+#[doc(hidden)]
 pub fn bounded_debug(value: &impl fmt::Debug, limit: usize) -> String {
     let mut out = LimitedWriter::new(limit);
     let _ = write!(out, "{value:?}");
@@ -240,6 +241,17 @@ impl Certification {
         name: impl Into<String>,
         checks: impl FnOnce(&mut Certification),
     ) -> &mut Self {
+        let mut child = self.section_child(name.into());
+        checks(&mut child);
+        self.merge_section(child);
+        self
+    }
+
+    pub(crate) fn section_path(&self) -> &str {
+        &self.path
+    }
+
+    pub(crate) fn section_child(&self, name: String) -> Self {
         let mut child = certification(self.report.name.clone());
         child.limits = DiagnosticLimits {
             failures: self
@@ -249,14 +261,16 @@ impl Certification {
             ..self.limits
         };
         child.path = bounded_display(
-            &format!("{}{}/", self.path, bounded_display(&name.into(), 256)),
+            &format!("{}{}/", self.path, bounded_display(&name, 256)),
             512,
         );
-        checks(&mut child);
+        child
+    }
+
+    pub(crate) fn merge_section(&mut self, child: Self) {
         self.report.checks += child.report.checks;
         self.report.failed += child.report.failed;
         self.report.failures.extend(child.report.failures);
-        self
     }
     pub fn report(&self) -> CertificationReport {
         self.report.clone()

@@ -13,7 +13,7 @@ SunObservations is a Rust framework for typed structured logging, runtime diagno
 - [Capture production evidence](#capture-production-evidence)
 - [Certification methodology](#certification-methodology)
 - [How Domain generation works internally](#how-domain-generation-works-internally)
-- [Complete supported client API](#complete-supported-client-api)
+- [Complete client DSL and API reference](#complete-client-dsl-and-api-reference)
 - [Cookbook](#cookbook)
 - [Production configuration and guarantees](#production-configuration-and-guarantees)
 - [Agent integration](#agent-integration)
@@ -64,22 +64,26 @@ use sun_observations::certifications::*;
 #[derive(Clone, DomainInput)]
 struct Request { count: usize }
 
-fn execute(input: &Request) -> Result<usize, &'static str> {
+fn execute(input: &Request) -> Result<Vec<u64>, &'static str> {
     if !(1..=9).contains(&input.count) { return Err("invalid count"); }
-    Ok(input.count * 2)
+    Ok((100..100 + input.count as u64).collect())
 }
 
-let mut proof = certification("accepted count doubles").executor(execute);
+let mut proof = certification("allocated ids are complete and ordered").executor(execute);
 proof.data_source([Request { count: 3 }]);
 proof.domain(domain!(Request { count.in_range(1..=9) }));
 proof.cases_budget(32);
 
 let case = proof.case();
 proof.check(
-    fact!(*case.result())
-        .expect(fact!(case.input().count * 2))
-        .description("production result follows accepted input"),
+    fact!(case.result().len())
+        .expect(fact!(case.input().count))
+        .description("one identity per requested item"),
 );
+proof.section("identity range", |s| {
+    s.check(fact!(case.result().first().copied()).expect(Some(100u64)));
+    s.check(fact!(case.result().windows(2).all(|w| w[1] == w[0] + 1)).expect(true));
+});
 proof.assert_certify();
 ~~~
 
@@ -271,7 +275,7 @@ Choose your next task:
 - [Certify values and collections](#certifications): exact invariants, comparison, statistics.
 - [Expose production evidence](#observations): select, scope, route, propagate, profile.
 - [Capture or load evidence](#capture-production-evidence): typed sources with provenance.
-- [Common recipes](#cookbook), [production guarantees](#production-configuration-and-guarantees), or the [complete client API](#complete-supported-client-api).
+- [Common recipes](#cookbook), [production guarantees](#production-configuration-and-guarantees), or the [complete client API](#complete-client-dsl-and-api-reference).
 
 ## Certifications
 
@@ -606,15 +610,18 @@ use sun_observations::certifications::*;
 #[derive(Clone, DomainInput)]
 struct Input { value: i32 }
 
-let mut proof = certification("accepted value roundtrips").executor(
-    |input: &Input| if input.value == 0 { Err(()) } else { Ok(input.value) }
-);
+fn reciprocal(input: &Input) -> Result<f64, &'static str> {
+    if !(1..=100).contains(&input.value) { return Err("invalid denominator"); }
+    Ok(1.0 / f64::from(input.value))
+}
+let mut proof = certification("positive reciprocal inverts scale").executor(reciprocal);
 
 proof.data_source([Input { value: 17 }]);
 proof.domain(domain!(Input { value.in_range(1..=100) }));
 
 let case = proof.case();
-proof.check(fact!(*case.result()).expect(fact!(case.input().value)));
+proof.check(fact!(*case.result() * f64::from(case.input().value))
+    .expect(close_to(1.0).unwrap().absolute_tolerance(1e-12).unwrap()));
 proof.assert_certify();
 ~~~
 
@@ -976,427 +983,992 @@ Every materialized input is projected back into Domain coordinates. Generated co
 
 The current DSL intentionally does not provide shrinking, arbitrary regex/string generation, maps/sets, general collection uniqueness constraints, arbitrary collection-order constraints, or unrestricted predicate constraints. Keep such cases as concrete fixtures or validate them at the semantic owner until they have a typed first-class representation.
 
-## Complete supported client API
+## Complete client DSL and API reference
 
-This section inventories the supported client-facing surface. Framework planner coordinates, solver representation types, and execution adapters are intentionally omitted. Each API item has a minimal usage example; complete workflows appear in the tutorial above.
+This is one embedded proof/evidence language: bind evidence, choose acceptance, optionally execute an input family, and assert once. Domain describes inputs; Observations expose production facts; certifications own analysis and acceptance. The compact agent skills use the same nodes and grammar. This reference adds types, failure semantics, caching, and extended examples; the [mental model](#how-the-framework-fits-together), [methodology](#certification-methodology), and [internals](#how-domain-generation-works-internally) remain the conceptual handbook.
 
-### Certification construction, facts, and proof boundary
+### DSL
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `certification(name)` | Starts one named eager proof. | `let mut c = certification("export contract");` |
-| `check(name, check)` | Registers one semantic check. | `c.check("count", fact("n", 3).expect(3));` |
-| `check_fact_expect(name, observed, expected)` | Exact eager shorthand. | `c.check_fact_expect("version", 2u8, 2u8);` |
-| `section(name, f)` | Groups checks under a semantic path. | `c.section("header", |s| { s.check_fact_expect("v", 2, 2); });` |
-| `source(name, &value)` | Prepares one borrowed value. | `let src = c.source("status", &status);` |
-| `collection(name, &values)` | Prepares a borrowed collection. | `let rows = c.collection("rows", &rows);` |
-| `fact(source, value)` | Wraps available typed evidence. | `fact("version", 3u8)` |
-| `try_fact(source, result)` | Preserves preparation failure as `EvaluationError`. | `try_fact("parsed", "3".parse::<u64>())` |
-| `Fact::details(text)` | Adds diagnostic context. | `fact("state", state).details("after reload")` |
-| `Fact::expect(expectation)` | Evaluates an expectation. | `fact("count", 3).expect(3)` |
-| `fact!(expression)` | Builds a named eager/deferred fact from source text. | `fact!(case.input().count)` |
-| `CheckPlan::description(text)` | Adds per-case diagnostic meaning. | `fact!(*case.result()).expect(4).description("double count")` |
-| `assert_certify()` | Final normal-test proof boundary. | `c.assert_certify();` |
+Uppercase words are nodes or parameters, not Rust identifiers to import. Parenthesized alternatives describe a choice of real calls, not a method literally named after the alternative. Use Rust closures for projections, predicates, and section bodies.
 
-Normal certification tests end with `assert_certify()`. Programmatic report inspection exists for framework/tooling scenarios but is not the ordinary test terminator.
+#### Certification grammar
 
-### General expectations
+~~~text
+CERTIFICATION :=
+    c = certification(NAME)
+    [ SOURCE_BINDING ]*
+    [ EAGER_CHECK | SECTION ]*
+    ( ASSERT_CERTIFY
+    | runner = c.executor(EXECUTOR); PLANNED_BODY
+    | runner = c.executor_with_seed(SEEDED_EXECUTOR); PLANNED_BODY )
+SOURCE_BINDING :=
+    value = c.source(NAME, &VALUE) | rows = c.collection(NAME, &VALUES)
+  | value = source(NAME, &VALUE) | rows = collection(NAME, &VALUES)
+EAGER_CHECK :=
+    c.check(NAME, FACT.expect(EXPECTATION))
+  | c.check_fact_expect(NAME, OBSERVED, EXPECTATION)
+  | c.check(NAME, PREPARED_SOURCE_CHECK | NUMERIC_CHECK | GROUP_CHECK
+                  | CORRESPONDENCE_CHECK | NUMERIC_COMPARISON_CHECK)
+SECTION :=
+    c.section(NAME, |s| { [ EAGER_CHECK | SECTION ]* })
+  | runner.section(NAME, |s| { [ PLANNED_CHECK | SECTION ]* })
+PLANNED_BODY :=
+    [ runner.data_source(INPUTS) ] [ runner.domain(DOMAIN) ]
+    [ runner.cases_budget(N) ] [ runner.failure_budget(N) ]
+    [ runner.seed(N) ] [ runner.report_mode(BOOL) ]
+    [ runner.require_pairwise_coverage() ]
+    CASE [ PLANNED_CHECK | SECTION ]* ASSERT_CERTIFY
+CASE := case = runner.case()
+PLANNED_CHECK :=
+    runner.check(fact!(CASE_EXPRESSION).expect(EXPECTATION | fact!(CASE_EXPECTATION))
+                 [ .description(TEXT) ])
+  | runner.check(EAGER_CHECK_RESULT)
+FACT := fact(SOURCE, VALUE) | try_fact(SOURCE, RESULT) | fact!(EXPRESSION)
+EXPECTATION :=
+    VALUE | NotEqual(VALUE) | Criterion::BOUND(...) | criterion(TEXT, CLASS, PREDICATE)
+  | close_to(VALUE) | CountRule::VARIANT | NumericRule::VARIANT
+  | AllValid | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
+  | GroupExpectation::new(...) | CorrelationExpectation::BOUND(...)
+  | LinearFitExpectation::BOUND(...) | DifferenceExpectation::BOUND(...)
+  | RelationExpectation::BOUND(...)
+PREPARED_SOURCE_CHECK :=
+    rows.count().expect(EXPECTATION) | value.single_map(PROJECT).expect(EXPECTATION)
+  | rows.matching_count(PREDICATE).expect(EXPECTATION)
+  | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, START, END).expect_valid()
+NUMERIC_CHECK :=
+    rows.numeric(PROJECT).expect(NUMERIC_RULE)
+  | rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
+  | rows.numeric(PROJECT).(outliers(CONFIG) | jumps(CONFIG)).expect(AtMostAnomalies(N))
+  | rows.(lag_self(PROJECT, CONFIG) | lag_with(&OTHER, LEFT, RIGHT, CONFIG))
+        .expect(LagExpectation { best_lag: OFFSET })
+GROUP_CHECK :=
+    fact(NAME, rows.group_by(KEY).numeric(PROJECT)
+        .(summaries() | summaries_with_robust())).expect(GROUP_EXPECTATION)
+CORRESPONDENCE_CHECK :=
+    paired = left.compare_with(&right).(on(LEFT_KEY, RIGHT_KEY) | on_presorted(LEFT_KEY, RIGHT_KEY)?)
+    paired.paired_comparison_fact().expect_valid()
+  | paired.equal(LEFT, RIGHT, TOP).expect_valid()
+  | paired.check_pairs(PREDICATE, TOP).expect_valid()
+NUMERIC_COMPARISON_CHECK :=
+    paired.numeric(LEFT, RIGHT)
+        .(correlation() | linear_fit() | difference() | relation()).expect(EXPECTATION)
+ASSERT_CERTIFY := c.assert_certify() | runner.assert_certify()
+~~~
 
-| API | What it expresses | Minimal example |
-| --- | --- | --- |
-| exact equality | Exact value contract. | `fact("id", id).expect(7u64)` |
-| `NotEqual(value)` | Exact inequality. | `fact("id", id).expect(NotEqual(0))` |
-| `Criterion::greater_than(v)` | Strict lower bound. | `Criterion::greater_than(0).unwrap()` |
-| `Criterion::at_least(v)` | Inclusive lower bound. | `Criterion::at_least(3).unwrap()` |
-| `Criterion::less_than(v)` | Strict upper bound. | `Criterion::less_than(10).unwrap()` |
-| `Criterion::at_most(v)` | Inclusive upper bound. | `Criterion::at_most(10).unwrap()` |
-| `Criterion::between(min, max)` | Inclusive interval. | `Criterion::between(0, 10).unwrap()` |
-| `criterion(description, class, predicate)` | Custom typed predicate. | `criterion("even", ViolationClass::HardViolation, |v: &u64| *v % 2 == 0)` |
-| `close_to(expected)` | Approximate scalar expectation. | `close_to(1.0).unwrap().absolute_tolerance(1e-6).unwrap()` |
-| `absolute_tolerance(v)` | Adds absolute tolerance. | `.absolute_tolerance(1e-6).unwrap()` |
-| `relative_tolerance(v)` | Adds relative tolerance. | `.relative_tolerance(1e-4).unwrap()` |
-| `CountRule::Exact(n)` | Exact collection count. | `rows.count().expect(CountRule::Exact(3))` |
-| `CountRule::Minimum(n)` | Minimum count. | `rows.count().expect(CountRule::Minimum(1))` |
-| `CountRule::NonEmpty` | At least one item. | `rows.count().expect(CountRule::NonEmpty)` |
-| `NumericRule::Finite` | Finite numerical evidence. | `numeric.expect(NumericRule::Finite)` |
-| `NumericRule::Positive` | Strictly positive values. | `numeric.expect(NumericRule::Positive)` |
-| `NumericRule::NonNegative` | Zero-or-positive values. | `numeric.expect(NumericRule::NonNegative)` |
-| `NumericRule::between(min, max)` | Inclusive numeric interval. | `NumericRule::between(-1.0, 1.0).unwrap()` |
-| `expect_valid()` / `AllValid` | Structural report must be valid. | `rows.unique(|r| r.id).expect_valid()` |
-| `AtMostAnomalies(n)` | Bounds anomaly/jump count. | `fact("outliers", report).expect(AtMostAnomalies(2))` |
-| `GroupExpectation::new(...)` | Bounds each group count/mean. | `GroupExpectation::new(3, 0.0, 1.0).unwrap()` |
-| `LagExpectation { best_lag }` | Requires one best lag. | `LagExpectation { best_lag: 1 }` |
-| `Expectation<T>` | Extension point for reusable domain expectations. | `impl Expectation<MyType> for MyExpectation { ... }` |
+#### Domain grammar
 
-### Planned production execution
+~~~text
+DOMAIN := domain!(TYPE { RULE, ... })
+RULE := FIELD.CONSTRUCTIVE | FIELD { RULE, ... }
+      | ENUM_RULE | COLLECTION_RULE | WHEN | RELATION
+CONSTRUCTIVE := fixed_value(VALUE) | selected_values(VALUES)
+              | in_range(RANGE) | one_of_ranges(RANGES)
+              | all_enum_values() | selected_enum_values(VALUES)
+ENUM_RULE := ENUM_FIELD {
+    all_enum_values() | selected_enum_values(VARIANTS),
+    EnumType::Variant { RULE, ... }, ...
+}
+COLLECTION_RULE := COLLECTION {
+    length().(fixed_value(N) | selected_values(LENGTHS) | in_range(RANGE) | one_of_ranges(RANGES)),
+    each(CONSTRUCTIVE) | each { RULE, ... }
+}
+WHEN := when(RELATION) { RULE, ... }
+RELATION := FIELD.(equal(OPERAND) | not_equal(OPERAND)
+                 | less_than(OPERAND) | less_equal(OPERAND)
+                 | greater_than(OPERAND) | greater_equal(OPERAND))
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `executor(f)` | Runs the real production function for every case. | `let mut c = certification("x").executor(production);` |
-| `executor_with_seed(f)` | Also supplies deterministic case-local seed. | `.executor_with_seed(|input, seed| production(input, seed))` |
-| `data_source(inputs)` | Registers meaningful concrete cases. | `c.data_source([Input { n: 3 }]);` |
-| `domain(domain)` | Registers generated input contract. | `c.domain(domain!(Input { n.in_range(1..=9) }));` |
-| `cases_budget(n)` | Bounds generated exploration. | `c.cases_budget(128);` |
-| `failure_budget(n)` | Bounds representative failures. | `c.failure_budget(5);` |
-| `seed(n)` | Sets deterministic framework/Domain seed. | `c.seed(184729361);` |
-| `report_mode(bool)` | Requests compact coverage/check diagnostics. | `c.report_mode(true);` |
-| `require_pairwise_coverage()` | Requires feasible enum values/pairs without increasing budget. | `c.require_pairwise_coverage();` |
-| `case()` | Binds symbolic deferred case access. | `let case = c.case();` |
-| `case.input()` | Reads materialized input. | `fact!(case.input().n)` |
-| `case.result()` | Reads successful positive output. | `fact!(*case.result())` |
-| `case.observations::<T>()` | Reads typed captured evidence for that case. | `fact!(case.observations::<Decision>().len())` |
+#### Observation grammar
 
-### Domain client API
+~~~text
+DECLARATION :=
+    #[derive(Serialize, Deserialize, Observation)]
+    #[observation(namespace = NAMESPACE, level = LEVEL, tags(TAG, ...))]
+    struct PAYLOAD { FIELDS }
+EMISSION := observe!(VALUE) | observe_if_active(|| VALUE) | engine.observe_if_active(|| VALUE)
+SELECTION := Selection::new()
+    [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? ]*
+    [ .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+SCOPE := guard = start_scope(ScopeConfig::new(NAME)
+    [ .selection(SELECTION) ] [ .override_policy::<PAYLOAD>(POLICY) ])
+    [ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
+ROUTING := engine.add_channel_sink(CHANNEL, SINK)
+           engine.register_namespace_channel(NAMESPACE, CHANNEL)?
+SINK := Arc::new(MemorySink::new() | MemorySink::with_config(RETENTION)
+              | JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
+              | ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
+SPAN := span = observe_span!(PAYLOAD) | span_if_active(|| PAYLOAD) | engine.span_if_active(|| PAYLOAD)
+        OPERATION; span.finish()?
+CAPTURE := run = capture_observations(CaptureConfig::new()
+    [ .selection(SELECTION) | .activate_tags(TAGS)? | .activate_namespace(NS)? ]
+    [ .retention(RETENTION) ], OPERATION)
+QUERY := dataset.query(ObservationsQuery::new()
+    [ .namespace(NS) | .namespace_subtree(NS) ]
+    [ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
+    [ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
+TYPED_EVIDENCE := typed = (run | dataset | QUERY).to_typed::<PAYLOAD>()?
+                  typed.source(NAME)
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `#[derive(DomainInput)]` | Generates typed schema/value conversion. | `#[derive(Clone, DomainInput)] struct Input { n: i32 }` |
-| `domain!(Type { ... })` | Builds a typed Domain. | `domain!(Input { n.in_range(1..=10) })` |
-| `fixed_value(value)` | One constructive value. | `field.fixed_value(7)` |
-| `selected_values(values)` | Explicit scalar choices. | `field.selected_values([-1, 0, 1])` |
-| `in_range(range)` | One ordered range. | `field.in_range(0..=100)` |
-| `one_of_ranges(ranges)` | Disconnected ordered ranges. | `field.one_of_ranges([-10..=-1, 1..=10])` |
-| `all_enum_values()` | Activates every enum variant. | `mode.all_enum_values()` |
-| `selected_enum_values(values)` | Activates listed variants only. | `mode.selected_enum_values([Mode::Fast])` |
-| nested `field { ... }` | Descends into structured rules. | `config { window.in_range(1..=8) }` |
-| `Enum::Variant { ... }` | Defines variant payload rules. | `Strategy::Window { size.in_range(1..=8) }` |
-| `length()` | Addresses collection length as `usize`. | `length().in_range(1..=32)` |
-| `each(rule)` | Constructs scalar collection elements. | `each(in_range(-1.0..=1.0))` |
-| `each { ... }` | Constructs structured collection elements. | `each { id.in_range(1..=10) }` |
-| `when(relation) { ... }` | Activates rules under a typed condition. | `when(mode.equal(Mode::Fast)) { window.in_range(1..=3) }` |
-| `equal` | Equality relation. | `left.equal(right)` |
-| `not_equal` | Inequality relation. | `left.not_equal(right)` |
-| `less_than` | Strict ordering. | `start.less_than(end)` |
-| `less_equal` | Inclusive ordering. | `start.less_equal(end)` |
-| `greater_than` | Strict reverse ordering. | `end.greater_than(start)` |
-| `greater_equal` | Inclusive reverse ordering. | `end.greater_equal(start)` |
+### Certification language
 
-### PreparedSource and cached projections
+#### CERTIFICATION
 
-Assume `let rows = collection("rows", &values);`.
+`certification(name)` constructs a named `Certification`. It can immediately evaluate checks, bind reusable sources, and group prerequisites. Only after those steps, if repeated execution is needed, consume it with `executor(f)` or `executor_with_seed(f)`. Both transitions preserve the eager proof. There is not a separate proof object to reconstruct or a second assertion to remember.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `name()` | Returns semantic source name. | `rows.name()` |
-| `values()` | Borrows source values. | `rows.values()` |
-| `entry(index)` | Accesses one value with source-local index/provenance. | `rows.entry(0)` |
-| `iter()` | Iterates source entries. | `for entry in rows.iter() { ... }` |
-| `with_provenance(&p)` | Attaches `SourceProvenance`. | `rows.with_provenance(&provenance)` |
-| `single_map(project)` | Requires one value and projects it. | `rows.single_map(|r| r.id)` |
-| `project(project)` | Caches an arbitrary typed projection. | `rows.project(|r| r.label.clone())` |
-| `numeric(project)` | Caches an `f64` projection. | `rows.numeric(|r| r.value)` |
-| `count()` | Produces row-count fact. | `rows.count().expect(3usize)` |
-| `matching_count(predicate)` | Counts matching rows. | `rows.matching_count(|r| r.invalid).expect(0usize)` |
-| `unique(key)` | Checks typed key uniqueness. | `rows.unique(|r| r.id).expect_valid()` |
-| `contiguous(key, start, end)` | Checks inclusive integer-key continuity. | `rows.contiguous(|r| r.id, 10, 20).expect_valid()` |
-| `keys(key)` | Prepares/caches typed keys. | `let keys = rows.keys(|r| r.id);` |
-| `compare_with(&other)` | Starts typed correspondence. | `rows.compare_with(&other)` |
-| `group_by(key)` | Groups by semantic key. | `rows.group_by(|r| r.fold)` |
-| `lag_self(project, config)` | Searches keyed lag within one source. | `rows.lag_self(|r| (r.tick, r.value), config)` |
-| `lag_with(&other, left, right, config)` | Searches keyed lag between sources. | `rows.lag_with(&other, |r| (r.tick, r.value), |r| (r.tick, r.value), config)` |
+Names describe a semantic promise, not a function's implementation. Evidence sources borrow their values independently of the certification, so consuming `c` does not invalidate prepared bindings. The proof must not outlive borrowed evidence.
 
-### Prepared keys and projections
+`limits(DiagnosticLimits { failures, characters_per_failure })` bounds eager retained/rendered diagnostics (defaults 64 and 2048). `report()` returns immutable `CertificationReport` with `name()`, `checks()`, `failed()`, `failures()`, `is_pass()` and `assert_certify()`. Empty eager proofs fail; silently constructing a report proves nothing.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `PreparedKeys::indices()` | Borrows cached key/index pairs. | `keys.indices()` |
-| `PreparedKeys::compare_with(&other)` | Compares compatible prepared key views. | `left_keys.compare_with(&right_keys)` |
-| `PreparedValues::values()` | Borrows cached typed projections. | `labels.values()` |
-| `PreparedValues::source()` | Re-exposes the source behind a projection. | `labels.source()` |
-| `PreparedNumeric::values()` | Borrows cached numeric values. | `numeric.values()` |
-| `series()` | Builds a reusable numeric series. | `numeric.series()` |
-| `summary()` | Computes ordinary summary. | `numeric.summary()` |
-| `robust_summary()` | Computes robust summary. | `numeric.robust_summary()` |
-| `quantile(q)` | Computes a quantile. | `numeric.quantile(0.95)` |
-| `expect(rule)` | Applies a numeric integrity rule. | `numeric.expect(NumericRule::Finite)` |
-| `outliers(config)` | Runs robust outlier analysis. | `numeric.outliers(OutlierConfig::default())` |
-| `jumps(config)` | Runs adjacent-jump analysis. | `numeric.jumps(JumpConfig::new(Some(1.0), None, 1e-9).unwrap())` |
+~~~rust
+use sun_observations::certifications::*;
+let exported = [10u64, 11, 12];
+let mut c = certification("export identities are complete");
+c.check("ids", collection("export", &exported).contiguous(|id| *id, 10, 12).expect_valid());
+c.assert_certify();
+~~~
 
-### Grouped evidence
+#### SOURCE_BINDING
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `GroupedView::iter()` | Iterates semantic groups. | `for group in groups.iter() { ... }` |
-| `GroupedView::numeric(project)` | Prepares one numeric field for every group. | `groups.numeric(|r| r.value)` |
-| `Group::len()` | Group size. | `group.len()` |
-| `Group::is_empty()` | Tests group emptiness. | `group.is_empty()` |
-| `Group::values()` | Borrows group members. | `group.values()` |
-| `Group::iter()` | Iterates group entries. | `group.iter()` |
-| `Group::numeric(project)` | Numeric view of one group. | `group.numeric(|r| r.value)` |
-| `GroupedNumeric::summaries()` | Per-group ordinary summaries. | `groups.numeric(|r| r.value).summaries()` |
-| `summaries_with_robust()` | Ordinary plus robust summaries. | `groups.numeric(|r| r.value).summaries_with_robust()` |
+Bind one value with `c.source(name, &value)` or a slice with `c.collection(name, &values)`. Free `source(name, &value)` / `collection(name, &values)` perform the same preparation independently of a proof. Prepared evidence is not registered by name in a runner; names are diagnostic labels, never correspondence keys. Planned runners deliberately have no `source` or `collection` methods.
 
-### Typed correspondence and pair analysis
+`PreparedSource` borrows the slice. `name()` and `values()` inspect it; `entry(index)` and `iter()` carry source-local index and optional provenance. `with_provenance(&provider)` attaches `SourceProvenance` for diagnostic coordinates; a custom provider implements `describe(index, out)` and writes the adapter-owned coordinate into the supplied formatter. Generic analysis never interprets that text. `project(project)` computes one owned typed vector (`PreparedValues`); `values()` borrows it and `source()` re-enters the same language without recomputing. `keys(key)` caches sorted typed keys (`PreparedKeys`); `indices()` exposes key/index pairs and `compare_with(&other_keys)` reuses them.
 
-Assume `let builder = left.compare_with(&right);`.
+~~~rust
+use sun_observations::certifications::*;
+let catalog = ["alpha", "beta"];
+let c = certification("normalization keeps catalog identity");
+let expected = c.collection("catalog", &catalog);
+let mut runner = c.executor(|s: &String| Ok::<_, ()>(s.trim().to_lowercase()));
+runner.data_source([" ALPHA ".to_owned()]);
+runner.check(expected.count().expect(2usize));
+let case = runner.case();
+runner.check(fact!(case.result().clone()).expect("alpha".to_owned()));
+runner.assert_certify();
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `on(left_key, right_key)` | Builds canonical typed correspondence. | `builder.on(|a| a.id, |b| b.id)` |
-| `on_presorted(left_key, right_key)` | Uses and validates promised sorted keys. | `builder.on_presorted(|a| a.id, |b| b.id)` |
-| `PairedComparison::name()` | Returns diagnostic pair name. | `paired.name()` |
-| `comparison()` | Returns structural correspondence report. | `paired.comparison()` |
-| `matched_pairs()` | Iterates matched key/entries. | `for (_, a, b) in paired.matched_pairs() { ... }` |
-| `paired_comparison_fact()` | Converts structural correspondence to a fact. | `paired.paired_comparison_fact().expect_valid()` |
-| `equal(left_value, right_value, top)` | Checks exact equality across matched pairs. | `paired.equal(|a| a.value, |b| b.value, 5)` |
-| `check_pairs(predicate, top)` | Applies one custom predicate to all matched pairs. | `paired.check_pairs(|a, b| a.value <= b.limit, 5)` |
-| `numeric(left_value, right_value)` | Caches aligned `f64` projections. | `paired.numeric(|a| a.value, |b| b.value)` |
+#### EAGER_CHECK
 
-### PreparedNumericComparison
+`c.check(name, result)` registers an already evaluated `CheckResult`. `check_fact_expect(name, observed, expectation)` is shorthand for making a fact and applying an expectation; it is not restricted to equality. Each check is independent, so a failed invariant does not suppress unrelated evidence. `CheckResult::description(text)` overrides the human name, not the semantic section.
 
-Assume `let n = paired.numeric(...);`.
+~~~rust
+use sun_observations::certifications::*;
+let page = [21u64, 22, 23];
+let mut c = certification("page fits its declared capacity");
+c.check_fact_expect("capacity", page.len(), Criterion::at_most(100usize).unwrap());
+c.check("nonempty", fact("page count", page.len()).expect(CountRule::NonEmpty));
+c.assert_certify();
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `values()` | Borrows aligned numeric pairs. | `n.values()` |
-| `correlation()` | Cached Pearson/Spearman metrics fact. | `n.correlation()` |
-| `linear_fit()` | Cached right-on-left fit metrics. | `n.linear_fit()` |
-| `relation()` | Composite relation metrics. | `n.relation()` |
-| `difference()` | Direct right-minus-left error summary. | `n.difference()` |
-| `linear()` | Direct linear metrics view. | `n.linear()` |
-| `pearson()` | Scalar Pearson fact. | `n.pearson()` |
-| `spearman()` | Scalar Spearman fact. | `n.spearman()` |
-| `largest(top)` | Largest direct pair differences for diagnostics. | `n.largest(5)` |
+#### SECTION
 
-### Statistical expectation builders
+`section(name, |s| { ... })` exists on both `Certification` and `PlannedCertification`. Nest by semantic responsibility: preparation, transfer, decision, persistence. Register through the closure argument. Sections organize checks; they are not Domain conditions, case loops, or additional execution phases.
 
-CorrelationExpectation examples: `pearson_at_least(0.95)`, `spearman_at_least(0.95)`, `spearman_at_most(0.2)`, `with_bound(CorrelationMeasure::Spearman, Some(0.8), None)`, `and_pearson_bounds(0.8, 1.0)`, `and_spearman_bounds(0.8, 1.0)`, and `bound(CorrelationMeasure::AbsolutePearson, Some(0.9), None)`. CorrelationMeasure selects Pearson, Spearman, AbsolutePearson, or AbsoluteSpearman.
+The path uses the same bounded composition in both phases (256-byte name budget and 512-byte path budget, with UTF-8-safe truncation and an appended ellipsis). `CheckFailure.section` is distinct from `name` and `diagnostic`. Planned `CaseFailure.checks` retains every independent failing check with its own path, even if the aggregate diagnostic is truncated. `PlannedCertificationReport.checks` contains `PlannedCheckReport { section, expression }` for successful as well as failing registrations. Check construction outside a section does not determine its path: registration does. Executor/rejection/completeness failures are unsectioned because no section owns execution itself.
 
-LinearFitExpectation examples: `slope_between(0.99, 1.01)`, `intercept_between(-0.01, 0.01)`, `r_squared_at_least(0.99)`, `residual_mean_absolute_at_most(0.1)`, `residual_max_absolute_at_most(0.5)`, `with_bound(LinearFitMeasure::Slope, Some(0.9), Some(1.1))`, `and_slope_between(0.9, 1.1)`, `and_intercept_between(-0.1, 0.1)`, `and_r_squared_at_least(0.9)`, `and_residual_mean_absolute_at_most(0.1)`, `and_residual_max_absolute_at_most(0.5)`, and `bound(LinearFitMeasure::RSquared, Some(0.99), None)`. LinearFitMeasure selects Slope, Intercept, RSquared, ResidualMeanAbsolute, or ResidualMaxAbsolute. Scalar fit Facts expose `slope()`, `intercept()`, and `r_squared()`, for example `n.linear_fit().slope()`.
+An eager `CheckResult` registered inside a planned section keeps that section in the eager prerequisite report. A panicking planned check becomes an evaluation error at its registered path; later independent checks still evaluate. A panic during section registration restores the parent path and discards that section's checks before resuming unwinding.
 
-DifferenceExpectation examples: `mean_absolute_at_most(0.1)`, `p95_absolute_at_most(0.2)`, `max_absolute_at_most(0.5)`, `with_bound(DifferenceMeasure::MeanAbsolute, None, Some(0.1))`, `and_mean_absolute_at_most(0.1)`, `and_p95_absolute_at_most(0.2)`, `and_max_absolute_at_most(0.5)`, and `bound(DifferenceMeasure::P95Absolute, None, Some(0.2))`. DifferenceMeasure selects MeanAbsolute, P95Absolute, or MaxAbsolute.
+~~~rust
+use sun_observations::certifications::*;
+let mut runner = certification("rounded capacity obeys allocation contract")
+    .executor(|n: &usize| Ok::<_, ()>(n.div_ceil(8) * 8));
+runner.data_source([0, 1, 8, 9]);
+let case = runner.case();
+runner.section("allocation", |s| {
+    s.section("alignment", |s| {
+        s.check(fact!(*case.result() % 8).expect(0).description("multiple of eight"));
+    });
+    s.check(fact!(*case.result() >= *case.input()).expect(true).description("never undersized"));
+});
+runner.assert_certify();
+~~~
 
-RelationExpectation examples: `spearman_at_least(0.95)`, `spearman_at_most(0.2)`, `with_bound(RelationMeasure::Slope, Some(0.9), Some(1.1))`, and `bound(RelationMeasure::RSquared, Some(0.99), None)`. RelationMeasure selects correlation, fit, direct-difference, and residual metrics; for example `RelationMeasure::MeanAbsoluteDifference`.
+A failed nested check is reported as section `allocation/alignment/` plus check `multiple of eight`, not as an opaque prefixed check name.
 
-### Anomaly, jump, and lag configuration
+#### PLANNED_BODY
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `OutlierConfig::default()` | Robust default threshold and zero-MAD policy. | `OutlierConfig::default()` |
-| `OutlierConfig::new(threshold, policy)` | Explicit validated outlier config. | `OutlierConfig::new(3.5, ZeroMadPolicy::ExactMedian).unwrap()` |
-| `ZeroMadPolicy::absolute_tolerance(v)` | Original-unit tolerance when MAD is zero. | `ZeroMadPolicy::absolute_tolerance(1e-6).unwrap()` |
-| `JumpConfig::new(abs, rel, floor)` | Strict absolute/relative jump thresholds. | `JumpConfig::new(Some(2.0), Some(0.5), 1e-9).unwrap()` |
-| `LagRange::new(start, end)` | Validates inclusive candidate lag range. | `LagRange::new(-8, 8).unwrap()` |
-| `LagConfig { range, measure }` | Chooses range and Pearson/Spearman strength. | `LagConfig { range: LagRange::new(-2, 2).unwrap(), measure: LagMeasure::Pearson }` |
-| `LagReport::zero_lag()` | Returns zero-lag candidate when present. | `report.zero_lag()` |
-| `LagAlignment::has_interior_gaps()` | Detects interior missing-key gaps. | `candidate.alignment.has_interior_gaps()` |
+`executor(f)` accepts `FnMut(&Input) -> Result<Output, Error>`; `executor_with_seed(f)` accepts `FnMut(&Input, u64) -> Result<Output, Error>`. Errors need diagnostic `Debug`. A captured production Result is also supported through the evidence integration. Data-source-only execution needs no `DomainInput` derive.
 
-### Direct analysis API
+| Control | Parameters and lifecycle |
+| --- | --- |
+| `data_source(inputs)` | Adds owned real inputs; execute first through the same production path. Repeat to append. |
+| `domain(domain)` | Registers exactly one typed Domain; invalid or duplicate registration fails before execution. |
+| `cases_budget(n)` | Total exploration capacity with real-case prefill. All real cases can execute beyond it; generated execution only uses remaining capacity. A registered Domain with none remaining is an error. |
+| `failure_budget(n)` | Positive cap on distinct representative case failures; reaching it stops further execution. |
+| `seed(n)` | Reproducible framework/Domain seed; seeded executors additionally receive derived case-local seeds. |
+| `report_mode(bool)` | On success, prints coverage and registered check expressions with section context. |
+| `require_pairwise_coverage()` | Requires all feasible enum values and pairs within existing capacity. Missing/non-pairwise Domain or insufficient coverage fails closed. |
+| `diagnostic_bytes(n)` | Bounds per-case diagnostic text, not source input size. |
 
-Prepared views are preferred when evidence is reused. Direct helpers remain useful for one-off independent analysis and return typed data/errors rather than assertions.
+Real inputs with a Domain are classified under it and prefill coverage. Positive outcomes must succeed and satisfy checks. Expected rejection of generated-negative inputs passes without evaluating positive-only checks. Accepted invalid inputs, rejected valid inputs, executor panics, incomplete evidence, or invalid configuration fail. A seeded executor's seed follows case identity, not traversal order; the [internals](#case-local-seeds) explain this distinction.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `NumericSeries::new(iterator)` | Wraps a cloneable numeric iterator. | `let s = NumericSeries::new(values.iter().copied());` |
-| `iter()` | Replays the series iterator. | `for value in s.iter() { ... }` |
-| `finite_count()` | Counts finite values. | `s.finite_count()` |
-| `summary()` | Computes count/mean/variance/min/max summary. | `s.summary()` |
-| `quantile(q)` | Computes a validated quantile. | `s.quantile(0.95)` |
-| `robust_summary()` | Computes median/MAD-style robust summary. | `s.robust_summary()` |
-| `integrity(rule)` | Applies a `NumericRule` to the series. | `s.integrity(NumericRule::Finite)` |
-| `outliers(config)` | Finds robust outliers. | `s.outliers(OutlierConfig::default())` |
-| `jumps(config)` | Finds adjacent jumps in source order. | `s.jumps(JumpConfig::new(Some(1.0), None, 1e-9).unwrap())` |
-| `check_count(actual, rule)` | Checks a count directly. | `check_count(rows.len(), CountRule::Minimum(1))` |
-| `check_unique(values, key)` | Checks key uniqueness. | `check_unique(&rows, |r| r.id)` |
-| `check_contiguous(values, key, start, end)` | Checks an inclusive integer-key interval. | `check_contiguous(&rows, |r| r.id, 1, 10)` |
-| `check_same_keys(left, right, ...)` | Compares key sets. | `check_same_keys(&a, &b, |x| x.id, |x| x.id)` |
-| `join_by(...)` | Builds typed correspondence without a sorted-input promise. | `let j = join_by(&a, &b, |x| x.id, |x| x.id);` |
-| `join_presorted_by(...)` | Uses and validates sorted-key inputs. | `let j = join_presorted_by(&a, &b, |x| x.id, |x| x.id)?;` |
-| `Join::comparison()` | Reads structural correspondence. | `j.comparison()` |
-| `Join::matched_pairs()` | Iterates matched rows. | `j.matched_pairs()` |
-| `Join::require_complete()` | Fails if correspondence is incomplete. | `j.require_complete()?` |
-| `linear_metrics(pairs)` | Computes direct linear metrics. | `linear_metrics(pairs.iter().copied())` |
-| `pearson(pairs)` | Computes Pearson correlation. | `pearson(pairs.iter().copied())` |
-| `spearman(pairs)` | Computes Spearman correlation. | `spearman(pairs.iter().copied())` |
-| `correlation(pairs)` | Computes combined correlation metrics. | `correlation(pairs.iter().copied())` |
-| `linear_fit(pairs)` | Computes right-on-left fit metrics. | `linear_fit(pairs.iter().copied())` |
-| `numeric_relation(pairs)` | Computes the composite relation report. | `numeric_relation(pairs.iter().copied())` |
-| `difference_summary(pairs)` | Computes direct right-minus-left error. | `difference_summary(pairs.iter().copied())` |
-| `lag_relation_by(...)` | Searches keyed lag directly. | `lag_relation_by(&a, &b, |x| (x.tick, x.value), |x| (x.tick, x.value), config)` |
+~~~rust
+use sun_observations::certifications::*;
+let mut runner = certification("absolute magnitude stays nonnegative")
+    .executor(|n: &i32| Ok::<_, ()>(i64::from(*n).abs()));
+runner.data_source([i32::MIN, 0, i32::MAX]);
+runner.seed(71).failure_budget(3).report_mode(true);
+let case = runner.case();
+runner.check(fact!(*case.result() >= 0).expect(true));
+runner.assert_certify();
+~~~
 
-Wrap a direct result with `fact`/`try_fact`, apply an expectation, and still finish the proof with `assert_certify()`.
+#### CASE
 
-### Observation declaration and emission API
+`let case = runner.case()` binds the typed symbolic root without borrowing the runner. Inside `fact!(expression)`, `case.input()` borrows the materialized input and `case.result()` borrows the successful positive output, not a `Result`. `case.observations::<T>()` exists for captured execution and returns strict typed evidence or a decode error. It is not available on plain Result execution.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `#[derive(Observation)]` | Generates the typed Observation implementation for a serializable payload. | `#[derive(serde::Serialize, Observation)] struct Event { id: u64 }` |
-| `namespace = "..."` | Declares stable persisted semantic identity. | `#[observation(namespace = "service::event")]` |
-| `level = INFO/WARN/ERROR` | Declares severity; INFO is default. | `#[observation(namespace = "service::event", level = WARN)]` |
-| `tags("...")` | Declares non-persisted selection labels. | `#[observation(namespace = "service::event", tags("evidence"))]` |
-| `Observation::NAMESPACE` | Manual implementation namespace constant. | `const NAMESPACE: &'static str = "service::event";` |
-| `Observation::LEVEL` | Manual implementation severity constant. | `const LEVEL: Level = Level::Warn;` |
-| `Observation::TAGS` | Manual implementation static tags. | `const TAGS: &'static [&'static str] = &["evidence"];` |
-| `message()` | Supplies persisted semantic text. | `fn message(&self) -> Option<String> { Some("accepted".into()) }` |
-| `render_text()` | Supplies transient human rendering. | `fn render_text(&self) -> Option<String> { Some(format!("{}", self.id)) }` |
-| `observe!(value)` | Emits through the global production engine. | `observe!(Event { id: 7 })?;` |
-| `observe_if_active(|| value)` | Lazily constructs only after admission. | `observe_if_active(|| Event { id: expensive_id() })?;` |
-| `engine.observe_if_active(|| value)` | Lazy emission through an explicit engine. | `engine.observe_if_active(|| Event { id: 7 })?;` |
-| `global()` | Gets the process-global engine. | `let engine = global();` |
-| `ObservationEngine::isolated()` | Creates an independent engine for explicit runtime/routing work. | `let engine = ObservationEngine::isolated();` |
-| `process_id()` | Reads the engine/process identity used in records. | `let proc = global().process_id();` |
-| `sink_error_count()` | Reads checked sink-error count. | `let failures = global().sink_error_count();` |
-| `set_selection(selection)` | Replaces engine selection. | `global().set_selection(Selection::new().activate_all());` |
-| `flush_channels()` | Waits for configured sink barriers and reports errors. | `global().flush_channels()?;` |
-| `ObservationError` | Typed serialization/delivery failure. | `fn emit() -> Result<(), ObservationError> { observe!(Event { id: 1 })?; Ok(()) }` |
+The macro defers the whole expression containing the case root. Use input-derived independent invariants or an oracle; do not calculate expected output by calling the production algorithm again. A failure to evaluate required evidence is a failed proof, not a skipped check.
 
-### Selection API
+~~~rust
+use sun_observations::certifications::*;
+let mut runner = certification("sorting preserves cardinality").executor(|rows: &Vec<u64>| {
+    let mut sorted = rows.clone();
+    sorted.sort_unstable();
+    Ok::<_, ()>(sorted)
+});
+runner.data_source([vec![3, 1, 2, 1]]);
+let case = runner.case();
+runner.check(fact!(case.result().len()).expect(fact!(case.input().len())));
+runner.check(fact!(case.result().windows(2).all(|w| w[0] <= w[1])).expect(true));
+runner.assert_certify();
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `Selection::new()` / `default()` | Starts with nothing active. | `let s = Selection::new();` |
-| `activate_all()` | Activates every type unless excluded. | `s.activate_all()` |
-| `activate_namespace(ns)` | Activates one namespace subtree. | `s.activate_namespace("service")?` |
-| `activate_tags(tags)` | Activates when any selected tag matches. | `s.activate_tags(["evidence", "diagnostic"])?` |
-| `exclude_namespace(ns)` | Vetoes one namespace subtree. | `s.exclude_namespace("service::wire")?` |
-| `exclude_tags(tags)` | Vetoes matching tags. | `s.exclude_tags(["expensive"])?` |
-| `activates(namespace, tags)` | Inspects positive selection. | `s.activates("service::job", &["evidence"])` |
-| `excludes(namespace, tags)` | Inspects exclusion. | `s.excludes("service::wire", &[])` |
-| `admits(namespace, tags)` | Evaluates activation minus exclusions. | `s.admits("service::job", &["evidence"])` |
-| `namespace::is_normalized_segment(v)` | Checks one namespace segment. | `namespace::is_normalized_segment("train_1")` |
-| `namespace::matches_subtree(root, ns)` | Tests segment-aware subtree membership. | `namespace::matches_subtree("service", "service::job")` |
-| `namespace::validate_namespace(v)` | Validates a dynamic namespace. | `namespace::validate_namespace("service::job")?` |
+#### PLANNED_CHECK
 
-### Scope, policy, and context API
+Register `runner.check(fact!(case_expression).expect(expectation))`. An expectation can itself be `fact!(case_expression)`, allowing typed input-dependent policy. `CheckPlan::description(text)` supplies semantic diagnostic meaning independently of source expression and section. Passing `runner.check(eager_result)` instead adds a one-time eager prerequisite, not a per-case operation.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `start_scope(config)` | Installs a scoped execution context until guard drop. | `let _scope = start_scope(ScopeConfig::new("run-1"));` |
-| `ScopeConfig::new(name)` | Creates named scope configuration. | `ScopeConfig::new("run-1")` |
-| `selection(selection)` | Replaces the scope-local selection. | `ScopeConfig::new("run").selection(selection)` |
-| `activate_all()` | Activates all Observations in this scope. | `ScopeConfig::new("run").activate_all()` |
-| `activate_namespace(ns)` | Adds scope-local namespace activation. | `ScopeConfig::new("run").activate_namespace("pipeline")?` |
-| `activate_tags(tags)` | Adds scope-local tag activation. | `ScopeConfig::new("run").activate_tags(["evidence"])?` |
-| `exclude_namespace(ns)` | Adds scope-local namespace veto. | `ScopeConfig::new("run").exclude_namespace("pipeline::debug")?` |
-| `exclude_tags(tags)` | Adds scope-local tag veto. | `ScopeConfig::new("run").exclude_tags(["expensive"])?` |
-| `override_policy::<T>(policy)` | Overrides frequency for one Observation type. | `ScopeConfig::new("run").override_policy::<Event>(Policy::first_n(10).unwrap())` |
-| `Policy::Always` | Admits every selected occurrence. | `Policy::Always` |
-| `Policy::Never` | Admits none. | `Policy::Never` |
-| `Policy::FirstN` | Stores a validated first-N policy value. | `Policy::first_n(10).unwrap()` |
-| `Policy::EveryN` | Stores a validated every-N policy value. | `Policy::every_n(100).unwrap()` |
-| `Policy::first_n(n)` | Constructs positive FirstN policy. | `Policy::first_n(10).unwrap()` |
-| `Policy::every_n(n)` | Constructs positive EveryN policy. | `Policy::every_n(100).unwrap()` |
-| `Context::default()` | Creates explicitly empty context. | `let empty = Context::default();` |
-| `Context::capture()` | Snapshots installed execution state. | `let captured = Context::capture();` |
-| `enter()` | Installs a captured context until guard drop. | `let _guard = captured.enter();` |
-| `run(operation)` | Installs context for one closure. | `captured.run(|| work())` |
-| `scope_name()` | Reads current captured scope name. | `Context::capture().scope_name()` |
-| `context::thread::spawn(operation)` | Spawns a thread with propagated context. | `let h = context::thread::spawn(|| work());` |
-| `ContextThreadPool::new()` | Builds a context-bound Rayon pool. | `let pool = context::rayon::ContextThreadPool::new()?;` |
-| `ContextThreadPool::with_threads(n)` | Builds a context-bound pool with explicit size. | `ContextThreadPool::with_threads(NonZeroUsize::new(4).unwrap())?` |
-| `install(operation)` | Runs work in that context-bound Rayon pool. | `pool.install(|| work())` |
+All positive-case checks evaluate independently. Reports retain a bounded set of representative cases, not unbounded input dumps. `CaseFailure` carries category, coordinate, summary check/class/diagnostic and structured `checks: Vec<CheckFailure>`. Summary fields are projections of those failures, not a second acceptance decision. `PlannedCertificationReport` exposes coverage, categories, real/generated counts, stopped state, evaluation_error, failures, and registered checks; Execution counts remain available for programmatic inspection.
 
-### Routing and sink API
+~~~rust
+use sun_observations::certifications::*;
+let mut runner = certification("alignment wastes fewer than eight slots")
+    .executor(|n: &usize| Ok::<_, ()>(n.div_ceil(8) * 8));
+runner.data_source([1, 7, 8, 9]);
+let case = runner.case();
+runner.check(fact!(*case.result() - *case.input()).expect(Criterion::less_than(8usize).unwrap())
+    .description("bounded padding"));
+runner.assert_certify();
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `add_channel_sink(channel, sink)` | Attaches one sink to a logical channel. | `engine.add_channel_sink("ops", memory.clone());` |
-| `register_namespace_channel(ns, channel)` | Routes a namespace subtree to a channel. | `engine.register_namespace_channel("service", "ops")?;` |
-| `clear_channel_sinks(channel)` | Detaches sinks from one channel. | `engine.clear_channel_sinks("ops");` |
-| `MemorySink::new()` / `default()` | Creates bounded in-memory history. | `let memory = MemorySink::new();` |
-| `MemorySink::with_config(config)` | Uses explicit retention. | `MemorySink::with_config(MemorySinkConfig::new(1000, 0.1)?)` |
-| `len()` / `is_empty()` | Inspects retained count. | `memory.len()` |
-| `config()` | Reads memory retention config. | `memory.config()` |
-| `stats()` | Reads retention accounting. | `memory.stats().evicted` |
-| `shared_records()` | Snapshots shared records. | `let records = memory.shared_records();` |
-| `drain_shared()` | Drains retained shared records. | `let records = memory.drain_shared();` |
-| `records()` | Clones retained records. | `let records = memory.records();` |
-| `drain()` | Drains cloned records. | `let records = memory.drain();` |
-| `MemorySinkConfig::new(max, fraction)` | Validates retention limits. | `MemorySinkConfig::new(1000, 0.1)?` |
-| `MemorySinkConfig::default()` | Uses framework defaults. | `MemorySinkConfig::default()` |
-| `max_items()` | Reads configured record bound. | `memory.config().max_items()` |
-| `compact_fraction()` | Reads eviction batch fraction. | `memory.config().compact_fraction()` |
-| `MemoryStats` | Exposes retained/evicted/compaction counts. | `let evicted = memory.stats().evicted;` |
-| `JsonlSink::open_append(path)` | Opens append-only JSONL with no size limit. | `JsonlSink::open_append("observations.jsonl")?` |
-| `JsonlSink::with_config(path, config)` | Opens file sink with explicit config. | `JsonlSink::with_config("observations.jsonl", JsonlConfig::new())?` |
-| `JsonlSink::from_writer(writer)` | Uses an owned writer. | `JsonlSink::from_writer(writer)` |
-| `JsonlSink::writer_with_config(writer, config)` | Uses writer plus explicit config. | `JsonlSink::writer_with_config(writer, JsonlConfig::new())` |
-| `JsonlConfig::new()` / `default()` | Creates default JSONL config. | `JsonlConfig::new()` |
-| `flush_interval_ms(ms)` | Sets background flush interval. | `JsonlConfig::new().flush_interval_ms(250)?` |
-| `max_file_size_mb(mib)` | Sets MiB retention limit. | `JsonlConfig::new().max_file_size_mb(10)?` |
-| `max_file_size_bytes(bytes)` | Sets byte retention limit. | `JsonlConfig::new().max_file_size_bytes(1_000_000)?` |
-| `trim_fraction(f)` | Sets whole-record compaction target. | `JsonlConfig::new().trim_fraction(0.1)?` |
-| `stats()` | Reads JSONL runtime stats. | `file.stats()` |
-| `is_started()` | Reports whether worker/file startup occurred. | `file.is_started()` |
-| `last_error()` | Reads sticky async failure. | `file.last_error()` |
-| `ConsoleSink::stdout()` | Builds stdout human sink. | `ConsoleSink::stdout()` |
-| `ConsoleSink::stderr()` | Builds stderr human sink. | `ConsoleSink::stderr()` |
-| `ConsoleSink::new(writer)` | Uses an owned human writer. | `ConsoleSink::new(writer)` |
-| `Sink::write(record)` | Required custom structured delivery hook. | `fn write(&self, record: &ObservationRecord) -> Result<(), SinkError> { ... }` |
-| `Sink::flush()` | Required completion barrier. | `fn flush(&self) -> Result<(), SinkError> { ... }` |
-| `write_shared(record)` | Optional shared-record hook. | `fn write_shared(&self, record: Arc<ObservationRecord>) -> Result<(), SinkError> { ... }` |
-| `wants_render_text()` | Requests producer-side human rendering. | `fn wants_render_text(&self) -> bool { true }` |
-| `write_delivery(delivery)` | Receives structured record plus optional human text. | `fn write_delivery(&self, d: ObservationDelivery<'_>) -> Result<(), SinkError> { ... }` |
-| `ObservationDelivery::record()` | Borrows structured record. | `delivery.record()` |
-| `shared_record()` | Gets shared record ownership when available. | `delivery.shared_record()` |
-| `render_text()` | Borrows rendered human text. | `delivery.render_text()` |
-| `shared_render_text()` | Gets shared rendered text when available. | `delivery.shared_render_text()` |
+#### FACT
 
-### Span API
+`fact(source, value)` records typed eager evidence. `try_fact(source, result)` converts failed preparation into `AnalysisError` / `EvaluationError` without aborting unrelated checks. `fact!(expression)` derives source text and chooses eager or case-deferred evaluation. `Fact::details(text)` adds diagnostic context; `Fact::expect(expectation)` applies acceptance and yields a check. Facts themselves never assert.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `observe_span!(payload)` | Starts a typed span through the global engine. | `let span = observe_span!(Fit { samples: 128 })?;` |
-| `span_if_active(|| payload)` | Lazily starts a global span. | `let span = span_if_active(|| Fit { samples: expensive_count() })?;` |
-| `engine.span_if_active(|| payload)` | Lazily starts a span on an explicit engine. | `let span = engine.span_if_active(|| Fit { samples: 128 })?;` |
-| `SpanGuard::is_active()` | Reports whether start admission succeeded. | `span.is_active()` |
-| `finish()` | Explicitly emits end and returns delivery failure. | `span.finish()?;` |
+`CheckClass` distinguishes Pass, HardViolation, StatisticalViolation, EvaluationError. A malformed analysis cannot become a statistical warning; certification fails closed. `CheckResult` exposes `is_pass()`, `class()`, `source()`, `expected()`, `details()`, `observed()`, `violations()`, `analysis_error()` for tooling.
 
-### Scoped capture API
+~~~rust
+use sun_observations::certifications::*;
+let mut c = certification("persisted header is usable");
+c.check("count", try_fact("header count", "24".parse::<u64>())
+    .details("after reload").expect(24));
+c.assert_certify();
+~~~
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `CaptureConfig::new()` / `default()` | Starts disabled selection with default memory retention. | `CaptureConfig::new()` |
-| `selection(selection)` | Replaces capture selection. | `CaptureConfig::new().selection(selection)` |
-| `retention(config)` | Sets capture memory retention. | `CaptureConfig::new().retention(MemorySinkConfig::new(10_000, 0.1)?)` |
-| `activate_all()` | Captures every non-excluded Observation. | `CaptureConfig::new().activate_all()` |
-| `activate_namespace(ns)` | Captures one namespace subtree. | `CaptureConfig::new().activate_namespace("pipeline")?` |
-| `activate_namespaces(iter)` | Captures several namespace subtrees. | `CaptureConfig::new().activate_namespaces(["a", "b"])?` |
-| `activate_tag(tag)` | Captures one tag. | `CaptureConfig::new().activate_tag("evidence")?` |
-| `activate_tags(iter)` | Captures several tags. | `CaptureConfig::new().activate_tags(["evidence", "diagnostic"])?` |
-| `exclude_namespace(ns)` | Vetoes one capture namespace. | `CaptureConfig::new().exclude_namespace("pipeline::debug")?` |
-| `exclude_namespaces(iter)` | Vetoes several namespaces. | `CaptureConfig::new().exclude_namespaces(["a::debug", "b::debug"])?` |
-| `exclude_tag(tag)` | Vetoes one tag. | `CaptureConfig::new().exclude_tag("expensive")?` |
-| `exclude_tags(iter)` | Vetoes several tags. | `CaptureConfig::new().exclude_tags(["expensive", "verbose"])?` |
-| `capture_observations(config, operation)` | Runs the real production closure under scoped capture. | `let run = capture_observations(config, || production());` |
-| `CapturedRun::result()` | Borrows production result. | `run.result()` |
-| `dataset()` | Reads the fixed capture snapshot. | `run.dataset()` |
-| `status()` | Reads completeness status. | `run.status().is_complete()` |
-| `to_typed::<T>()` | Strictly decodes matching captured evidence. | `let decisions = run.to_typed::<Decision>()?;` |
-| `certification(name)` | Starts proof with capture completeness prerequisite. | `let mut proof = run.certification("production contract");` |
+#### EXPECTATION
 
-### Dataset, query, decode, and provenance API
+An expectation is scenario-owned policy. Most are passed to `FACT.expect(...)`; numeric integrity is the deliberate ready-check exception below.
 
-| API | What it does | Minimal example |
-| --- | --- | --- |
-| `ObservationDataset::try_from_records(records)` | Builds a validated fixed dataset. | `ObservationDataset::try_from_records(records)?` |
-| `try_from_memory(&sink)` | Snapshots a MemorySink into a dataset. | `ObservationDataset::try_from_memory(&memory)?` |
-| `records()` | Borrows dataset records. | `dataset.records()` |
-| `query(query)` | Creates a filtered RecordView. | `dataset.query(ObservationsQuery::new().scope("run-1"))` |
-| `to_typed::<T>()` | Strictly decodes matching dataset records. | `dataset.to_typed::<Decision>()?` |
-| `ObservationsQuery::new()` / `default()` | Starts unrestricted query. | `ObservationsQuery::new()` |
-| `namespace(value)` | Requires exact namespace. | `ObservationsQuery::new().namespace("jobs::completed")` |
-| `namespace_subtree(value)` | Selects one namespace subtree. | `ObservationsQuery::new().namespace_subtree("jobs")` |
-| `scope(value)` | Requires one scope. | `ObservationsQuery::new().scope("run-1")` |
-| `without_scope()` | Requires records with no scope. | `ObservationsQuery::new().without_scope()` |
-| `level(level)` | Filters by severity. | `ObservationsQuery::new().level(Level::Info)` |
-| `points()` | Selects point records. | `ObservationsQuery::new().points()` |
-| `span_starts()` | Selects span start records. | `ObservationsQuery::new().span_starts()` |
-| `span_ends()` | Selects span end records. | `ObservationsQuery::new().span_ends()` |
-| `span(value)` | Filters one span identity. | `ObservationsQuery::new().span(span_id)` |
-| `process(value)` | Filters one process identity. | `ObservationsQuery::new().process(proc_id)` |
-| `RecordView::iter()` | Iterates selected records. | `for record in view.iter() { ... }` |
-| `RecordView::to_typed::<T>()` | Strictly decodes selected records. | `view.to_typed::<Decision>()?` |
-| `TypedView::values()` | Borrows decoded values. | `typed.values()` |
-| `sources()` | Borrows original source coordinates. | `typed.sources()` |
-| `iter()` | Iterates typed entries. | `for entry in typed.iter() { ... }` |
-| `entry(index)` | Reads one TypedEntry. | `typed.entry(0)` |
-| `source(name)` | Produces certification-ready PreparedSource with provenance. | `typed.source("decisions")` |
-| `TypedEntry` | Carries decoded value, dataset index, and source record. | `let index = typed.entry(0).dataset_index;` |
-| `SourceProvenance` | Lets prepared diagnostics resolve original evidence coordinates. | `let prepared = typed.source("decisions");` |
-| `DecodeError / SourceContext` | Reports original dataset/namespace/process/scope/span/time coordinates. | `let source = decode_error.source();` |
+| Alternative | Parameters and usage |
+| --- | --- |
+| exact `value` / `NotEqual(value)` | Typed equality / inequality. |
+| `Criterion::greater_than(v)`, `at_least(v)`, `less_than(v)`, `at_most(v)`, `between(min,max)` | Validated ordered scalar bounds, inclusive where named. Constructors return Result. |
+| `criterion(description, class, predicate)` | Custom typed predicate with `ViolationClass::Hard` or `Statistical`. |
+| `close_to(expected)` | f64; combine validated `absolute_tolerance(v)` and `relative_tolerance(v)`. |
+| `CountRule::Exact(n)` / `Minimum(n)` / `NonEmpty` | Cardinality. |
+| `NumericRule::Finite` / `Positive` / `NonNegative` / `between(min,max)` (or Range(NumericRange::new(min,max)?)) | Use `prepared_numeric.expect(rule)` directly; this analyzes integrity and returns CheckResult, not Fact. |
+| `AllValid` / `expect_valid()` | IntegrityReport, &Comparison, PairCheck; not a generic arbitrary-object validator. |
+| `AtMostAnomalies(n)` | OutlierReport or JumpReport acceptance. |
+| `LagExpectation { best_lag }` | Required keyed lag. |
+| `GroupExpectation::new(min_count,min_mean,max_mean)` | Each present group's cardinality and mean; required groups must be checked separately. |
 
-Persisted wire/schema details stay in [FORMAT v1](docs/FORMAT.md); they are a protocol contract rather than another tutorial.
+`Expectation<T>` is the reusable extension trait: define `type Violation: Debug`, implement `assess(observed)` and `describe()`, and optionally override `class()`. Return `AnalysisError` when valid evaluation is impossible. An inline predicate is usually simpler than a new expectation type.
+
+Statistical builders validate finite, ordered, measure-domain bounds. Undefined required metrics (constant series, insufficient samples) are evaluation errors.
+
+| Family | Constructors and combination |
+| --- | --- |
+| `CorrelationExpectation` | `pearson_at_least(min)`, `spearman_at_least(min)`, `spearman_at_most(max)`; `and_pearson_bounds(min,max)`, `and_spearman_bounds(min,max)`. |
+| `LinearFitExpectation` | `slope_between(min,max)`, `intercept_between(min,max)`, `r_squared_at_least(min)`, `residual_mean_absolute_at_most(max)`, `residual_max_absolute_at_most(max)`; `and_slope_between`, `and_intercept_between`, `and_r_squared_at_least`, `and_residual_mean_absolute_at_most`, `and_residual_max_absolute_at_most` combine constraints. |
+| `DifferenceExpectation` | `mean_absolute_at_most(max)`, `p95_absolute_at_most(max)`, `max_absolute_at_most(max)`; `and_mean_absolute_at_most`, `and_p95_absolute_at_most`, `and_max_absolute_at_most` combine constraints. |
+| `RelationExpectation` | `spearman_at_least(min)` / `spearman_at_most(max)` or explicit measures. |
+
+All four also provide `with_bound(measure, Option<min>, Option<max>)` and `bound(measure,min,max)`. `CorrelationMeasure`: Pearson, Spearman, AbsolutePearson, AbsoluteSpearman. `LinearFitMeasure`: Slope, Intercept, RSquared, ResidualMeanAbsolute, ResidualMaxAbsolute. `DifferenceMeasure`: MeanAbsolute, P95Absolute, MaxAbsolute. `RelationMeasure` combines association/fit/residual measures and direct errors named MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference. `MetricConstraint::new(measure,min,max)` is the validated common bound representation with `measure()`, `min()`, `max()` inspection.
+
+~~~rust
+use sun_observations::certifications::*;
+let mut c = certification("normalized reading");
+c.check("unit gain", fact("gain", 1.000001f64)
+    .expect(close_to(1.0).unwrap().absolute_tolerance(1e-5).unwrap()));
+c.check("identity assigned", fact("id", 42u64).expect(NotEqual(0)));
+c.check("batch width", fact("width", 8usize).expect(criterion(
+    "aligned width", ViolationClass::Hard, |n: &usize| n % 8 == 0)));
+c.assert_certify();
+~~~
+
+#### PREPARED_SOURCE_CHECK
+
+Write `rows.count().expect(...)`, `rows.matching_count(predicate).expect(...)`, or `single.single_map(project).expect(...)`. single_map requires exactly one row; zero/many rows is an evaluation error, not an arbitrary first match. `unique(key).expect_valid()` proves identity uniqueness. `contiguous(key,start,end).expect_valid()` proves an inclusive u64 range, including no duplicates/missing/unexpected keys.
+
+Direct one-off alternatives are `check_count(actual,rule)`, `check_unique(values,key)`, `check_contiguous(values,key,start,end)`, `check_same_keys(left,right,left_key,right_key)`. They return reports rather than assertions; wrap reports with fact/try_fact and apply acceptance.
+
+~~~rust
+use sun_observations::certifications::*;
+let ids = [42u64, 43, 44];
+let mut c = certification("export exactly covers assigned range");
+let rows = c.collection("export", &ids);
+c.check("range", rows.contiguous(|id| *id, 42, 44).expect_valid());
+c.check("no sentinel", rows.matching_count(|id| *id == 0).expect(0usize));
+c.assert_certify();
+~~~
+
+#### NUMERIC_CHECK
+
+Prepare `let numeric = rows.numeric(project)` once for an f64 projection. `PreparedNumeric::values()` borrows cached numbers; `series()` exposes a replayable NumericSeries. `summary()`, `robust_summary()`, `quantile(q)`, `outliers(config)`, `jumps(config)` return facts. `expect(NumericRule)` returns a ready integrity check directly. Summary acceptance can use a typed criterion; no result-unwrapping is needed to discard analysis errors.
+
+| Configuration | Meaning |
+| --- | --- |
+| `OutlierConfig::new(threshold,policy)` | Finite nonnegative modified-z threshold; default 3.5, ZeroMadPolicy::ExactMedian. The other variant is AbsoluteTolerance, constructed with validated `ZeroMadPolicy::absolute_tolerance(v)`; the tolerance is in original numeric units, not z-score units. `threshold()` / `zero_mad()` inspect the configuration. |
+| `JumpConfig::new(abs,rel,floor)` | At least one Some threshold, finite nonnegative thresholds, positive finite floor. Either strict threshold flags adjacent transitions. `absolute_threshold()`, `relative_threshold()`, `denominator_floor()` inspect configuration. |
+| `LagConfig { range, measure }` | `LagRange::new(start,end)` validates inclusive candidates; `start()` / `end()` inspect. LagMeasure::Pearson or Spearman. |
+
+`rows.lag_self(project,config)` and `rows.lag_with(&other,left,right,config)` take projections returning (i64 key,f64 value). Positive lag d pairs left key k with right key k+d. `LagReport::zero_lag()` and `LagAlignment::has_interior_gaps()` help distinguish missing interior keys from expected boundary loss. A lag expectation is not proof of causality by itself.
+
+Direct `NumericSeries::new(iterator)` supports `iter()`, `finite_count()`, `summary()`, `quantile(q)` (q in [0,1]), `robust_summary()`, `integrity(rule)`, `outliers(config)`, `jumps(config)`. `lag_relation_by(left,right,left_project,right_project,config)` is the one-off lag equivalent. Direct analysis returns typed data/errors, so apply try_fact before acceptance.
+
+~~~rust
+use sun_observations::certifications::*;
+let milliseconds = [10.0, 10.0, 10.0, 10.0];
+let mut c = certification("latency has no invalid readings or spikes");
+let numeric = c.collection("latency ms", &milliseconds).numeric(|v| *v);
+c.check("finite", numeric.expect(NumericRule::Finite));
+c.check("spikes", numeric.outliers(OutlierConfig::default()).expect(AtMostAnomalies(0)));
+c.check("p95", numeric.quantile(0.95).expect(Criterion::at_most(12.0).unwrap()));
+c.assert_certify();
+~~~
+
+#### GROUP_CHECK
+
+`rows.group_by(key)` creates deterministic ascending-key groups (`GroupedView`). Prepare all group numbers with `numeric(project)`; `summaries()` and `summaries_with_robust()` return `GroupedSummaryReport`, not Fact. Wrap once with `fact(name, report)` before `GroupExpectation`. Each group carries its own numeric Result; one bad group's analysis cannot silently disappear.
+
+`groups.iter()` yields Group with `len()`, `is_empty()`, `values()`, `iter()` and `numeric(project)` for custom policy. Prove required group identities before statistical acceptance: no summary can detect a group never present in the dataset. See [per-region normalization](#scenario-5-grouped-statistical-contract).
+
+~~~rust
+use sun_observations::certifications::*;
+let samples = [("east", 10.0), ("east", 12.0), ("west", 9.0), ("west", 11.0)];
+let mut c = certification("latency is bounded in every region");
+let rows = c.collection("requests", &samples);
+let groups = rows.group_by(|r| r.0);
+c.check("regions", fact("present regions", groups.iter().map(|g| *g.key).collect::<Vec<_>>())
+    .expect(vec!["east", "west"]));
+c.check("latency", fact("regional ms", groups.numeric(|r| r.1).summaries())
+    .expect(GroupExpectation::new(2, 8.0, 13.0).unwrap()));
+c.assert_certify();
+~~~
+
+#### CORRESPONDENCE_CHECK
+
+Bind `paired = left.compare_with(&right).on(left_key,right_key)`. Keys are the same typed ordered domain identity on both sides, never row position or source name. `on_presorted(...)` validates the promised ordering and returns Result. PreparedKeys::compare_with reuses sorted keys.
+
+`paired.paired_comparison_fact().expect_valid()` proves unique complete correspondence. `equal(left_value,right_value,top).expect_valid()` proves value equality; `check_pairs(predicate,top).expect_valid()` handles a typed pair relation. Both fail closed on incomplete correspondence. top bounds examples (maximum 32), not how many pairs are checked. `name()`, `comparison()` and `matched_pairs()` expose diagnostic/inspection views; source entries retain provenance.
+
+Direct `join_by(left,right,left_key,right_key)` and `join_presorted_by(...)` produce Join; use `comparison()`, `matched_pairs()`, `require_complete()`. Comparison exposes `left_source()`, `right_source()`, `left_count()`, `right_count()`, `matched()`, `left_only()`, `right_only()`, `duplicate_left()`, `duplicate_right()` and `is_complete()`. Join::set_source_names(left,right) attaches diagnostic labels. Proving only a matched subset is insufficient when dropped entities are forbidden.
+
+~~~rust
+use sun_observations::certifications::*;
+let sent = [(1u64, "alpha"), (2, "beta")];
+let loaded = [(2u64, "beta"), (1, "alpha")];
+let mut c = certification("persistence preserves keyed rows");
+let paired = collection("sent", &sent).compare_with(&collection("loaded", &loaded))
+    .on(|r| r.0, |r| r.0);
+c.check("complete", paired.paired_comparison_fact().expect_valid());
+c.check("labels", paired.equal(|r| r.1, |r| r.1, 5).expect_valid());
+c.assert_certify();
+~~~
+
+#### NUMERIC_COMPARISON_CHECK
+
+`paired.numeric(left_value,right_value)` prepares one aligned vector of f64 pairs (`PreparedNumericComparison`). `values()` borrows it. `correlation()`, `linear_fit()`, `difference()`, `relation()` produce facts for the respective expectation families. The prepared view caches shared linear/rank/difference/fit analyses. Repeating checks does not repeat projections or independent sorting.
+
+Difference is right minus left. Linear fit models right = slope × left + intercept; residuals compare right with fitted prediction. Perfect correlation can coexist with completely wrong scale/offset: check direct agreement or expected slope/intercept when those are contractual. Undefined required statistics fail evaluation rather than being treated as zero.
+
+Narrower facts: `linear()` (LinearMetrics), `pearson()` / `spearman()` (Metric), `largest(top)` (bounded PairEvidence). `linear_fit().slope()`, `intercept()`, `r_squared()` require defined scalars. Direct equivalents over pair iterators: `linear_metrics`, `pearson`, `spearman`, `correlation`, `linear_fit`, `numeric_relation`, `difference_summary`. `Metric::value()` exposes an Option for diagnostics, not a fallback acceptance value.
+
+~~~rust
+use sun_observations::certifications::*;
+let reference = [(1u64, 1.0), (2, 2.0), (3, 3.0)];
+let measured = [(3u64, 3.001), (1, 1.001), (2, 2.001)];
+let mut c = certification("sensor agreement is stronger than correlation");
+let paired = collection("reference", &reference).compare_with(&collection("sensor", &measured))
+    .on(|r| r.0, |r| r.0);
+c.check("identity", paired.paired_comparison_fact().expect_valid());
+let numeric = paired.numeric(|r| r.1, |r| r.1);
+c.check("agreement", numeric.difference().expect(DifferenceExpectation::max_absolute_at_most(0.01).unwrap()));
+c.check("association", numeric.correlation().expect(CorrelationExpectation::pearson_at_least(0.99).unwrap()));
+c.assert_certify();
+~~~
+
+#### ASSERT_CERTIFY
+
+Finish normal proofs with `c.assert_certify()` or `runner.assert_certify()`. All hard/statistical violations and evaluation errors fail. Eager success requires at least one check; planned success requires executed cases, no eager failures, no case failures, and no evaluation error. Merely running a production closure or returning a report does not assert the promise.
+
+`report()` is appropriate for tooling inspecting structured diagnostics. Eager report is cloned; planned report consumes the runner and executes the plan once. `PlannedCertificationReport::is_pass()` exposes status and `cases_executed()` sums actual executions. `assert_certify()` can assert an already produced report and prints success details only in report mode.
+
+~~~rust
+use sun_observations::certifications::*;
+let ids = [1u64, 2, 3];
+let mut c = certification("no unassigned ids leave the exporter");
+c.check("sentinel absent", collection("ids", &ids).matching_count(|id| *id == 0).expect(0usize));
+c.assert_certify();
+~~~
+
+### Domain language
+
+#### DOMAIN
+
+`#[derive(DomainInput)]` supplies a typed schema for concrete named-field structs and enums. Built-ins include integers, f32/f64, bool, String, Vec<T>. Generic derives, unions and unnamed struct fields are unsupported. Construct `domain!(Type { RULE, ... })` and register it with `runner.domain(...)`. Input generation is a separate concern from executor success or output acceptance.
+
+The generator chooses deterministic representatives and constraint-breaking negatives instead of enumerating arbitrary random Rust values. Use it at the owner that validates that input contract. Downstream owners should receive only reachable validated states. Keep concrete regression inputs when their identity matters. Budgets, seeds, pairwise enforcement, checks, and reporting belong to [PLANNED_BODY](#planned_body); the [generation internals](#how-domain-generation-works-internally) explain coverage, classification and bounds.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Reading { raw: i32 }
+let mut runner = certification("magnitude cannot be negative")
+    .executor(|r: &Reading| Ok::<_, ()>(i64::from(r.raw).abs()));
+runner.domain(domain!(Reading { raw.in_range(i32::MIN..=i32::MAX) }));
+let case = runner.case();
+runner.check(fact!(*case.result() >= 0).expect(true));
+runner.assert_certify();
+~~~
+
+#### RULE
+
+A rule supplies a constructive value space, descends into a field, selects payload variants/collection elements, activates a condition, or constrains a relation. `field { RULE, ... }` changes the current typed field context; nested bodies contain ordinary Domain rules. Every active scalar or collection length needs exactly one constructive source, including under conditions. No arbitrary predicate can replace missing typed constraints. The macro uses typed fields() descent for nested blocks; client code normally writes the block rather than expanding field accessors.
+
+Incomplete, contradictory, ambiguous, overlapping, or unmaterializable declarations fail closed when registered. Rust's generated field accessors reject incompatible field paths/types before execution.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Config { window: usize }
+#[derive(Clone, DomainInput)]
+struct Request { config: Config }
+let family = domain!(Request { config { window.in_range(1..=32) } });
+~~~
+
+#### CONSTRUCTIVE
+
+| Syntax | Value space |
+| --- | --- |
+| `fixed_value(value)` | One typed value. |
+| `selected_values(values)` | Explicit compatible scalars; use for strings rather than regex/arbitrary generation. |
+| `in_range(range)` | Ordered Rust range accepted by the field type. |
+| `one_of_ranges(ranges)` | Union of disconnected ordered ranges. |
+| `all_enum_values()` / `selected_enum_values(values)` | Enum selection; selected payload variants still require payload rules. |
+
+No shrinking, map/set, regex/string pattern, uniqueness, or collection-order DSL is available. Use real fixtures for contracts that cannot faithfully be generated, or prove them at their own validation owner.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Adjustment { region: String, delta: i32, retry: bool }
+let family = domain!(Adjustment {
+    region.selected_values(["east".to_owned(), "west".to_owned()]),
+    delta.one_of_ranges([-10..=-1, 1..=10]), retry.fixed_value(false),
+});
+~~~
+
+#### ENUM_RULE
+
+For unit variants, `field.all_enum_values()` or `field.selected_enum_values([Enum::Variant,...])` suffices. For payload enums, open the enum field, select variants in that context, and describe each selected payload under `EnumType::Variant { RULE, ... }`. Payload blocks do not select variants on their own.
+
+The runner tracks enum values and feasible pairs, and real cases may prefill them. Require pairwise coverage only when those combinations strengthen the intended proof; it does not increase the budget.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+enum Strategy { Direct, Window { size: usize } }
+#[derive(Clone, DomainInput)]
+struct Request { strategy: Strategy }
+let family = domain!(Request {
+    strategy { all_enum_values(), Strategy::Window { size.in_range(1..=8) } },
+});
+~~~
+
+#### COLLECTION_RULE
+
+Declare a length source plus an element source. `length()` has usize type; use fixed_value(n), selected_values(lengths), in_range(range), or one_of_ranges(ranges). The element source follows the same constructive vocabulary. `each(CONSTRUCTIVE)` builds scalar elements; `each { RULE, ... }` descends into structured elements. Different generated collection compositions can share the same length, so proving only shape does not prove content.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Sample { value: f64 }
+#[derive(Clone, DomainInput)]
+struct Batch { ids: Vec<u64>, samples: Vec<Sample> }
+let family = domain!(Batch {
+    ids { length().in_range(1..=4), each(in_range(1..=100)) },
+    samples { length().fixed_value(2), each { value.in_range(-1.0..=1.0) } },
+});
+~~~
+
+#### WHEN
+
+`when(relation) { RULE, ... }` activates typed generation rules only when that condition holds. This is not a closure executed after production and not a planned-check filter. Conditional sources must cover every reachable active branch without ambiguity.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+enum Mode { Fast, Accurate }
+#[derive(Clone, DomainInput)]
+struct Request { mode: Mode, window: usize }
+let family = domain!(Request {
+    mode.all_enum_values(),
+    when(mode.equal(Mode::Fast)) { window.in_range(1..=3) },
+    when(mode.equal(Mode::Accurate)) { window.in_range(4..=8) },
+});
+~~~
+
+#### RELATION
+
+Use `equal(operand)`, `not_equal(operand)`, `less_than(operand)`, `less_equal(operand)`, `greater_than(operand)` or `greater_equal(operand)` on a scalar field. Operands are compatible typed constants or fields, including nested paths like config.window and collection.length(). Constructive spaces provide candidates; relations constrain legal combinations. Negative inputs break declared constraints at the validation owner; they are not arbitrary impossible downstream states.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Window { start: usize, end: usize, values: Vec<f64> }
+let family = domain!(Window {
+    start.in_range(0..=3), end.in_range(1..=4),
+    values { length().fixed_value(4), each(in_range(-1.0..=1.0)) },
+    start.less_than(end), end.less_equal(values.length()),
+});
+~~~
+
+### Observation language
+
+#### DECLARATION
+
+`#[derive(Serialize, Deserialize, Observation)]` declares typed production evidence. Serialize is required; Deserialize is needed for query/decode. `#[observation(namespace = "owner::event", level = INFO, tags("evidence"))]` assigns required stable schema identity, optional INFO/WARN/ERROR severity (INFO default), and optional non-persisted selection labels. Changing namespace is a schema contract change, not a cosmetic rename.
+
+Manual `Observation` implementations provide `NAMESPACE` and optionally `LEVEL` / `TAGS`, `message()` and `render_text()`. message is persisted semantic text; render_text is transient human output, never evidence analyzed by certifications. Prefer typed fields for facts used in a proof.
+
+FORMAT v1 persists ts, proc, proc_ms, namespace, level, data with optional scope, message, phase, span. Tags, channels, render_text are absent. Point records have no phase/span; start carries data/message and end carries null data without message. proc_ms is monotonic within one process only. [FORMAT v1](docs/FORMAT.md) is the protocol authority.
+
+~~~rust
+use sun_observations::*;
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "orders::accepted", level = INFO, tags("evidence"))]
+struct Accepted { order_id: u64, quantity: u32 }
+assert_eq!(Accepted::NAMESPACE, "orders::accepted");
+~~~
+
+#### EMISSION
+
+Production uses `observe!(value)` or `observe_if_active(|| value)` through the global engine. Construct expensive evidence inside the lazy closure, so rejected types avoid construction and serialization. Ok(false) means rejected; Ok(true) means admitted/dispatched, not guaranteed durable storage. `ObservationError` carries serialization or sink errors.
+
+`global()` accesses process configuration; `set_selection(selection)` replaces engine selection. `process_id()`, `sink_error_count()` and `flush_channels()` inspect identity, checked delivery failures, and delivery barriers. `ObservationEngine::isolated()` with `engine.observe_if_active` is useful for explicit independent runtime/routing proofs; do not inject it into ordinary production merely to make evidence testable. Capture follows the normal global path.
+
+~~~rust
+use sun_observations::*;
+#[derive(serde::Serialize, Observation)]
+#[observation(namespace = "orders::validated")]
+struct Validated { order_id: u64 }
+fn validate(order_id: u64) -> Result<bool, ObservationError> {
+    if order_id == 0 { return Ok(false); }
+    observe!(Validated { order_id })?;
+    Ok(true)
+}
+assert!(validate(42)?);
+# Ok::<(), ObservationError>(())
+~~~
+
+#### SELECTION
+
+`Selection::new()` / default starts disabled. Add positives with `activate_all()`, `activate_namespace(ns)`, `activate_tags(tags)`; veto with `exclude_namespace(ns)` / `exclude_tags(tags)`. Any matching positive admits unless any exclusion matches. Namespace selection respects segment boundaries (orders does not match orders_archive).
+
+Inspect `activates(namespace,tags)`, `excludes(namespace,tags)`, `admits(namespace,tags)`. Dynamic inputs validate; helpers `is_normalized_segment(v)`, `validate_tag(v)`, `matches_subtree(root,ns)`, `validate_namespace(v)` support tag and namespace configuration boundaries. Selection is admission, not routing, retention or acceptance policy.
+
+~~~rust
+use sun_observations::*;
+let selection = Selection::new().activate_namespace("orders")?
+    .exclude_namespace("orders::debug")?;
+assert!(selection.admits("orders::accepted", &[]));
+assert!(!selection.admits("orders::debug::row", &[]));
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### SCOPE
+
+`start_scope(ScopeConfig::new(name)...)` installs a lifecycle until guard drop. ScopeConfig supports `selection(selection)`, `activate_all()`, `activate_namespace` / `exclude_namespace`, `activate_tags` / `exclude_tags`, `override_policy::<T>(policy)`. Policy::Always/Never or validated `first_n(n)` / `every_n(n)` control admitted frequency; FirstN/EveryN counters are scope/type-local and n must be positive.
+
+`Context::capture()` snapshots installed state, `Context::default()` is empty. `enter()` installs until guard drop, `run(operation)` installs for a closure, `scope_name()` inspects identity. `context::thread::spawn(operation)` propagates it. Rayon propagation uses `context::rayon::ContextThreadPool::new()` or `with_threads(NonZeroUsize)`, then `install(operation)`. Ordinary threads/unrelated async tasks do not inherit automatically. Join propagated workers before interpreting effects or capture completeness.
+
+~~~rust
+use sun_observations::*;
+let _guard = start_scope(ScopeConfig::new("batch-42").activate_all());
+let worker = context::thread::spawn(|| Context::capture().scope_name().map(str::to_owned));
+assert_eq!(worker.join().unwrap().as_deref(), Some("batch-42"));
+~~~
+
+#### ROUTING
+
+Attach `Arc<dyn Sink>` with `engine.add_channel_sink(channel,sink)` and route a namespace subtree with `register_namespace_channel(namespace,channel)`. Routing does not activate Observations. Matching routes deduplicate a sink within one channel; the same physical sink attached in two matching channels intentionally receives twice. `clear_channel_sinks(channel)` detaches; active spans keep their start-time destinations. `flush_channels()` is a delivery barrier, including async sinks' promised flush behavior.
+
+~~~rust
+use std::sync::Arc;
+use sun_observations::*;
+#[derive(serde::Serialize, Observation)]
+#[observation(namespace = "routing::accepted")]
+struct Accepted { id: u64 }
+let engine = ObservationEngine::isolated();
+let memory = Arc::new(MemorySink::new());
+engine.add_channel_sink("audit", memory.clone());
+engine.register_namespace_channel("routing", "audit")?;
+engine.set_selection(Selection::new().activate_all());
+engine.observe_if_active(|| Accepted { id: 42 })?;
+engine.flush_channels()?;
+assert_eq!(memory.len(), 1);
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### SINK
+
+Choose sinks by delivery and retention semantics, not just output format.
+
+| Sink | Construction, controls, inspection |
+| --- | --- |
+| MemorySink | `new()` / `default()`, `with_config(MemorySinkConfig::new(max_items,compact_fraction)?)`. Default retains 1,000,000 records with 0.10 compaction fraction. `len()` / `is_empty()`, `config()`, `stats()`; MemoryStats exposes retained, evicted, compactions. `shared_records()` / `drain_shared()` retain shared records; `records()` / `drain()` clone. Config `max_items()` / `compact_fraction()` inspect validated bounds. |
+| JsonlSink | `open_append(path)`, `with_config(path,config)`, `from_writer(writer)` / `writer_with_config(writer,config)`. JsonlConfig::new/default: 1000ms flush, no size bound, trim fraction 0.10. Validated builders `flush_interval_ms`, `max_file_size_mb` (MiB), `max_file_size_bytes`, `trim_fraction`. Inspect `stats()`, `is_started()`, `last_error()`; flush before reading completed async output. |
+| ConsoleSink | `stdout()` / `stderr()` / `new(writer)` for human output. |
+
+Custom `Sink` implementations provide `write(record)` and `flush()`; optional `write_shared(record)` avoids cloning, `wants_render_text()` requests transient human rendering, `write_delivery(delivery)` receives both views. `ObservationDelivery` exposes `record()`, `shared_record()`, `render_text()`, `shared_render_text()`. An async custom sink must make flush a real completion barrier; process success is not proof of durable effects.
+
+Memory retention eviction is observable and makes capture incomplete. Bounded JSONL retention intentionally discards old whole records; it is not an unlimited audit log. See [routing and retention tutorial](#route-retain-and-persist) and [producer vs persistence throughput](#producer-throughput-is-not-persistence-throughput).
+
+~~~rust
+use sun_observations::*;
+let memory = MemorySink::with_config(MemorySinkConfig::new(1000, 0.1)?);
+assert_eq!(memory.config().max_items(), 1000);
+assert_eq!(memory.stats().evicted, 0);
+let jsonl = JsonlSink::writer_with_config(Vec::<u8>::new(),
+    JsonlConfig::new().flush_interval_ms(250)?)?;
+jsonl.flush()?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### SPAN
+
+`observe_span!(payload)` or lazy `span_if_active(|| payload)` / `engine.span_if_active` begins a typed lifecycle. `SpanGuard::is_active()` reports admission; `finish()` explicitly delivers the matching end and returns errors. Drop attempts end delivery but cannot return an error.
+
+A successful start freezes scope, routes, sinks and policy until end. Later selection changes cannot suppress the matching end. Persisted identity is (proc, scope, namespace, span), never adjacency or vector index. The start carries payload; the end is lifecycle evidence, not a second payload to decode as the same observation.
+
+~~~rust
+use sun_observations::*;
+#[derive(serde::Serialize, Observation)]
+#[observation(namespace = "batch::sort")]
+struct Sort { rows: usize }
+let mut rows = [3, 1, 2];
+let span = observe_span!(Sort { rows: rows.len() })?;
+rows.sort_unstable();
+span.finish()?;
+assert_eq!(rows, [1, 2, 3]);
+# Ok::<(), ObservationError>(())
+~~~
+
+#### CAPTURE
+
+`capture_observations(config, operation)` runs the real production operation under scoped capture; it does not replace production behavior or its error result. `CaptureConfig::new()` / default starts disabled with default memory retention. `selection(selection)` and `retention(config)` replace defaults; `activate_all`, `activate_namespace` / `activate_namespaces`, `activate_tag` / `activate_tags` and `exclude_namespace`, `exclude_namespaces`, `exclude_tag`, `exclude_tags` builders select evidence.
+
+`CapturedRun::result()` borrows production outcome; `dataset()` returns the immutable snapshot; `status().is_complete()` verifies no retention eviction, emission failure or escaped context/worker/span ownership. Nested captures are exclusive; parallel captures keep independent storage. Join all propagated work and finish spans before declaring the operation complete.
+
+`run.certification(name)` starts an eager proof with capture completeness registered. Returning CapturedRun<Result<Output,Error>> from a planned executor makes completeness an execution prerequisite automatically; incomplete negative-path evidence cannot falsely prove forbidden absence. `to_typed::<T>()` strictly decodes evidence but does not assert capture completeness on its own.
+
+~~~rust
+use sun_observations::*;
+use sun_observations::evidence::*;
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "capture::normalized", tags("evidence"))]
+struct Normalized { original_bytes: usize, output_bytes: usize }
+fn normalize(raw: &str) -> Result<String, ObservationError> {
+    let output = raw.trim().to_lowercase();
+    observe!(Normalized { original_bytes: raw.len(), output_bytes: output.len() })?;
+    Ok(output)
+}
+let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"])? ,
+    || normalize(" ALPHA "));
+assert_eq!(run.result().as_ref().unwrap(), "alpha");
+assert!(run.status().is_complete());
+assert_eq!(run.to_typed::<Normalized>()?.values().len(), 1);
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### QUERY
+
+`ObservationDataset::try_from_records(Vec<Arc<ObservationRecord>>)` validates external records; `try_from_memory(&sink)` snapshots retained memory. Membership/order is fixed; `records()` borrows it. `dataset.query(ObservationsQuery::new()...)` filters without decoding into a RecordView; `iter()` exposes selected records.
+
+| Selector | Meaning |
+| --- | --- |
+| `namespace(value)` / `namespace_subtree(value)` | Exact schema / segment-aware subtree. |
+| `scope(value)` / `without_scope()` | Named execution / explicitly unscoped records. |
+| `level(ObservationLevel::INFO)` | Severity. |
+| `points()` / `span_starts()` / `span_ends()` | Record phase. |
+| `span(value)` / `process(value)` | Explicit lifecycle/process identity. |
+
+Default query is unrestricted; independent dimensions combine with AND. Repeated incompatible intent in a dimension is replaced by the later builder (namespace vs subtree, scope vs unscoped, point vs span). If domain keys repeat across executions, filter process/scope before comparison or include typed execution identity in keys.
+
+~~~rust
+use sun_observations::evidence::*;
+let dataset = ObservationDataset::try_from_records(vec![])?;
+let view = dataset.query(ObservationsQuery::new()
+    .namespace_subtree("orders").scope("batch-42").points());
+assert_eq!(view.iter().count(), 0);
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### TYPED_EVIDENCE
+
+Use `run.to_typed::<Payload>()`, `dataset.to_typed::<Payload>()` or `query.to_typed::<Payload>()`. TypedView owns decoded values and original source coordinates. `values()` / `sources()` borrow them; `iter()` yields TypedEntry (use iter().nth(index) for indexed access) containing value, dataset_index and original source record. `typed.source(name)` exposes a generic PreparedSource with SourceProvenance, without decoding again.
+
+Source-local indexes are not dataset indexes. Resolve original coordinates with typed entries/sources rather than positional assumptions. The public `DecodeError.source` field contains `SourceContext`: dataset_index, namespace, proc, scope, span, phase, ts, proc_ms. Strict decode failures remain evaluation errors in proofs, never silently omitted records. Acceptance and correspondence belong to [certification language](#certification-language), not the runtime.
+
+~~~rust
+use sun_observations::*;
+use sun_observations::evidence::*;
+use sun_observations::certifications::fact;
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "evidence::accepted")]
+struct Accepted { id: u64 }
+let run = capture_observations(CaptureConfig::new().activate_all(),
+    || observe!(Accepted { id: 42 }));
+run.result().as_ref().unwrap();
+let typed = run.to_typed::<Accepted>()?;
+let mut proof = run.certification("accepted identities are unique");
+proof.check("ids", typed.source("accepted orders").unique(|r| r.id).expect_valid());
+proof.check("count", fact("accepted", typed.values().len()).expect(1usize));
+proof.assert_certify();
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+### End-to-end scenarios
+
+These are separate proofs with different evidence priorities, not one giant test. All blocks compile and execute as documentation tests.
+
+#### Scenario 1: deterministic function with real inputs and Domain
+
+A floor square-root implementation can be certified without copying its iteration into an oracle. The independent characterization is r² ≤ n < (r+1)². Concrete cases retain meaningful perfect-square and integer-limit boundaries; Domain supplies the broader u32 family. There is no invalid u32 input, so production is total.
+
+~~~rust
+use sun_observations::certifications::*;
+fn floor_sqrt(n: u32) -> u64 {
+    let n = u64::from(n);
+    if n == 0 { return 0; }
+    let mut root = n;
+    let mut next = root.div_ceil(2);
+    while next < root {
+        root = next;
+        next = (root + n / root) / 2;
+    }
+    root
+}
+let mut runner = certification("integer square root brackets every input")
+    .executor(|n: &u32| Ok::<_, ()>(floor_sqrt(*n)));
+runner.data_source([0, 1, 4_294_836_225, u32::MAX]);
+runner.domain(domain!(u32 { in_range(u32::MIN..=u32::MAX) }));
+runner.seed(71).cases_budget(96);
+let case = runner.case();
+runner.section("root", |s| {
+    s.section("lower bound", |s| {
+        s.check(fact!(case.result().pow(2) <= u64::from(*case.input())).expect(true));
+    });
+    s.section("upper bound", |s| {
+        s.check(fact!((case.result() + 1).pow(2) > u64::from(*case.input())).expect(true));
+    });
+});
+runner.assert_certify();
+~~~
+
+#### Scenario 2: validation and generated negative cases
+
+The validation owner accepts exactly four readings and a nonempty in-bounds half-open window. Generated constraint violations must be rejected before indexing. The positive proof checks cardinality and the convex-hull property of the mean, rather than implementing a second mean algorithm as the expected result. The concrete reversed range is a retained negative regression.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Window { start: usize, end: usize, values: Vec<i32> }
+#[derive(Debug)]
+struct Aggregate { count: usize, mean: f64 }
+fn aggregate(input: &Window) -> Result<Aggregate, &'static str> {
+    if input.values.len() != 4 || input.start >= input.end || input.end > input.values.len() {
+        return Err("invalid window");
+    }
+    let values = &input.values[input.start..input.end];
+    Ok(Aggregate { count: values.len(),
+        mean: values.iter().map(|v| f64::from(*v)).sum::<f64>() / values.len() as f64 })
+}
+let mut runner = certification("window aggregation validates before reading").executor(aggregate);
+runner.data_source([Window { start: 3, end: 2, values: vec![4, 9, 1, 6] }]);
+runner.domain(domain!(Window {
+    start.in_range(0..=3), end.in_range(1..=4),
+    values { length().fixed_value(4), each(in_range(i32::MIN..=i32::MAX)) },
+    start.less_than(end), end.less_equal(values.length()),
+}));
+runner.seed(71).cases_budget(96);
+let case = runner.case();
+runner.section("aggregate", |s| {
+    s.check(fact!(case.result().count).expect(fact!(case.input().end - case.input().start)));
+    s.check(fact!({
+        let selected = &case.input().values[case.input().start..case.input().end];
+        let min = f64::from(*selected.iter().min().unwrap());
+        let max = f64::from(*selected.iter().max().unwrap());
+        (min..=max).contains(&case.result().mean)
+    }).expect(true).description("mean lies within selected extrema"));
+});
+runner.assert_certify();
+~~~
+
+Negative rejection is checked by the runner itself; case.result() is never read for invalid input. For a rejection contract with side effects, also capture the real path and prove forbidden downstream absence as described in [methodology](#must-happen-and-must-never-happen).
+
+#### Scenario 3: prepared evidence and typed correspondence
+
+Normalize a contact export and round-trip its actual JSON artifact. The independent fixture specifies canonical addresses; comparison uses contact ID even though the loader reverses order. Prepared keys and numeric projections can then be reused without re-parsing the artifact.
+
+~~~rust
+use serde::{Serialize, Deserialize};
+use sun_observations::certifications::*;
+#[derive(Serialize, Deserialize)]
+struct Contact { id: u64, email: String }
+fn export(contacts: &[Contact]) -> Result<String, serde_json::Error> {
+    let normalized: Vec<_> = contacts.iter().map(|c| Contact {
+        id: c.id, email: c.email.trim().to_ascii_lowercase(),
+    }).collect();
+    serde_json::to_string(&normalized)
+}
+fn load(json: &str) -> Result<Vec<Contact>, serde_json::Error> {
+    let mut contacts: Vec<Contact> = serde_json::from_str(json)?;
+    contacts.reverse();
+    Ok(contacts)
+}
+let input = [Contact { id: 41, email: " ALICE@EXAMPLE.ORG ".into() },
+             Contact { id: 42, email: "Bob@Example.Org".into() }];
+let artifact = export(&input)?;
+let loaded = load(&artifact)?;
+let expected = [Contact { id: 41, email: "alice@example.org".into() },
+                Contact { id: 42, email: "bob@example.org".into() }];
+let mut c = certification("contact artifact preserves normalized keyed records");
+let canonical = c.collection("canonical fixture", &expected);
+let persisted = c.collection("decoded artifact", &loaded);
+let canonical_keys = canonical.keys(|r| r.id);
+let persisted_keys = persisted.keys(|r| r.id);
+let paired = canonical_keys.compare_with(&persisted_keys);
+c.section("artifact", |s| {
+    s.check("complete identities", paired.paired_comparison_fact().expect_valid());
+    s.check("addresses", paired.equal(|r| r.email.clone(), |r| r.email.clone(), 5).expect_valid());
+});
+c.section("integrity", |s| {
+    s.check("nonempty addresses", persisted.matching_count(|r| r.email.is_empty()).expect(0usize));
+    s.check("finite sizes", persisted.numeric(|r| r.email.len() as f64).expect(NumericRule::Positive));
+});
+c.assert_certify();
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### Scenario 4: typed Observation evidence from real execution
+
+The canonical result proves the charged amount. A typed decision Observation additionally exposes the selected tariff, which the return value does not identify. Fixed fixtures independently specify both promises. The production function emits globally; capture is configured outside it, and the planned runner enforces completeness before any checks.
+
+~~~rust
+use sun_observations::*;
+use sun_observations::evidence::*;
+use sun_observations::certifications::*;
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum Tariff { Express, Standard, Free }
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "shipping::decision", tags("evidence"))]
+struct ShippingDecision { order_id: u64, tariff: Tariff }
+struct Order { id: u64, subtotal: u64, express: bool }
+struct ShippingCase { order: Order, expected_total: u64, expected_tariff: Tariff }
+fn charge(order: &Order) -> Result<u64, ObservationError> {
+    let (tariff, fee) = if order.express { (Tariff::Express, 25) }
+        else if order.subtotal >= 100 { (Tariff::Free, 0) }
+        else { (Tariff::Standard, 10) };
+    observe!(ShippingDecision { order_id: order.id, tariff })?;
+    Ok(order.subtotal + fee)
+}
+let config = CaptureConfig::new().activate_namespace("shipping")?;
+let mut runner = certification("shipping charges and tariff selection agree with policy")
+    .executor(|input: &ShippingCase| capture_observations(config.clone(), || charge(&input.order)));
+runner.data_source([
+    ShippingCase { order: Order { id: 1, subtotal: 100, express: false },
+        expected_total: 100, expected_tariff: Tariff::Free },
+    ShippingCase { order: Order { id: 2, subtotal: 99, express: false },
+        expected_total: 109, expected_tariff: Tariff::Standard },
+    ShippingCase { order: Order { id: 3, subtotal: 100, express: true },
+        expected_total: 125, expected_tariff: Tariff::Express },
+]);
+let case = runner.case();
+runner.section("charge", |s| {
+    s.check(fact!(*case.result()).expect(fact!(case.input().expected_total)));
+});
+runner.section("decision evidence", |s| {
+    s.check(fact!(case.observations::<ShippingDecision>().unwrap().values().len()).expect(1usize));
+    s.section("identity and policy", |s| {
+        s.check(fact!({
+            let typed = case.observations::<ShippingDecision>().unwrap();
+            let decision = &typed.values()[0];
+            decision.order_id == case.input().order.id && decision.tariff == case.input().expected_tariff
+        }).expect(true));
+    });
+});
+runner.assert_certify();
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+#### Scenario 5: grouped statistical contract
+
+Center readings independently per region. Global mean zero could hide a region-level bug; certify required groups, per-group zero means, identity completeness, and preservation of within-region linear structure. The proof characterizes centering instead of calling the production helper to compute expected rows. Statistical strengthening here supplements identity and mean invariants over this dataset; it does not claim exhaustive input coverage.
+
+~~~rust
+use std::collections::BTreeMap;
+use sun_observations::certifications::*;
+struct Reading { region: &'static str, id: u64, raw: f64 }
+struct Centered { region: &'static str, id: u64, raw: f64, value: f64 }
+fn center(readings: &[Reading]) -> Vec<Centered> {
+    let mut totals = BTreeMap::<&str, (f64, usize)>::new();
+    for r in readings {
+        let total = totals.entry(r.region).or_default();
+        total.0 += r.raw;
+        total.1 += 1;
+    }
+    readings.iter().map(|r| {
+        let (sum, count) = totals[r.region];
+        Centered { region: r.region, id: r.id, raw: r.raw, value: r.raw - sum / count as f64 }
+    }).collect()
+}
+let input = [Reading { region: "east", id: 1, raw: 10.0 },
+    Reading { region: "east", id: 2, raw: 12.0 }, Reading { region: "east", id: 3, raw: 14.0 },
+    Reading { region: "west", id: 1, raw: 100.0 }, Reading { region: "west", id: 2, raw: 110.0 },
+    Reading { region: "west", id: 3, raw: 120.0 }];
+let output = center(&input);
+let mut c = certification("regional centering preserves membership and local structure");
+let original = c.collection("raw", &input);
+let centered = c.collection("centered", &output);
+let paired = original.compare_with(&centered).on(|r| (r.region, r.id), |r| (r.region, r.id));
+c.check("membership", paired.paired_comparison_fact().expect_valid());
+c.check("raw evidence", paired.equal(|r| r.raw, |r| r.raw, 5).expect_valid());
+let groups = centered.group_by(|r| r.region);
+c.check("required regions", fact("regions", groups.iter().map(|g| *g.key).collect::<Vec<_>>())
+    .expect(vec!["east", "west"]));
+c.check("zero mean", fact("regional mean", groups.numeric(|r| r.value).summaries())
+    .expect(GroupExpectation::new(3, -1e-10, 1e-10).unwrap()));
+for group in groups.iter() {
+    c.section(*group.key, |s| {
+        s.check("translation", try_fact("raw to centered", linear_fit(group.values().map(|r| (r.raw, r.value))))
+            .expect(LinearFitExpectation::slope_between(0.999999, 1.000001).unwrap()
+                .and_r_squared_at_least(0.999999).unwrap()
+                .and_residual_max_absolute_at_most(1e-9).unwrap()));
+    });
+}
+c.assert_certify();
+~~~
 
 ## Cookbook
 

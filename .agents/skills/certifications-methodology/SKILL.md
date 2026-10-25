@@ -127,7 +127,7 @@ When exact expected output is awkward, use metamorphic relations: known scaling,
 
 Strengthen statistical evidence with a null/control scenario when it distinguishes the intended relationship from an accidentally high metric.
 
-Certification names should state the semantic promise, not the implementation mechanism. For large composition proofs, group checks by semantic pipeline stages so failures point to the responsible owner or boundary without re-testing owner-local details.
+Certification names should state the semantic promise, not the implementation mechanism. For large composition proofs, group checks by semantic pipeline stages so failures point to the responsible owner or boundary without re-testing owner-local details. The SECTION node in certifications-api supplies nested semantic paths in both eager and planned proofs; it does not change which cases satisfy the contract.
 
 Performance belongs in certification only when it is promised semantics such as bounded work, exactly-once external calls, or bounded queues. Keep incidental wall-clock thresholds in benchmarks.
 

@@ -82,6 +82,951 @@ fn blocks(text: &str) -> impl Iterator<Item = String> {
     result.into_iter()
 }
 
+struct Language {
+    skill: &'static str,
+    nodes: &'static [&'static str],
+}
+const LANGUAGES: &[Language] = &[
+    Language {
+        skill: "certifications-api",
+        nodes: &[
+            "CERTIFICATION",
+            "SOURCE_BINDING",
+            "EAGER_CHECK",
+            "SECTION",
+            "PLANNED_BODY",
+            "CASE",
+            "PLANNED_CHECK",
+            "FACT",
+            "EXPECTATION",
+            "PREPARED_SOURCE_CHECK",
+            "NUMERIC_CHECK",
+            "GROUP_CHECK",
+            "CORRESPONDENCE_CHECK",
+            "NUMERIC_COMPARISON_CHECK",
+            "ASSERT_CERTIFY",
+        ],
+    },
+    Language {
+        skill: "domain-api",
+        nodes: &[
+            "DOMAIN",
+            "RULE",
+            "CONSTRUCTIVE",
+            "ENUM_RULE",
+            "COLLECTION_RULE",
+            "WHEN",
+            "RELATION",
+        ],
+    },
+    Language {
+        skill: "observations-api",
+        nodes: &[
+            "DECLARATION",
+            "EMISSION",
+            "SELECTION",
+            "SCOPE",
+            "ROUTING",
+            "SINK",
+            "SPAN",
+            "CAPTURE",
+            "QUERY",
+            "TYPED_EVIDENCE",
+        ],
+    },
+];
+
+fn headings(text: &str) -> Vec<(usize, &str, usize, usize)> {
+    let mut headings = Vec::new();
+    let mut offset = 0;
+    let mut fence = None;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if let Some(marker) = fence {
+            if trimmed == marker {
+                fence = None;
+            }
+        } else if let Some(marker) = ["~~~", "```"].into_iter().find(|m| trimmed.starts_with(m)) {
+            fence = Some(marker);
+        } else {
+            let level = trimmed.bytes().take_while(|c| *c == b'#').count();
+            if level > 0 && trimmed.as_bytes().get(level) == Some(&b' ') {
+                headings.push((level, trimmed[level..].trim(), offset, offset + line.len()));
+            }
+        }
+        offset += line.len();
+    }
+    headings
+}
+
+fn sections(text: &str) -> BTreeMap<&str, Vec<&str>> {
+    let headings = headings(text);
+    let mut result = BTreeMap::<_, Vec<_>>::new();
+    for (index, (level, title, _, start)) in headings.iter().enumerate() {
+        let end = headings[index + 1..]
+            .iter()
+            .find(|h| h.0 <= *level)
+            .map_or(text.len(), |h| h.2);
+        result.entry(*title).or_default().push(&text[*start..end]);
+    }
+    result
+}
+
+fn grammar(text: &str) -> BTreeMap<String, String> {
+    let mut result = BTreeMap::<String, String>::new();
+    let mut owner = None;
+    let mut active = false;
+    for line in text.lines() {
+        if line == "~~~text" {
+            active = true;
+            owner = None;
+            continue;
+        }
+        if line == "~~~" {
+            active = false;
+            continue;
+        }
+        if !active {
+            continue;
+        }
+        if let Some((node, body)) = line.split_once(":=") {
+            let node = node.trim().to_owned();
+            assert!(!result.contains_key(&node), "duplicate grammar node {node}");
+            result.insert(node.clone(), body.split_whitespace().collect());
+            owner = Some(node);
+        } else if let Some(node) = &owner {
+            result
+                .get_mut(node)
+                .unwrap()
+                .extend(line.split_whitespace());
+        }
+    }
+    result
+}
+
+fn identifiers(text: &str) -> BTreeSet<&str> {
+    text.split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn grammar_calls(production: &str) -> BTreeSet<String> {
+    let mut result = BTreeSet::new();
+    for (index, _) in production.match_indices('(') {
+        let mut before = production[..index].trim_end_matches('!');
+        if before.ends_with('>') {
+            if let Some(start) = before.rfind("::<") {
+                before = &before[..start];
+            }
+        }
+        let name = before
+            .rsplit(|c: char| !c.is_alphanumeric() && c != '_')
+            .next()
+            .unwrap();
+        if !name.is_empty() && name.chars().any(char::is_lowercase) && name != "Variant" {
+            result.insert(name.to_owned());
+        }
+    }
+    result
+}
+
+fn language_errors(language: &Language, text: &str, reference: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    let skill_sections = sections(text);
+    let readme_sections = sections(reference);
+    let productions = grammar(
+        skill_sections
+            .get("DSL")
+            .and_then(|s| s.first())
+            .copied()
+            .unwrap_or(""),
+    );
+    let reference_productions = grammar(
+        readme_sections
+            .get("DSL")
+            .and_then(|s| s.first())
+            .copied()
+            .unwrap_or(""),
+    );
+    let expected: BTreeSet<_> = language.nodes.iter().copied().collect();
+    if productions
+        .keys()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        != expected
+    {
+        errors.push(format!("{} grammar node ownership", language.skill));
+    }
+    for node in language.nodes {
+        for (document, index, source, level) in [
+            ("skill", &skill_sections, text, 2),
+            ("README", &readme_sections, reference, 4),
+        ] {
+            if headings(source)
+                .iter()
+                .filter(|h| h.1 == *node && h.0 == level)
+                .count()
+                != 1
+            {
+                errors.push(format!("{document} {node} must be a peer DSL section"));
+            }
+            match index.get(node) {
+                Some(bodies) if bodies.len() == 1 => {
+                    let body = bodies[0];
+                    if blocks(body).next().is_none() {
+                        errors.push(format!("{document} {node} missing Rust example"));
+                    }
+                    if let Some(production) = productions.get(*node) {
+                        let owned = identifiers(body);
+                        for call in grammar_calls(production) {
+                            if !owned.contains(call.as_str()) {
+                                errors.push(format!(
+                                    "{document} {node} missing owned alternative {call}"
+                                ));
+                            }
+                        }
+                    }
+                }
+                _ => errors.push(format!("{document} {node} missing or duplicate section")),
+            }
+        }
+        if productions.get(*node).is_none()
+            || productions.get(*node) != reference_productions.get(*node)
+        {
+            errors.push(format!("{node} grammar differs between skill and README"));
+        }
+    }
+    for other in LANGUAGES
+        .iter()
+        .filter(|other| other.skill != language.skill)
+    {
+        for node in other.nodes {
+            if skill_sections.contains_key(node) {
+                errors.push(format!("{} owns foreign node {node}", language.skill));
+            }
+        }
+    }
+    for forbidden in [
+        "CertificationExecution",
+        "RegisterCheck",
+        "PlanExpectation",
+        "CaseDomainCoordinate",
+        "CaseDomainCoordinateSlot",
+        "DomainRegion",
+        "DomainTercile",
+        "DomainNegativeDistance",
+        "case.execution()",
+        ".compile()",
+        ".classify(",
+        "diagnostic_bytes",
+        "runner.source(",
+        "runner.collection(",
+    ] {
+        if text.contains(forbidden) {
+            errors.push(format!("{} leaks {forbidden}", language.skill));
+        }
+    }
+    errors
+}
+
+fn reference(readme: &str) -> &str {
+    sections(readme)["Complete client DSL and API reference"][0]
+}
+
+#[test]
+fn client_languages_have_owned_sections_alternatives_and_executable_examples() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    for language in LANGUAGES {
+        let errors = language_errors(language, &skill(language.skill), reference(&readme));
+        assert!(errors.is_empty(), "{}: {errors:#?}", language.skill);
+    }
+    assert!(grammar(&skill("certifications-methodology")).is_empty());
+}
+
+#[test]
+fn documentation_structure_rejects_missing_misplaced_and_cross_owner_contracts() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let original = skill("certifications-api");
+    let language = &LANGUAGES[0];
+    let body = sections(&original)["PLANNED_BODY"][0];
+    let mutations = [
+        original.replace("CASE := case = runner.case()", "case = runner.case()"),
+        original.replace("## SECTION", "## Stages"),
+        original.replace("## SECTION", "### SECTION"),
+        original.replace(body, "No examples here.\n\n"),
+        original.replace(
+            body,
+            &body.replace("require_pairwise_coverage", "missing_control"),
+        ),
+        format!("{original}\n## DOMAIN\nforeign ownership\n"),
+        format!("{original}\nRegisterCheck\n"),
+        format!("{original}\nrunner.source(unsupported, &value)\n"),
+    ];
+    for mutated in mutations {
+        assert!(!language_errors(language, &mutated, reference(&readme)).is_empty());
+    }
+    let moved = original
+        .replace(
+            body,
+            &body.replace("require_pairwise_coverage", "missing_control"),
+        )
+        .replace("## CASE\n", "## CASE\n\nrequire_pairwise_coverage()\n");
+    assert!(language_errors(language, &moved, reference(&readme))
+        .iter()
+        .any(|e| e.contains("PLANNED_BODY missing owned alternative")));
+    let missing_readme = reference(&readme).replace("#### SECTION", "#### Stages");
+    assert!(!language_errors(language, &original, &missing_readme).is_empty());
+    let fake = "## SECTION\n~~~text\n## CASE\n~~~\n";
+    assert!(!sections(fake).contains_key("CASE"));
+}
+
+#[test]
+fn handbook_and_distinct_end_to_end_evidence_workflows_are_retained() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let sections = sections(&readme);
+    for chapter in [
+        "Overview",
+        "Five-minute tour",
+        "Performance",
+        "How the framework fits together",
+        "Certifications",
+        "Domain generation",
+        "Observations",
+        "Capture production evidence",
+        "Certification methodology",
+        "How Domain generation works internally",
+        "Cookbook",
+        "Production configuration and guarantees",
+        "Agent integration",
+        "Development and validation",
+    ] {
+        assert!(
+            sections.contains_key(chapter),
+            "missing handbook chapter {chapter}"
+        );
+    }
+    let scenarios = sections["End-to-end scenarios"][0];
+    let examples: Vec<_> = blocks(scenarios).collect();
+    assert!(examples.len() >= 5);
+    let mut used = BTreeSet::new();
+    for family in [
+        &["domain", "data_source", "less_than", "Err"][..],
+        &["domain", "data_source", "pow", "section"][..],
+        &["keys", "compare_with", "serde_json"][..],
+        &["capture_observations", "observations", "observe"][..],
+        &["group_by", "summaries", "linear_fit"][..],
+    ] {
+        let index = examples
+            .iter()
+            .enumerate()
+            .find_map(|(index, block)| {
+                let symbols = identifiers(block);
+                (!used.contains(&index)
+                    && family.iter().all(|name| symbols.contains(name))
+                    && symbols.contains("assert_certify")
+                    && symbols.contains("fn"))
+                .then_some(index)
+            })
+            .unwrap_or_else(|| panic!("missing standalone executable scenario {family:?}"));
+        used.insert(index);
+    }
+}
+
+fn hidden(attributes: &[syn::Attribute]) -> bool {
+    attributes.iter().any(|attr| {
+        attr.path().is_ident("doc")
+            && attr
+                .parse_args::<syn::Ident>()
+                .is_ok_and(|id| id == "hidden")
+    })
+}
+
+fn method_node(owner: &str, method: &str) -> Option<&'static str> {
+    Some(match owner {
+        "Certification" => match method {
+            "source" | "collection" => "SOURCE_BINDING",
+            "check" | "check_fact_expect" => "EAGER_CHECK",
+            "section" => "SECTION",
+            "executor" | "executor_with_seed" => "CERTIFICATION",
+            "assert_certify" => "ASSERT_CERTIFY",
+            _ => "CERTIFICATION",
+        },
+        "PlannedCertification" => match method {
+            "case" => "CASE",
+            "check" => "PLANNED_CHECK",
+            "section" => "SECTION",
+            "report" | "assert_certify" => "ASSERT_CERTIFY",
+            _ => "PLANNED_BODY",
+        },
+        "CertificationReport" => "CERTIFICATION",
+        "PlannedCertificationReport" => "ASSERT_CERTIFY",
+        "CaseContext" => return None,
+        "TestCase" => match method {
+            "input" | "result" | "observations" => "CASE",
+            _ => return None,
+        },
+        "CheckPlan" => "PLANNED_CHECK",
+        "Fact" => match method {
+            "slope" | "intercept" | "r_squared" => "NUMERIC_COMPARISON_CHECK",
+            "expect_valid" => "EXPECTATION",
+            _ => "FACT",
+        },
+        "CheckResult" => {
+            if method == "description" {
+                "EAGER_CHECK"
+            } else {
+                "FACT"
+            }
+        }
+        "Criterion"
+        | "CloseTo"
+        | "GroupExpectation"
+        | "NumericRule"
+        | "NumericRange"
+        | "MetricConstraint"
+        | "CorrelationExpectation"
+        | "LinearFitExpectation"
+        | "DifferenceExpectation"
+        | "RelationExpectation" => "EXPECTATION",
+        "PreparedSource" => match method {
+            "name" | "values" | "entry" | "iter" | "with_provenance" | "project" | "keys" => {
+                "SOURCE_BINDING"
+            }
+            "numeric" | "lag_self" | "lag_with" => "NUMERIC_CHECK",
+            "group_by" => "GROUP_CHECK",
+            "compare_with" => "CORRESPONDENCE_CHECK",
+            _ => "PREPARED_SOURCE_CHECK",
+        },
+        "PreparedValues" | "PreparedKeys" => "SOURCE_BINDING",
+        "PreparedNumeric" | "NumericSeries" | "OutlierConfig" | "ZeroMadPolicy" | "JumpConfig"
+        | "LagRange" | "LagAlignment" | "LagReport" => "NUMERIC_CHECK",
+        "GroupedView" | "GroupedNumeric" | "Group" => "GROUP_CHECK",
+        "ComparisonBuilder" | "Comparison" | "Join" => "CORRESPONDENCE_CHECK",
+        "PairedComparison" => {
+            if method == "numeric" {
+                "NUMERIC_COMPARISON_CHECK"
+            } else {
+                "CORRESPONDENCE_CHECK"
+            }
+        }
+        "PreparedNumericComparison" | "Metric" => "NUMERIC_COMPARISON_CHECK",
+        "DomainField" => match method {
+            "fields" => "RULE",
+            "length" | "each" => "COLLECTION_RULE",
+            "all_enum_values" | "selected_enum_values" => "ENUM_RULE",
+            "equal" | "not_equal" | "less_than" | "less_equal" | "greater_than"
+            | "greater_equal" => "RELATION",
+            _ => "CONSTRUCTIVE",
+        },
+        "Selection" => "SELECTION",
+        "ScopeConfig" | "Context" | "ContextThreadPool" | "Policy" => "SCOPE",
+        "ObservationEngine" => match method {
+            "add_channel_sink"
+            | "clear_channel_sinks"
+            | "register_namespace_channel"
+            | "flush_channels" => "ROUTING",
+            "span_if_active" => "SPAN",
+            _ => "EMISSION",
+        },
+        "MemorySink"
+        | "MemorySinkConfig"
+        | "JsonlSink"
+        | "JsonlConfig"
+        | "ConsoleSink"
+        | "ObservationDelivery" => "SINK",
+        "SpanGuard" => "SPAN",
+        "CaptureConfig" | "CapturedRun" | "CaptureStatus" => "CAPTURE",
+        "ObservationDataset" => {
+            if method == "to_typed" {
+                "TYPED_EVIDENCE"
+            } else {
+                "QUERY"
+            }
+        }
+        "ObservationsQuery" => "QUERY",
+        "RecordView" => {
+            if method == "to_typed" {
+                "TYPED_EVIDENCE"
+            } else {
+                "QUERY"
+            }
+        }
+        "TypedView" | "DecodeError" => "TYPED_EVIDENCE",
+        _ => return None,
+    })
+}
+
+fn trait_node(owner: &str) -> Option<&'static str> {
+    Some(match owner {
+        "Observation" => "DECLARATION",
+        "Sink" => "SINK",
+        "Expectation" => "EXPECTATION",
+        "SourceProvenance" => "SOURCE_BINDING",
+        _ => return None,
+    })
+}
+
+fn enum_node(owner: &str) -> Option<&'static str> {
+    Some(match owner {
+        "CheckClass" => "FACT",
+        "ViolationClass" | "CountRule" | "NumericRule" | "CorrelationMeasure"
+        | "LinearFitMeasure" | "DifferenceMeasure" | "RelationMeasure" => "EXPECTATION",
+        "ZeroMadPolicy" | "LagMeasure" => "NUMERIC_CHECK",
+        "Policy" => "SCOPE",
+        "ObservationLevel" => "DECLARATION",
+        _ => return None,
+    })
+}
+
+fn free_node(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "certification" => "CERTIFICATION",
+        "source" | "collection" => "SOURCE_BINDING",
+        "fact" | "try_fact" => "FACT",
+        "criterion" | "close_to" => "EXPECTATION",
+        "check_count" | "check_unique" | "check_contiguous" | "check_same_keys" => {
+            "PREPARED_SOURCE_CHECK"
+        }
+        "join_by" | "join_presorted_by" => "CORRESPONDENCE_CHECK",
+        "linear_metrics" | "pearson" | "spearman" | "correlation" | "linear_fit"
+        | "numeric_relation" | "difference_summary" => "NUMERIC_COMPARISON_CHECK",
+        "lag_relation_by" => "NUMERIC_CHECK",
+        "global" | "observe_if_active" => "EMISSION",
+        "start_scope" | "spawn" => "SCOPE",
+        "is_normalized_segment" | "validate_tag" | "matches_subtree" | "validate_namespace" => {
+            "SELECTION"
+        }
+        "span_if_active" => "SPAN",
+        "capture_observations" => "CAPTURE",
+        _ => return None,
+    })
+}
+
+#[derive(Default)]
+struct ClientApi {
+    methods: BTreeMap<String, BTreeSet<String>>,
+    nodes: BTreeMap<&'static str, BTreeSet<String>>,
+}
+impl ClientApi {
+    fn add_source(&mut self, source: &str) {
+        for (owner, method, node) in source_methods(source) {
+            self.methods
+                .entry(owner)
+                .or_default()
+                .insert(method.clone());
+            self.nodes.entry(node).or_default().insert(method);
+        }
+        for item in syn::parse_file(source).unwrap().items {
+            if let syn::Item::Enum(enumeration) = &item {
+                if matches!(enumeration.vis, syn::Visibility::Public(_)) {
+                    self.methods
+                        .entry(enumeration.ident.to_string())
+                        .or_default()
+                        .extend(enumeration.variants.iter().map(|v| v.ident.to_string()));
+                }
+            }
+            if let syn::Item::Trait(contract) = &item {
+                if let Some(node) = trait_node(&contract.ident.to_string()) {
+                    for item in &contract.items {
+                        if let syn::TraitItem::Fn(method) = item {
+                            self.nodes
+                                .entry(node)
+                                .or_default()
+                                .insert(method.sig.ident.to_string());
+                        }
+                    }
+                }
+            }
+            if let syn::Item::Fn(function) = item {
+                if matches!(function.vis, syn::Visibility::Public(_)) && !hidden(&function.attrs) {
+                    let name = function.sig.ident.to_string();
+                    if let Some(node) = free_node(&name) {
+                        self.nodes.entry(node).or_default().insert(name);
+                    }
+                }
+            }
+        }
+        for (node, constructors) in [
+            (
+                "EXPECTATION",
+                &["NotEqual", "Equal", "AllValid", "AtMostAnomalies"][..],
+            ),
+            ("DECLARATION", &["derive", "observation", "tags"][..]),
+            ("DOMAIN", &["domain", "derive"][..]),
+            ("WHEN", &["when"][..]),
+            ("EMISSION", &["observe"][..]),
+            ("SPAN", &["observe_span"][..]),
+        ] {
+            self.nodes
+                .entry(node)
+                .or_default()
+                .extend(constructors.iter().map(|s| (*s).to_owned()));
+        }
+    }
+
+    fn permits_call(&self, node: &str, call: &str) -> bool {
+        let local = self
+            .nodes
+            .get(node)
+            .is_some_and(|names| names.contains(call));
+        let shared = match call {
+            "fact" | "expect" | "expect_valid" | "AtMostAnomalies" => {
+                LANGUAGES[0].nodes.contains(&node)
+                    && ["FACT", "EXPECTATION"].iter().any(|owner| {
+                        self.nodes
+                            .get(owner)
+                            .is_some_and(|names| names.contains(call))
+                    })
+            }
+            "executor" | "executor_with_seed" => {
+                node == "PLANNED_BODY"
+                    && self
+                        .nodes
+                        .get("CERTIFICATION")
+                        .is_some_and(|names| names.contains(call))
+            }
+            "all_enum_values" | "selected_enum_values" => {
+                ["CONSTRUCTIVE", "COLLECTION_RULE"].contains(&node)
+                    && self
+                        .nodes
+                        .get("ENUM_RULE")
+                        .is_some_and(|names| names.contains(call))
+            }
+            "fixed_value" | "selected_values" | "in_range" | "one_of_ranges" => {
+                node == "COLLECTION_RULE"
+                    && self
+                        .nodes
+                        .get("CONSTRUCTIVE")
+                        .is_some_and(|names| names.contains(call))
+            }
+            "flush_channels" => {
+                node == "EMISSION"
+                    && self
+                        .nodes
+                        .get("ROUTING")
+                        .is_some_and(|names| names.contains(call))
+            }
+            _ => false,
+        };
+        local || shared
+    }
+
+    fn documentation_errors(&self, text: &str) -> Vec<String> {
+        let mut errors = Vec::new();
+        let sections = sections(text);
+        for language in LANGUAGES {
+            for node in language.nodes {
+                let Some(bodies) = sections.get(node) else {
+                    continue;
+                };
+                let mut fence = None;
+                for line in bodies[0].lines() {
+                    if let Some(marker) = fence {
+                        if line.trim() == marker {
+                            fence = None;
+                        }
+                        continue;
+                    }
+                    if let Some(marker) = ["~~~", "```"]
+                        .into_iter()
+                        .find(|m| line.trim().starts_with(m))
+                    {
+                        fence = Some(marker);
+                        continue;
+                    }
+                    for inline in line.split('`').skip(1).step_by(2) {
+                        for path in
+                            inline.split(|c: char| !c.is_alphanumeric() && c != '_' && c != ':')
+                        {
+                            if let Some((owner, method)) = path.split_once("::") {
+                                if (method_node(owner, method).is_some()
+                                    || enum_node(owner).is_some())
+                                    && method != "default"
+                                    && !self
+                                        .methods
+                                        .get(owner)
+                                        .is_some_and(|methods| methods.contains(method))
+                                {
+                                    errors.push(format!(
+                                        "{node} references unsupported {owner}::{method}"
+                                    ));
+                                }
+                            }
+                        }
+                        for call in grammar_calls(inline) {
+                            if call == "default"
+                                || call.chars().next().is_some_and(char::is_uppercase)
+                            {
+                                continue;
+                            }
+                            if !self.permits_call(node, &call) {
+                                errors.push(format!(
+                                    "{node} inline call has no public owning API: {call}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        errors
+    }
+}
+
+#[test]
+fn client_reference_does_not_invent_or_retain_removed_calls() {
+    let mut paths = Vec::new();
+    rust_sources(&root().join("crates/sun-observations/src"), &mut paths);
+    let mut api = ClientApi::default();
+    for path in paths {
+        api.add_source(&fs::read_to_string(path).unwrap());
+    }
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let mut errors = api.documentation_errors(reference(&readme));
+    for language in LANGUAGES {
+        let text = skill(language.skill);
+        for (node, production) in grammar(&text) {
+            for call in grammar_calls(&production) {
+                if !api.permits_call(&node, &call) {
+                    errors.push(format!("{node} grammar has no public owning API: {call}"));
+                }
+            }
+        }
+    }
+    assert!(errors.is_empty(), "{errors:#?}");
+    let mut fixture = ClientApi::default();
+    fixture.add_source("impl PreparedSource { pub fn count(&self) {} }");
+    let documented = "#### PREPARED_SOURCE_CHECK\n`count()`\n";
+    assert!(fixture.documentation_errors(documented).is_empty());
+    let mut removed = ClientApi::default();
+    removed.add_source("impl PreparedSource { pub fn cardinality(&self) {} }");
+    assert!(!removed.documentation_errors(documented).is_empty());
+    assert!(!fixture
+        .documentation_errors("#### GROUP_CHECK\n`count()`\n")
+        .is_empty());
+}
+
+fn source_methods(source: &str) -> Vec<(String, String, &'static str)> {
+    let mut methods = Vec::new();
+    for item in syn::parse_file(source).unwrap().items {
+        if let syn::Item::Impl(item) = item {
+            if item.trait_.is_some() {
+                continue;
+            }
+            let syn::Type::Path(path) = &*item.self_ty else {
+                continue;
+            };
+            let owner = path.path.segments.last().unwrap().ident.to_string();
+            for item in item.items {
+                if let syn::ImplItem::Fn(method) = item {
+                    if !matches!(method.vis, syn::Visibility::Public(_)) || hidden(&method.attrs) {
+                        continue;
+                    }
+                    let name = method.sig.ident.to_string();
+                    if let Some(node) = method_node(&owner, &name) {
+                        methods.push((owner.clone(), name, node));
+                    }
+                }
+            }
+        }
+    }
+    methods
+}
+
+fn source_contract_items(source: &str) -> Vec<(String, String, &'static str)> {
+    let mut items = source_methods(source);
+    for item in syn::parse_file(source).unwrap().items {
+        match item {
+            syn::Item::Fn(function)
+                if matches!(function.vis, syn::Visibility::Public(_))
+                    && !hidden(&function.attrs) =>
+            {
+                let name = function.sig.ident.to_string();
+                if let Some(node) = free_node(&name) {
+                    items.push(("free function".into(), name, node));
+                }
+            }
+            syn::Item::Trait(contract)
+                if matches!(contract.vis, syn::Visibility::Public(_))
+                    && !hidden(&contract.attrs) =>
+            {
+                let owner = contract.ident.to_string();
+                if let Some(node) = trait_node(&owner) {
+                    for item in contract.items {
+                        let name = match item {
+                            syn::TraitItem::Fn(method) => method.sig.ident.to_string(),
+                            syn::TraitItem::Type(associated) => associated.ident.to_string(),
+                            syn::TraitItem::Const(constant) => constant.ident.to_string(),
+                            _ => continue,
+                        };
+                        items.push((owner.clone(), name, node));
+                    }
+                }
+            }
+            syn::Item::Enum(enumeration)
+                if matches!(enumeration.vis, syn::Visibility::Public(_))
+                    && !hidden(&enumeration.attrs) =>
+            {
+                let owner = enumeration.ident.to_string();
+                if let Some(node) = enum_node(&owner) {
+                    items.extend(
+                        enumeration
+                            .variants
+                            .into_iter()
+                            .map(|variant| (owner.clone(), variant.ident.to_string(), node)),
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    items
+}
+
+fn source_coverage_errors(source: &str, reference: &str) -> Vec<String> {
+    let sections = sections(reference);
+    source_contract_items(source)
+        .into_iter()
+        .filter_map(|(owner, name, node)| {
+            let body = sections
+                .get(node)
+                .and_then(|s| s.first())
+                .copied()
+                .unwrap_or("");
+            (!identifiers(body).contains(name.as_str()))
+                .then(|| format!("{node} must document {owner}::{name}"))
+        })
+        .collect()
+}
+
+fn rust_sources(directory: &Path, result: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(directory).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            rust_sources(&path, result);
+        } else if path.extension().is_some_and(|ext| ext == "rs")
+            && !path
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .ends_with("_certification")
+            && path.file_stem().unwrap() != "test_support"
+        {
+            result.push(path);
+        }
+    }
+}
+
+#[test]
+fn reference_tracks_public_methods_at_their_semantic_owner() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let reference = reference(&readme);
+    let mut paths = Vec::new();
+    rust_sources(&root().join("crates/sun-observations/src"), &mut paths);
+    let mut errors = Vec::new();
+    let mut count = 0;
+    for path in paths {
+        let source = fs::read_to_string(&path).unwrap();
+        count += source_contract_items(&source).len();
+        errors.extend(source_coverage_errors(&source, reference));
+    }
+    assert!(
+        count > 150,
+        "public client surface was not scanned: {count}"
+    );
+    assert!(errors.is_empty(), "{errors:#?}");
+}
+
+#[test]
+fn source_coverage_rejects_renames_additions_and_misplaced_method_documentation() {
+    let source = "impl PreparedSource { pub fn count(&self) {} pub fn unique(&self) {} }";
+    let valid = "#### PREPARED_SOURCE_CHECK
+count() unique()
+#### SOURCE_BINDING
+values()
+";
+    assert!(source_coverage_errors(source, valid).is_empty());
+    for changed in [
+        source.replace("count", "cardinality"),
+        source.replace("unique", "distinct"),
+    ] {
+        assert!(!source_coverage_errors(&changed, valid).is_empty());
+    }
+    assert!(!source_coverage_errors(
+        source,
+        "#### PREPARED_SOURCE_CHECK
+unique()
+#### SOURCE_BINDING
+count()
+"
+    )
+    .is_empty());
+
+    let free = "pub fn check_count() {}";
+    assert!(source_coverage_errors(
+        free,
+        "#### PREPARED_SOURCE_CHECK
+check_count()
+"
+    )
+    .is_empty());
+    assert!(!source_coverage_errors(
+        free,
+        "#### PREPARED_SOURCE_CHECK
+"
+    )
+    .is_empty());
+
+    let expectation =
+        "pub trait Expectation<T> { type Violation; fn assess(&self); fn describe(&self); fn class(&self); }";
+    assert!(source_coverage_errors(
+        expectation,
+        "#### EXPECTATION
+Violation assess describe class
+"
+    )
+    .is_empty());
+    assert!(!source_coverage_errors(
+        expectation,
+        "#### EXPECTATION
+assess describe class
+"
+    )
+    .is_empty());
+
+    let observation = "pub trait Observation { const NAMESPACE: &'static str; fn message(&self); }";
+    assert!(source_coverage_errors(
+        observation,
+        "#### DECLARATION
+NAMESPACE message
+"
+    )
+    .is_empty());
+    assert!(!source_coverage_errors(
+        observation,
+        "#### DECLARATION
+message
+"
+    )
+    .is_empty());
+
+    let count_rules = "pub enum CountRule { Exact(usize), Minimum(usize), NonEmpty }";
+    assert!(source_coverage_errors(
+        count_rules,
+        "#### EXPECTATION
+Exact Minimum NonEmpty
+"
+    )
+    .is_empty());
+    assert!(!source_coverage_errors(
+        count_rules,
+        "#### EXPECTATION
+Exact NonEmpty
+"
+    )
+    .is_empty());
+}
+
 fn require_markers(name: &str, markers: &[&str], forbidden: &[&str]) {
     let text = skill(name);
     let mut c = certification(format!("{name} client contract"));
@@ -167,172 +1112,20 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
 }
 
 #[test]
-fn certifications_api_skill_covers_client_workflows_and_omits_framework_internals() {
-    require_markers(
-        "certifications-api",
-        &[
-            "certification NAME",
-            "executor FUNCTION",
-            "executor_with_seed FUNCTION",
-            "data_source INPUTS",
-            "domain DOMAIN",
-            "cases_budget N",
-            "failure_budget N",
-            "seed N",
-            "report_mode BOOL",
-            "require_pairwise_coverage",
-            "assert_certify",
-            "section(name",
-            "source(name",
-            "collection(name",
-            "fact(",
-            "try_fact(",
-            "fact!(expression)",
-            "case.input()",
-            "case.result()",
-            "case.observations<T>()",
-            "Criterion::between",
-            "close_to",
-            "CountRule",
-            "NumericRule",
-            "Expectation<T>",
-            "PreparedSource",
-            "PreparedKeys",
-            "PreparedValues",
-            "PreparedNumeric",
-            "single_map",
-            "compare_with",
-            "group_by",
-            "GroupedView",
-            "GroupedNumeric",
-            "on_presorted",
-            "PairedComparison",
-            "paired_comparison_fact",
-            "PreparedNumericComparison",
-            "CorrelationExpectation",
-            "LinearFitExpectation",
-            "DifferenceExpectation",
-            "RelationExpectation",
-            "OutlierConfig",
-            "JumpConfig",
-            "LagRange",
-            "LagConfig",
-            "lag_relation_by",
-            "require_complete()",
-        ],
-        &[
-            "diagnostic_bytes",
-            "case.execution()",
-            "CertificationExecution",
-            "DomainRegion",
-            "DomainTercile",
-            "DomainNegativeDistance",
-            "CaseDomainCoordinateSlot",
-            ".compile()",
-            ".classify(",
-        ],
-    );
-}
-
-#[test]
-fn domain_api_skill_covers_the_client_dsl_without_solver_representation() {
-    require_markers(
-        "domain-api",
-        &[
-            "DomainInput",
-            "domain TYPE",
-            "FIELD.CONSTRUCTIVE",
-            "CONSTRUCTIVE :=",
-            "fixed_value(VALUE)",
-            "selected_values(VALUES)",
-            "in_range(RANGE)",
-            "one_of_ranges(RANGES)",
-            "all_enum_values()",
-            "selected_enum_values(VALUES)",
-            "FIELD {",
-            "EnumType::Variant {",
-            "ENUM_SELECTION :=",
-            "length().LENGTH_SPACE",
-            "each(ELEMENT_SPACE)",
-            "each {",
-            "when(RELATION)",
-            "FIELD.equal(OPERAND)",
-            "FIELD.not_equal(OPERAND)",
-            "FIELD.less_than(OPERAND)",
-            "FIELD.less_equal(OPERAND)",
-            "FIELD.greater_than(OPERAND)",
-            "FIELD.greater_equal(OPERAND)",
-            "payload enums",
-            "data_source",
-            "pairwise",
-            "no shrinking",
-        ],
-        &[
-            "DomainRegion",
-            "DomainTercile",
-            "DomainNegativeDistance",
-            "CaseDomainCoordinateSlot",
-            "CertificationExecution",
-            ".compile()",
-            ".classify(",
-        ],
-    );
-}
-
-#[test]
-fn observations_api_skill_covers_runtime_evidence_client_surface() {
-    require_markers(
-        "observations-api",
-        &[
-            "Observation",
-            "observe!",
-            "observe_if_active",
-            "Selection",
-            "ScopeConfig",
-            "Policy",
-            "Context",
-            "context::thread::spawn",
-            "ContextThreadPool",
-            "add_channel_sink",
-            "register_namespace_channel",
-            "MemorySink",
-            "JsonlSink",
-            "ConsoleSink",
-            "Sink",
-            "observe_span!",
-            "CaptureConfig",
-            "capture_observations",
-            "CapturedRun",
-            "run.certification(name)",
-            "ObservationDataset",
-            "ObservationsQuery",
-            "TypedView",
-            "SourceProvenance",
-            "FORMAT v1",
-        ],
-        &["CertificationExecution", "prerequisite()", "outcome()"],
-    );
-}
-
-#[test]
-fn canonical_skill_rust_blocks_compile_and_execute() {
+fn canonical_skill_and_readme_rust_blocks_compile_and_execute() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
-    let mut source = String::from("#![allow(dead_code,unused_imports)]\n");
-    let mut index = 0;
+    let readme = root()
+        .join("README.md")
+        .to_string_lossy()
+        .replace(char::from(92), "/");
+    let mut source =
+        format!("#![doc = include_str!({readme:?})]\n#![allow(dead_code,unused_imports)]\n");
+    let mut index = 0usize;
     for name in SKILLS {
         for block in blocks(&skill(name)) {
-            source.push_str(&format!("mod snippet_{index} {{\n{block}\n"));
-            if block.contains("fn capture()") {
-                source.push_str("#[test] fn run_documented_workflow(){capture().unwrap();}\n");
-            }
-            if block.contains("fn certify_output()") {
-                source.push_str("#[test] fn run_documented_workflow(){certify_output();}\n");
-            }
-            if block.contains("fn certify_execution()") {
-                source.push_str("#[test] fn run_documented_workflow(){certify_execution();}\n");
-            }
-            source.push_str("}\n");
+            assert!(block.contains("#[test]"), "{name} example must execute");
+            source.push_str(&format!("mod snippet_{index} {{\n{block}\n}}\n"));
             index += 1;
         }
     }
@@ -342,7 +1135,7 @@ fn canonical_skill_rust_blocks_compile_and_execute() {
         .replace(char::from(92), "/");
     let manifest = format!(
         r#"[package]
-name="skill-contracts"
+name="client-documentation-contracts"
 version="0.0.0"
 edition="2021"
 [workspace]
@@ -354,30 +1147,51 @@ serde_json="1"
     );
     fs::write(dir.path().join("Cargo.toml"), manifest).unwrap();
     fs::write(dir.path().join("src/lib.rs"), source).unwrap();
-    let output = Command::new(env!("CARGO"))
-        .args(["test", "--offline", "--manifest-path"])
-        .arg(dir.path().join("Cargo.toml"))
-        .arg("--target-dir")
-        .arg(dir.path().join("target"))
-        .output()
-        .unwrap();
-    certification("skill Rust blocks compile as documented")
-        .limits(DiagnosticLimits {
-            failures: 1,
-            characters_per_failure: 16_384,
-        })
-        .check_fact_expect("Rust blocks present", index, CountRule::Minimum(3))
-        .check(
-            "downstream compile/run",
-            fact("cargo test", output.status.success())
-                .details(format!(
-                    "stdout: {} stderr: {}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                ))
-                .expect(true),
-        )
-        .assert_certify();
+    let run = |doc_only| {
+        let mut command = Command::new(env!("CARGO"));
+        command
+            .args(["test", "--offline", "--manifest-path"])
+            .arg(dir.path().join("Cargo.toml"))
+            .arg("--target-dir")
+            .arg(dir.path().join("target"));
+        if doc_only {
+            command.arg("--doc");
+        }
+        command.args(["--", "--test-threads=1"]).output().unwrap()
+    };
+    let output = run(false);
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(index >= LANGUAGES.iter().map(|language| language.nodes.len()).sum());
+    assert!(
+        stdout.contains(&format!("{index} passed; 0 failed")),
+        "{stdout}"
+    );
+    let readme_blocks = blocks(&fs::read_to_string(root().join("README.md")).unwrap()).count();
+    assert!(
+        stdout.contains(&format!("{readme_blocks} passed; 0 failed")),
+        "{stdout}"
+    );
+    fs::write(
+        dir.path().join("src/lib.rs"),
+        r#"#![doc = "
+```rust
+use sun_observations::certifications::*;
+let mut runner = certification(\"unsupported binding\").executor(|n: &u64| Ok::<_, ()>(*n));
+runner.source(\"unsupported\", &1u64);
+```
+"]
+"#,
+    )
+    .unwrap();
+    let broken = run(true);
+    assert!(!broken.status.success());
+    assert!(String::from_utf8_lossy(&broken.stdout).contains("source"));
 }
 #[test]
 fn mixed_evidence_workflow_proves_internal_transfer_and_negative_forbidden_absence() {
@@ -454,294 +1268,6 @@ fn generated_benchmark_charts_match_tracked_evidence() {
                 .expect(true),
         )
         .assert_certify();
-}
-const README_CERTIFICATION_API: &[&str] = &[
-    "certification(name)",
-    "check(name",
-    "check_fact_expect",
-    "section(name",
-    "source(name",
-    "collection(name",
-    "fact(source",
-    "try_fact",
-    "Fact::details",
-    "Fact::expect",
-    "fact!(expression)",
-    "CheckPlan::description",
-    "assert_certify()",
-    "NotEqual",
-    "Criterion::greater_than",
-    "Criterion::at_least",
-    "Criterion::less_than",
-    "Criterion::at_most",
-    "Criterion::between",
-    "criterion(description",
-    "close_to",
-    "absolute_tolerance",
-    "relative_tolerance",
-    "CountRule::Exact",
-    "CountRule::Minimum",
-    "CountRule::NonEmpty",
-    "NumericRule::Finite",
-    "NumericRule::Positive",
-    "NumericRule::NonNegative",
-    "NumericRule::between",
-    "expect_valid()",
-    "AtMostAnomalies",
-    "GroupExpectation::new",
-    "LagExpectation",
-    "Expectation<T>",
-    "executor(f)",
-    "executor_with_seed(f)",
-    "data_source(inputs)",
-    "domain(domain)",
-    "cases_budget(n)",
-    "failure_budget(n)",
-    "seed(n)",
-    "report_mode(bool)",
-    "require_pairwise_coverage()",
-    "case()",
-    "case.input()",
-    "case.result()",
-    "case.observations::<T>()",
-];
-
-const README_DOMAIN_API: &[&str] = &[
-    "DomainInput",
-    "domain!(Type",
-    "fixed_value(value)",
-    "selected_values(values)",
-    "in_range(range)",
-    "one_of_ranges(ranges)",
-    "all_enum_values()",
-    "selected_enum_values(values)",
-    "field {",
-    "Enum::Variant",
-    "length()",
-    "each(rule)",
-    "each {",
-    "when(relation)",
-    "equal",
-    "not_equal",
-    "less_than",
-    "less_equal",
-    "greater_than",
-    "greater_equal",
-];
-
-const README_PREPARED_API: &[&str] = &[
-    "`name()` | Returns semantic source name",
-    "with_provenance",
-    "single_map",
-    "matching_count",
-    "PreparedKeys",
-    "PreparedNumeric",
-    "GroupedView",
-    "PairedComparison::name()",
-    "PreparedNumericComparison",
-];
-
-const README_OBSERVATION_API: &[&str] = &[
-    "derive(Observation)",
-    "NAMESPACE",
-    "LEVEL",
-    "TAGS",
-    "message()",
-    "render_text()",
-    "observe!(value)",
-    "observe_if_active",
-    "ObservationEngine::isolated()",
-    "process_id()",
-    "sink_error_count()",
-    "set_selection",
-    "flush_channels()",
-    "Selection::new()",
-    "activate_all()",
-    "activate_namespace",
-    "exclude_namespace",
-    "activate_tags",
-    "exclude_tags",
-    "activates(namespace, tags)",
-    "excludes(namespace, tags)",
-    "admits(namespace, tags)",
-    "namespace::is_normalized_segment",
-    "namespace::matches_subtree",
-    "namespace::validate_namespace",
-    "ScopeConfig::new",
-    "selection(selection)",
-    "override_policy",
-    "Policy::first_n",
-    "Policy::every_n",
-    "Context::capture",
-    "enter()",
-    "run(operation)",
-    "scope_name()",
-    "context::thread::spawn",
-    "ContextThreadPool",
-    "with_threads",
-    "install(operation)",
-];
-
-const README_EVIDENCE_API: &[&str] = &[
-    "add_channel_sink",
-    "register_namespace_channel",
-    "clear_channel_sinks",
-    "MemorySink",
-    "with_config",
-    "shared_records",
-    "drain_shared",
-    "records()",
-    "drain()",
-    "MemorySinkConfig",
-    "max_items()",
-    "compact_fraction()",
-    "MemoryStats",
-    "JsonlSink",
-    "open_append",
-    "from_writer",
-    "writer_with_config",
-    "JsonlConfig",
-    "flush_interval_ms",
-    "max_file_size_mb",
-    "max_file_size_bytes",
-    "trim_fraction",
-    "is_started()",
-    "last_error()",
-    "ConsoleSink",
-    "stdout()",
-    "stderr()",
-    "Sink",
-    "write_shared",
-    "wants_render_text",
-    "write_delivery",
-    "ObservationDelivery",
-    "shared_record()",
-    "shared_render_text()",
-    "observe_span!",
-    "span_if_active",
-    "SpanGuard",
-    "is_active()",
-    "finish()",
-    "CaptureConfig",
-    "retention",
-    "activate_namespaces",
-    "activate_tag",
-    "exclude_namespaces",
-    "exclude_tag",
-    "capture_observations",
-    "CapturedRun",
-    "status().is_complete()",
-    "to_typed",
-    "certification(name)",
-    "ObservationDataset",
-    "try_from_records",
-    "try_from_memory",
-    "ObservationsQuery",
-    "namespace_subtree",
-    "without_scope",
-    "points",
-    "span_starts",
-    "span_ends",
-    "process",
-    "RecordView",
-    "TypedView",
-    "sources()",
-    "TypedEntry",
-    "SourceProvenance",
-    "DecodeError",
-    "SourceContext",
-];
-
-const README_NUMERIC_API: &[&str] = &[
-    "CorrelationExpectation",
-    "pearson_at_least",
-    "spearman_at_least",
-    "spearman_at_most",
-    "with_bound",
-    "and_pearson_bounds",
-    "and_spearman_bounds",
-    "LinearFitExpectation",
-    "slope_between",
-    "intercept_between",
-    "r_squared_at_least",
-    "residual_mean_absolute_at_most",
-    "residual_max_absolute_at_most",
-    "and_slope_between",
-    "and_intercept_between",
-    "and_r_squared_at_least",
-    "and_residual_mean_absolute_at_most",
-    "and_residual_max_absolute_at_most",
-    "DifferenceExpectation",
-    "mean_absolute_at_most",
-    "p95_absolute_at_most",
-    "max_absolute_at_most",
-    "and_mean_absolute_at_most",
-    "and_p95_absolute_at_most",
-    "and_max_absolute_at_most",
-    "RelationExpectation",
-    "RelationMeasure",
-    "OutlierConfig::new",
-    "ZeroMadPolicy::absolute_tolerance",
-    "JumpConfig::new",
-    "LagRange::new",
-    "LagConfig",
-    "LagReport::zero_lag",
-    "LagAlignment::has_interior_gaps",
-    "NumericSeries::new",
-    "finite_count()",
-    "integrity(rule)",
-    "check_count",
-    "check_unique",
-    "check_contiguous",
-    "check_same_keys",
-    "join_by",
-    "join_presorted_by",
-    "require_complete()",
-    "linear_metrics",
-    "numeric_relation",
-    "difference_summary",
-    "lag_relation_by",
-];
-
-#[test]
-fn readme_covers_the_supported_client_api() {
-    let readme = fs::read_to_string(root().join("README.md")).unwrap();
-    let api = readme
-        .split_once("## Complete supported client API")
-        .unwrap()
-        .1
-        .split_once("## Cookbook")
-        .unwrap()
-        .0;
-    let lines: Vec<_> = api.lines().collect();
-    let mut c = certification("README supported client API contract");
-    for markers in [
-        README_CERTIFICATION_API,
-        README_DOMAIN_API,
-        README_PREPARED_API,
-        README_NUMERIC_API,
-        README_OBSERVATION_API,
-        README_EVIDENCE_API,
-    ] {
-        for marker in markers {
-            let documented = lines.iter().enumerate().any(|(index, line)| {
-                if !line.contains(marker) {
-                    return false;
-                }
-                let start = index.saturating_sub(1);
-                let end = (index + 3).min(lines.len().saturating_sub(1));
-                lines[start..=end]
-                    .iter()
-                    .any(|line| line.as_bytes().iter().filter(|byte| **byte == 96).count() >= 2)
-            });
-            c.check_fact_expect(
-                format!("documents and exemplifies {marker}"),
-                documented,
-                true,
-            );
-        }
-    }
-    c.assert_certify();
 }
 
 fn markdown(directory: &Path, files: &mut Vec<PathBuf>) {
