@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="426" viewBox="0 0 960 426" role="img" aria-labelledby="title desc">
+<title id="title">Generated execution is bounded by case budget</title>
+<desc id="desc">Eight 32-choice enums; positive Cartesian potential about 1.1 trillion cases. 8, Full planned execution: 1.133220 ms; 64, Full planned execution: 4.233320 ms; 256, Full planned execution: 17.639980 ms; 1024, Full planned execution: 63.058960 ms. Recorded sample-0 rows are arithmetic means of five timed operations; work grows with requested budget, not full Cartesian size.</desc>
+<rect width="960" height="426" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Generated execution is bounded by case budget</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">Eight 32-choice enums; positive Cartesian potential about 1.1 trillion cases</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Full planned execution</text>
+<path d="M255.00 138V322" stroke="#dce4e9"/>
+<text x="255.00" y="342.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V322" stroke="#dce4e9"/>
+<text x="398.75" y="342.00" font-size="12" text-anchor="middle" fill="#172b3a">18.6</text>
+<path d="M542.50 138V322" stroke="#dce4e9"/>
+<text x="542.50" y="342.00" font-size="12" text-anchor="middle" fill="#172b3a">37.2</text>
+<path d="M686.25 138V322" stroke="#dce4e9"/>
+<text x="686.25" y="342.00" font-size="12" text-anchor="middle" fill="#172b3a">55.8</text>
+<path d="M830.00 138V322" stroke="#dce4e9"/>
+<text x="830.00" y="342.00" font-size="12" text-anchor="middle" fill="#172b3a">74.4</text>
+<text x="542.50" y="365.00" font-size="13" text-anchor="middle" fill="#172b3a">ms (lower is better)</text>
+<text x="240.00" y="164.50" font-size="14" text-anchor="end" fill="#172b3a">8</text>
+<rect x="255" y="146" width="8.76" height="21" fill="#126b96"/>
+<text x="270.76" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">1.13</text>
+<text x="240.00" y="210.50" font-size="14" text-anchor="end" fill="#172b3a">64</text>
+<rect x="255" y="192" width="32.71" height="21" fill="#126b96"/>
+<text x="294.71" y="208.00" font-size="13" text-anchor="start" fill="#172b3a">4.23</text>
+<text x="240.00" y="256.50" font-size="14" text-anchor="end" fill="#172b3a">256</text>
+<rect x="255" y="238" width="136.31" height="21" fill="#126b96"/>
+<text x="398.31" y="254.00" font-size="13" text-anchor="start" fill="#172b3a">17.64</text>
+<text x="240.00" y="302.50" font-size="14" text-anchor="end" fill="#172b3a">1024</text>
+<rect x="255" y="284" width="487.29" height="21" fill="#126b96"/>
+<text x="749.29" y="300.00" font-size="13" text-anchor="start" fill="#172b3a">63.06</text>
+<text x="24.00" y="399.00" font-size="13" text-anchor="start" fill="#172b3a">Recorded sample-0 rows are arithmetic means of five timed operations; work grows with requested budget, not full Cartesian size.</text>
+</g>
+</svg>

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="550" viewBox="0 0 960 550" role="img" aria-labelledby="title desc">
+<title id="title">Prepared evidence avoids repeated work</title>
+<desc id="desc">Six numeric requests over the same correspondence; median of 3 release samples. 1k, Prepare once: 0.115600 ms; 1k, Reprepare: 0.328800 ms; 10k, Prepare once: 1.392500 ms; 10k, Reprepare: 4.207500 ms; 100k, Prepare once: 11.851000 ms; 100k, Reprepare: 34.312400 ms; 1M, Prepare once: 121.263900 ms; 1M, Reprepare: 357.869600 ms. At 1M rows: 121.26 ms prepare-once versus 357.87 ms repeated preparation.</desc>
+<rect width="960" height="550" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Prepared evidence avoids repeated work</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">Six numeric requests over the same correspondence; median of 3 release samples</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Prepare once</text>
+<rect x="545" y="114" width="12" height="12" fill="#b55112"/>
+<text x="563.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Reprepare</text>
+<path d="M255.00 138V446" stroke="#dce4e9"/>
+<text x="255.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V446" stroke="#dce4e9"/>
+<text x="398.75" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">105.6</text>
+<path d="M542.50 138V446" stroke="#dce4e9"/>
+<text x="542.50" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">211.1</text>
+<path d="M686.25 138V446" stroke="#dce4e9"/>
+<text x="686.25" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">316.7</text>
+<path d="M830.00 138V446" stroke="#dce4e9"/>
+<text x="830.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">422.3</text>
+<text x="542.50" y="489.00" font-size="13" text-anchor="middle" fill="#172b3a">ms (lower is better)</text>
+<text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">1k</text>
+<rect x="255" y="146" width="0.16" height="21" fill="#126b96"/>
+<text x="262.16" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">0.12</text>
+<rect x="255" y="177" width="0.45" height="21" fill="#b55112"/>
+<text x="262.45" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">0.33</text>
+<text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">10k</text>
+<rect x="255" y="223" width="1.90" height="21" fill="#126b96"/>
+<text x="263.90" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">1.39</text>
+<rect x="255" y="254" width="5.73" height="21" fill="#b55112"/>
+<text x="267.73" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">4.21</text>
+<text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">100k</text>
+<rect x="255" y="300" width="16.14" height="21" fill="#126b96"/>
+<text x="278.14" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">11.85</text>
+<rect x="255" y="331" width="46.72" height="21" fill="#b55112"/>
+<text x="308.72" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">34.31</text>
+<text x="240.00" y="411.00" font-size="14" text-anchor="end" fill="#172b3a">1M</text>
+<rect x="255" y="377" width="165.12" height="21" fill="#126b96"/>
+<text x="427.12" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">121.26</text>
+<rect x="255" y="408" width="487.29" height="21" fill="#b55112"/>
+<text x="749.29" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">357.87</text>
+<text x="24.00" y="523.00" font-size="13" text-anchor="start" fill="#172b3a">At 1M rows: 121.26 ms prepare-once versus 357.87 ms repeated preparation.</text>
+</g>
+</svg>

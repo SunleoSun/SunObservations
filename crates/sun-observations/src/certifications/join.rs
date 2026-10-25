@@ -268,8 +268,5 @@ pub(crate) fn merge_groups<'a, K: Ord, F: Fn(&K, &K) -> Ordering + Clone + 'a>(
 }
 
 #[cfg(test)]
-#[path = "join_generative_certification.rs"]
-mod generative;
-#[cfg(test)]
 #[path = "join_certification.rs"]
-mod tests;
+mod certification;

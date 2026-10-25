@@ -508,6 +508,6 @@ fn final_assertion_panics_at_invocation_not_framework() {
     assert!(result.is_err());
     let captured = captured.lock().unwrap();
     let (file, line) = captured.as_ref().unwrap();
-    assert!(file.ends_with("framework_certification.rs"));
+    assert!(file.ends_with("prepared_evidence_workflow_certification.rs"));
     assert_eq!(*line, expected_line);
 }

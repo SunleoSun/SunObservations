@@ -30,19 +30,18 @@ pub use relation::*;
 pub use source::*;
 pub use stats::*;
 #[cfg(test)]
-mod acceptance_certification;
+#[path = "../composition_certifications/acceptance_aggregation_certification.rs"]
+mod acceptance_aggregation_certification;
 #[cfg(test)]
-mod domain_edge_certification;
+#[path = "../composition_certifications/client_api_ergonomics_certification.rs"]
+mod client_api_ergonomics_certification;
 #[cfg(test)]
-mod domain_regression_certification;
+mod domain_certification;
 #[cfg(test)]
-mod ergonomics_certification;
+#[path = "../composition_certifications/domain_execution_certification.rs"]
+mod domain_execution_certification;
 #[cfg(test)]
-#[path = "framework_certification.rs"]
-mod framework_certification;
-#[cfg(test)]
-mod generative_certification;
-#[cfg(test)]
-mod planned_controls_certification;
+#[path = "../composition_certifications/prepared_evidence_workflow_certification.rs"]
+mod prepared_evidence_workflow_certification;
 #[cfg(test)]
 mod test_support;

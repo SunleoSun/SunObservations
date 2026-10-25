@@ -36,12 +36,13 @@ Treat **Single Source of Behavior + Typed Contracts** as one architecture rule.
 - Before adding cross-module logic, identify the single owner of the decision and whether the contract can make invalid substitutions unrepresentable.
 - Performance optimizations, batching, caching, and concurrency are allowed only when they preserve canonical behavior, ordering guarantees, and contracts.
 
+Production source boundaries follow semantic ownership. A source file represents one semantic owner or one coherent semantic namespace; do not split files by type kind, implementation phase, helper category, or size alone. Multiple related types/functions belong together when they jointly implement one semantic contract. A large owner may use a module directory, but each child source module must represent a meaningful subordinate semantic owner rather than an arbitrary implementation slice.
+
 ## Testing Strategy
 
 Tests must validate important behavior, invariants, edge cases, and regressions rather than implementation trivia.
 
 Add or update focused tests when changing:
-
 - public or cross-crate contracts;
 - admission, routing, policy, scope, propagation, sink, or serialization behavior;
 - validation or bounds;
@@ -50,8 +51,27 @@ Add or update focused tests when changing:
 
 Prefer testing non-critical helpers through the important behavior that owns them unless the helper has meaningful branching or independent semantics.
 
-Keep implementation and tests grouped by semantic owner.
-Prefer owner-adjacent `<owner>_certification.rs` for semantic behavior verification and use sun_observations::certifications to aggregate related expectations. Existing framework bootstrap/self-tests and low-level compile/process infrastructure may use direct Rust assertions. Inspect executable evidence rather than inferring suite status from filenames. Canonical agent API manuals are `crates/sun-observations/agent-skills/sun-observations/SKILL.md` and `crates/sun-observations/agent-skills/certifications/SKILL.md`. Root `.agents/skills` files are synchronized mirrors, never independent edit targets. Edit the owning package skill, then run `cargo sun-observations-skills sync` with the installed tool (or `cargo run -p sun-observations --bin cargo-sun-observations-skills -- sync` locally); documentation certifications enforce byte equality.
+Keep implementation and certifications grouped by semantic ownership:
+
+- Each semantic owner has at most one owner certification module, normally owner-adjacent as <owner>_certification.rs. Deterministic cases, Domain-generated cases, regressions, edge cases, oracle checks, and metamorphic checks are proof techniques inside that one owner certification; they do not create separate owner files.
+- Cross-owner contracts belong under crate/src/composition_certifications/. Name files by the semantic relation and keep the _certification.rs suffix, for example prediction_to_decision_certification.rs. Subdirectories are allowed only for meaningful composition semantic namespaces.
+- Existing framework bootstrap/self-tests and low-level compile/process infrastructure may use direct Rust assertions when framework self-dependence would obscure the mechanism.
+- Inspect executable evidence rather than inferring suite status from filenames.
+
+Canonical portable skills are package-owned and root .agents/skills copies are synchronized mirrors, never independent edit targets:
+- crates/sun-observations/agent-skills/certifications-methodology/SKILL.md
+- crates/sun-observations/agent-skills/certifications-api/SKILL.md
+- crates/sun-observations/agent-skills/domain-api/SKILL.md
+- crates/sun-observations/agent-skills/observations-api/SKILL.md
+
+Skill routing is mandatory:
+1. Creating, changing, reviewing, or migrating certifications: read certifications-methodology.
+2. Writing or changing certification framework client code: also read certifications-api.
+3. If a Domain exists or should be considered for family-wide input coverage: also read domain-api.
+4. If production Observations, capture, query/decode, or provenance are involved: also read observations-api.
+5. Pure Observation API work without certification proof may read observations-api alone.
+
+After editing canonical skills, run cargo sun-observations-skills sync with the installed tool, or cargo run -p sun-observations --bin cargo-sun-observations-skills -- sync locally. Documentation certifications enforce mirror byte equality.
 
 ## Execution Discipline
 

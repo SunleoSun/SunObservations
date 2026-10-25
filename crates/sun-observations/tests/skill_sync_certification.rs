@@ -28,7 +28,12 @@ edition="2021"
         ),
     );
     write(directory.join("src/lib.rs"), "");
-    for skill_name in ["sun-observations", "certifications"] {
+    for skill_name in [
+        "certifications-methodology",
+        "certifications-api",
+        "domain-api",
+        "observations-api",
+    ] {
         write(
             directory
                 .join("agent-skills")
@@ -132,17 +137,17 @@ fn external_subcommand_syncs_transitive_exact_path_sources_and_updates_only_sele
         &root.join("resolved-a"),
         "sun-observations",
         "3.2.1",
-        "certifications",
+        "certifications-api",
         "resolved A",
     );
     owner(
         &root.join("unresolved-b"),
         "sun-observations",
         "9.8.7",
-        "certifications",
+        "certifications-api",
         "wrong B",
     );
-    let runtime = root.join("resolved-a/agent-skills/sun-observations/SKILL.md");
+    let runtime = root.join("resolved-a/agent-skills/observations-api/SKILL.md");
     let bridge = root.join("bridge");
     write(
         bridge.join("Cargo.toml"),
@@ -164,6 +169,14 @@ sun-observations={{path={}}}
         &format!("bridge={{path={}}}", path(&bridge)),
     );
     metadata(&consumer_root);
+    write(
+        consumer_root.join(".agents/skills/certifications/SKILL.md"),
+        "legacy",
+    );
+    write(
+        consumer_root.join(".agents/skills/sun-observations/SKILL.md"),
+        "legacy",
+    );
     let lockfile = fs::read(consumer_root.join("Cargo.lock")).unwrap();
     checked(sync(&consumer_root, &[]));
     assert_eq!(
@@ -171,10 +184,10 @@ sun-observations={{path={}}}
         lockfile
     );
     let destination = consumer_root.join(".agents/skills");
-    let mirror = destination.join("certifications/SKILL.md");
+    let mirror = destination.join("certifications-api/SKILL.md");
     assert_eq!(fs::read(&mirror).unwrap(), fs::read(&source).unwrap());
     assert_eq!(
-        fs::read(destination.join("sun-observations/SKILL.md")).unwrap(),
+        fs::read(destination.join("observations-api/SKILL.md")).unwrap(),
         fs::read(&runtime).unwrap()
     );
     let modified = fs::metadata(&mirror).unwrap().modified().unwrap();
@@ -184,7 +197,7 @@ sun-observations={{path={}}}
     write(&mirror, "stale mirror");
     checked(sync(&consumer_root, &[]));
     assert_eq!(fs::read(&mirror).unwrap(), fs::read(&source).unwrap());
-    write(&source, skill("certifications", "canonical edit"));
+    write(&source, skill("certifications-api", "canonical edit"));
     checked(sync(&consumer_root, &[]));
     assert_eq!(fs::read(&mirror).unwrap(), fs::read(&source).unwrap());
     assert_eq!(
@@ -195,7 +208,7 @@ sun-observations={{path={}}}
     write(&mirror, "must not update during custom sync");
     checked(sync(&nested, &["--skills-dir", ".my-agent/skills"]));
     assert_eq!(
-        fs::read(nested.join(".my-agent/skills/certifications/SKILL.md")).unwrap(),
+        fs::read(nested.join(".my-agent/skills/certifications-api/SKILL.md")).unwrap(),
         fs::read(&source).unwrap()
     );
     assert!(!nested.join(".agents").exists());
@@ -211,10 +224,16 @@ sun-observations={{path={}}}
         .collect();
     assert_eq!(
         names,
-        ["certifications", "sun-observations", "unrelated"]
-            .into_iter()
-            .map(Into::into)
-            .collect()
+        [
+            "certifications-api",
+            "certifications-methodology",
+            "domain-api",
+            "observations-api",
+            "unrelated",
+        ]
+        .into_iter()
+        .map(Into::into)
+        .collect()
     );
 }
 
@@ -226,14 +245,14 @@ fn distinct_resolved_versions_fail_before_any_skill_is_written() {
         &root.join("a"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "A",
     );
     owner(
         &root.join("b"),
         "sun-observations",
         "2.0.0",
-        "certifications",
+        "certifications-api",
         "B",
     );
     let app = root.join("app");
@@ -263,14 +282,14 @@ fn inactive_optional_owner_version_does_not_conflict_with_the_active_resolved_ap
         &root.join("active"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "active API",
     );
     owner(
         &root.join("optional"),
         "sun-observations",
         "2.0.0",
-        "certifications",
+        "certifications-api",
         "inactive optional API",
     );
     let app = root.join("app");
@@ -286,7 +305,7 @@ optional={{package="sun-observations",path={},optional=true}}"#,
     metadata(&app);
     checked(sync(&app, &[]));
     assert_eq!(
-        fs::read(app.join(".agents/skills/certifications/SKILL.md")).unwrap(),
+        fs::read(app.join(".agents/skills/certifications-api/SKILL.md")).unwrap(),
         fs::read(source).unwrap()
     );
 }
@@ -296,8 +315,8 @@ fn missing_or_invalid_canonical_sources_fail_without_overwriting_existing_mirror
     for bytes in [
         None,
         Some("---\nname: other\n---\n"),
-        Some("---\nname: certifications\nname: certifications\n---\n"),
-        Some("---\nname: certifications\n"),
+        Some("---\nname: certifications-api\nname: certifications-api\n---\n"),
+        Some("---\nname: certifications-api\n"),
         Some("not front matter"),
     ] {
         let temporary = TempDir::new().unwrap();
@@ -306,7 +325,7 @@ fn missing_or_invalid_canonical_sources_fail_without_overwriting_existing_mirror
             &root.join("owner"),
             "sun-observations",
             "7.0.0",
-            "certifications",
+            "certifications-api",
             "A",
         );
         if let Some(bytes) = bytes {
@@ -319,13 +338,13 @@ fn missing_or_invalid_canonical_sources_fail_without_overwriting_existing_mirror
             &app,
             &format!("sun-observations={{path={}}}", path(&root.join("owner"))),
         );
-        let mirror = app.join(".agents/skills/certifications/SKILL.md");
+        let mirror = app.join(".agents/skills/certifications-api/SKILL.md");
         write(&mirror, "preserve on failure");
         metadata(&app);
-        let diagnostic = rejected(sync(&app, &[]), "skill certifications");
+        let diagnostic = rejected(sync(&app, &[]), "skill certifications-api");
         assert!(diagnostic.contains("7.0.0"), "{diagnostic}");
         assert_eq!(fs::read(&mirror).unwrap(), b"preserve on failure");
-        assert!(!app.join(".agents/skills/sun-observations").exists());
+        assert!(!app.join(".agents/skills/observations-api").exists());
     }
 }
 
@@ -338,14 +357,14 @@ fn registry_directory_source_uses_resolved_version_not_an_adjacent_newer_package
         &registry.join("sun-observations-1.2.3"),
         "sun-observations",
         "1.2.3",
-        "certifications",
+        "certifications-api",
         "registry resolved A",
     );
     owner(
         &registry.join("sun-observations-2.0.0"),
         "sun-observations",
         "2.0.0",
-        "certifications",
+        "certifications-api",
         "registry wrong B",
     );
     for version in ["1.2.3", "2.0.0"] {
@@ -385,7 +404,7 @@ fn registry_directory_source_uses_resolved_version_not_an_adjacent_newer_package
     checked(sync(&app, &[]));
     assert_eq!(fs::read(app.join("Cargo.lock")).unwrap(), locked);
     assert_eq!(
-        fs::read(app.join(".agents/skills/certifications/SKILL.md")).unwrap(),
+        fs::read(app.join(".agents/skills/certifications-api/SKILL.md")).unwrap(),
         fs::read(source).unwrap()
     );
 }
@@ -430,10 +449,10 @@ fn git_revision_is_read_from_cargos_checkout_not_repository_head() {
     git(&repository, &["add", "."]);
     git(&repository, &["commit", "-m", "revision A"]);
     let revision_a = git(&repository, &["rev-parse", "HEAD"]);
-    write(&source, skill("sun-observations", "wrong revision B"));
+    write(&source, skill("observations-api", "wrong revision B"));
     write(
-        repository.join("agent-skills/certifications/SKILL.md"),
-        skill("certifications", "wrong revision B"),
+        repository.join("agent-skills/certifications-api/SKILL.md"),
+        skill("certifications-api", "wrong revision B"),
     );
     git(&repository, &["add", "."]);
     git(&repository, &["commit", "-m", "revision B"]);
@@ -472,19 +491,19 @@ fn git_revision_is_read_from_cargos_checkout_not_repository_head() {
     assert_ne!(checkout, repository);
     metadata(&app);
     checked(sync(&app, &[]));
-    let mirror = app.join(".agents/skills/sun-observations/SKILL.md");
+    let mirror = app.join(".agents/skills/observations-api/SKILL.md");
     assert_eq!(
         fs::read(&mirror).unwrap(),
-        fs::read(checkout.join("agent-skills/sun-observations/SKILL.md")).unwrap()
+        fs::read(checkout.join("agent-skills/observations-api/SKILL.md")).unwrap()
     );
     assert_eq!(
         fs::read(&mirror).unwrap(),
-        skill("sun-observations", "revision A").as_bytes()
+        skill("observations-api", "revision A").as_bytes()
     );
     assert_ne!(fs::read(&mirror).unwrap(), fs::read(source).unwrap());
     assert_eq!(
-        fs::read(app.join(".agents/skills/certifications/SKILL.md")).unwrap(),
-        skill("certifications", "revision A").as_bytes()
+        fs::read(app.join(".agents/skills/certifications-api/SKILL.md")).unwrap(),
+        skill("certifications-api", "revision A").as_bytes()
     );
     consumer(&app, &format!(
         "sun-observations={{git={url:?},rev={revision_a:?}}}\nother={{package=\"sun-observations\",path={}}}", path(&repository)
@@ -494,7 +513,7 @@ fn git_revision_is_read_from_cargos_checkout_not_repository_head() {
     assert!(diagnostic.contains(&revision_a), "{diagnostic}");
     assert_eq!(
         fs::read(&mirror).unwrap(),
-        skill("sun-observations", "revision A").as_bytes()
+        skill("observations-api", "revision A").as_bytes()
     );
 }
 
@@ -506,7 +525,7 @@ fn patches_are_resolved_by_cargo_before_selecting_skill_source() {
         &root.join("patched"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "patch A",
     );
     let app = root.join("app");
@@ -520,7 +539,7 @@ fn patches_are_resolved_by_cargo_before_selecting_skill_source() {
     metadata(&app);
     checked(sync(&app, &[]));
     assert_eq!(
-        fs::read(app.join(".agents/skills/certifications/SKILL.md")).unwrap(),
+        fs::read(app.join(".agents/skills/certifications-api/SKILL.md")).unwrap(),
         fs::read(source).unwrap()
     );
 }
@@ -549,7 +568,7 @@ fn installation_is_self_contained_and_cargo_invokes_the_installed_external_subco
         &root.join("owner"),
         "sun-observations",
         "8.0.0",
-        "certifications",
+        "certifications-api",
         "installed tool must use consumer owner",
     );
     let app = root.join("app");
@@ -564,14 +583,14 @@ fn installation_is_self_contained_and_cargo_invokes_the_installed_external_subco
         &["--skills-dir", "custom"],
     ));
     assert_eq!(
-        fs::read(app.join("custom/certifications/SKILL.md")).unwrap(),
+        fs::read(app.join("custom/certifications-api/SKILL.md")).unwrap(),
         fs::read(source).unwrap()
     );
     assert!(!app.join(".agents").exists());
 }
 
 #[test]
-fn framework_package_contains_both_skills_and_all_executable_examples_and_benchmarks() {
+fn framework_package_contains_four_skills_and_all_executable_examples_and_benchmarks() {
     let package_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let output = checked(cargo(
         package_root,
@@ -586,8 +605,10 @@ fn framework_package_contains_both_skills_and_all_executable_examples_and_benchm
         "README.md",
         "src/lib.rs",
         "src/bin/cargo-sun-observations-skills.rs",
-        "agent-skills/sun-observations/SKILL.md",
-        "agent-skills/certifications/SKILL.md",
+        "agent-skills/observations-api/SKILL.md",
+        "agent-skills/certifications-api/SKILL.md",
+        "agent-skills/certifications-methodology/SKILL.md",
+        "agent-skills/domain-api/SKILL.md",
     ] {
         assert!(files.contains(required), "missing {required}: {files:?}");
     }
@@ -619,6 +640,7 @@ fn framework_package_contains_both_skills_and_all_executable_examples_and_benchm
         "investigation",
         "investigation_allocations",
         "support/mod",
+        "support/report_process",
         "support/report_process",
     ] {
         assert!(
@@ -658,7 +680,7 @@ fn workspace_member_invocation_defaults_to_workspace_root() {
         &owner_directory,
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "workspace owner",
     );
     write(
@@ -675,14 +697,14 @@ fn workspace_member_invocation_defaults_to_workspace_root() {
     metadata(&app);
     checked(sync(&app, &[]));
     assert_eq!(
-        fs::read(root.join(".agents/skills/certifications/SKILL.md")).unwrap(),
+        fs::read(root.join(".agents/skills/certifications-api/SKILL.md")).unwrap(),
         fs::read(&source).unwrap()
     );
     assert!(!app.join(".agents").exists());
     let custom = root.join("absolute custom/skills");
     checked(sync(&app, &["--skills-dir", custom.to_str().unwrap()]));
     assert_eq!(
-        fs::read(custom.join("certifications/SKILL.md")).unwrap(),
+        fs::read(custom.join("certifications-api/SKILL.md")).unwrap(),
         fs::read(source).unwrap()
     );
 }
@@ -695,14 +717,14 @@ fn locked_graph_is_required_and_sync_never_creates_or_updates_consumer_lockfiles
         &root.join("a"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "A",
     );
     owner(
         &root.join("b"),
         "sun-observations",
         "2.0.0",
-        "certifications",
+        "certifications-api",
         "B",
     );
     let app = root.join("app");
@@ -721,7 +743,7 @@ fn locked_graph_is_required_and_sync_never_creates_or_updates_consumer_lockfiles
     let lock_bytes = fs::read(&lock_path).unwrap();
     checked(sync(&app, &["--skills-dir", "custom"]));
     assert_eq!(fs::read(&lock_path).unwrap(), lock_bytes);
-    let mirror = app.join("custom/certifications/SKILL.md");
+    let mirror = app.join("custom/certifications-api/SKILL.md");
     assert_eq!(fs::read(&mirror).unwrap(), fs::read(&source).unwrap());
     consumer(
         &app,
@@ -744,7 +766,7 @@ fn replacing_a_stale_hard_link_does_not_modify_files_outside_destination() {
         &root.join("owner"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "A",
     );
     let app = root.join("app");
@@ -754,7 +776,7 @@ fn replacing_a_stale_hard_link_does_not_modify_files_outside_destination() {
     );
     let unrelated = root.join("unrelated.md");
     write(&unrelated, "do not change");
-    let mirror = app.join(".agents/skills/certifications/SKILL.md");
+    let mirror = app.join(".agents/skills/certifications-api/SKILL.md");
     fs::create_dir_all(mirror.parent().unwrap()).unwrap();
     fs::hard_link(&unrelated, &mirror).unwrap();
     metadata(&app);
@@ -772,7 +794,7 @@ fn destination_collisions_fail_without_writing_other_skills() {
         &root.join("certifications"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "A",
     );
     let app = root.join("app");
@@ -784,10 +806,10 @@ fn destination_collisions_fail_without_writing_other_skills() {
         ),
     );
     let base = app.join(".agents/skills");
-    fs::create_dir_all(base.join("sun-observations/SKILL.md")).unwrap();
+    fs::create_dir_all(base.join("observations-api/SKILL.md")).unwrap();
     metadata(&app);
     rejected(sync(&app, &[]), "unsafe destination");
-    assert!(!base.join("certifications").exists());
+    assert!(!base.join("certifications-api").exists());
 }
 
 #[cfg(unix)]
@@ -800,7 +822,7 @@ fn symlinked_destinations_and_sources_cannot_escape_the_selected_boundaries() {
         &root.join("owner"),
         "sun-observations",
         "1.0.0",
-        "certifications",
+        "certifications-api",
         "A",
     );
     let app = root.join("app");
@@ -811,15 +833,15 @@ fn symlinked_destinations_and_sources_cannot_escape_the_selected_boundaries() {
     let outside = root.join("outside");
     fs::create_dir(&outside).unwrap();
     fs::create_dir_all(app.join(".agents/skills")).unwrap();
-    symlink(&outside, app.join(".agents/skills/certifications")).unwrap();
+    symlink(&outside, app.join(".agents/skills/certifications-api")).unwrap();
     metadata(&app);
     rejected(sync(&app, &[]), "unsafe destination");
     assert!(!outside.join("SKILL.md").exists());
-    fs::remove_file(app.join(".agents/skills/certifications")).unwrap();
+    fs::remove_file(app.join(".agents/skills/certifications-api")).unwrap();
     fs::remove_file(&source).unwrap();
     write(
         outside.join("SKILL.md"),
-        skill("certifications", "outside package"),
+        skill("certifications-api", "outside package"),
     );
     symlink(outside.join("SKILL.md"), &source).unwrap();
     metadata(&app);

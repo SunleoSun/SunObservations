@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="674" viewBox="0 0 960 674" role="img" aria-labelledby="title desc">
+<title id="title">Lag search cost grows with candidate window</title>
+<desc id="desc">Keyed Pearson lag search; median of 3 release samples. 1k, Lag ±2: 0.161900 ms; 1k, Lag ±8: 0.519800 ms; 1k, Lag ±32: 1.917500 ms; 10k, Lag ±2: 1.613500 ms; 10k, Lag ±8: 5.165900 ms; 10k, Lag ±32: 19.462800 ms; 100k, Lag ±2: 16.810700 ms; 100k, Lag ±8: 52.364200 ms; 100k, Lag ±32: 195.400000 ms; 1M, Lag ±2: 217.045300 ms; 1M, Lag ±8: 679.318100 ms; 1M, Lag ±32: 2513.201500 ms. The ±32 search evaluates many more candidate alignments than ±2. Source: scripts/certification_metrics.csv</desc>
+<rect width="960" height="674" fill="#ffffff"/>
+<g font-family="sans-serif">
+<text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Lag search cost grows with candidate window</text>
+<text x="24.00" y="61.00" font-size="14" text-anchor="start" fill="#172b3a">Keyed Pearson lag search; median of 3 release samples</text>
+<text x="24.00" y="102.00" font-size="17" text-anchor="start" fill="#172b3a"></text>
+<rect x="255" y="114" width="12" height="12" fill="#126b96"/>
+<text x="273.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Lag ±2</text>
+<rect x="545" y="114" width="12" height="12" fill="#b55112"/>
+<text x="563.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Lag ±8</text>
+<rect x="835" y="114" width="12" height="12" fill="#5e8c31"/>
+<text x="853.00" y="125.00" font-size="13" text-anchor="start" fill="#172b3a">Lag ±32</text>
+<path d="M255.00 138V570" stroke="#dce4e9"/>
+<text x="255.00" y="590.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
+<path d="M398.75 138V570" stroke="#dce4e9"/>
+<text x="398.75" y="590.00" font-size="12" text-anchor="middle" fill="#172b3a">741.4</text>
+<path d="M542.50 138V570" stroke="#dce4e9"/>
+<text x="542.50" y="590.00" font-size="12" text-anchor="middle" fill="#172b3a">1482.8</text>
+<path d="M686.25 138V570" stroke="#dce4e9"/>
+<text x="686.25" y="590.00" font-size="12" text-anchor="middle" fill="#172b3a">2224.2</text>
+<path d="M830.00 138V570" stroke="#dce4e9"/>
+<text x="830.00" y="590.00" font-size="12" text-anchor="middle" fill="#172b3a">2965.6</text>
+<text x="542.50" y="613.00" font-size="13" text-anchor="middle" fill="#172b3a">ms (lower is better)</text>
+<text x="240.00" y="195.50" font-size="14" text-anchor="end" fill="#172b3a">1k</text>
+<rect x="255" y="146" width="0.03" height="21" fill="#126b96"/>
+<text x="262.03" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">0.16</text>
+<rect x="255" y="177" width="0.10" height="21" fill="#b55112"/>
+<text x="262.10" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">0.52</text>
+<rect x="255" y="208" width="0.37" height="21" fill="#5e8c31"/>
+<text x="262.37" y="224.00" font-size="13" text-anchor="start" fill="#172b3a">1.92</text>
+<text x="240.00" y="303.50" font-size="14" text-anchor="end" fill="#172b3a">10k</text>
+<rect x="255" y="254" width="0.31" height="21" fill="#126b96"/>
+<text x="262.31" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">1.61</text>
+<rect x="255" y="285" width="1.00" height="21" fill="#b55112"/>
+<text x="263.00" y="301.00" font-size="13" text-anchor="start" fill="#172b3a">5.17</text>
+<rect x="255" y="316" width="3.77" height="21" fill="#5e8c31"/>
+<text x="265.77" y="332.00" font-size="13" text-anchor="start" fill="#172b3a">19.46</text>
+<text x="240.00" y="411.50" font-size="14" text-anchor="end" fill="#172b3a">100k</text>
+<rect x="255" y="362" width="3.26" height="21" fill="#126b96"/>
+<text x="265.26" y="378.00" font-size="13" text-anchor="start" fill="#172b3a">16.81</text>
+<rect x="255" y="393" width="10.15" height="21" fill="#b55112"/>
+<text x="272.15" y="409.00" font-size="13" text-anchor="start" fill="#172b3a">52.36</text>
+<rect x="255" y="424" width="37.89" height="21" fill="#5e8c31"/>
+<text x="299.89" y="440.00" font-size="13" text-anchor="start" fill="#172b3a">195.40</text>
+<text x="240.00" y="519.50" font-size="14" text-anchor="end" fill="#172b3a">1M</text>
+<rect x="255" y="470" width="42.08" height="21" fill="#126b96"/>
+<text x="304.08" y="486.00" font-size="13" text-anchor="start" fill="#172b3a">217.05</text>
+<rect x="255" y="501" width="131.71" height="21" fill="#b55112"/>
+<text x="393.71" y="517.00" font-size="13" text-anchor="start" fill="#172b3a">679.32</text>
+<rect x="255" y="532" width="487.29" height="21" fill="#5e8c31"/>
+<text x="749.29" y="548.00" font-size="13" text-anchor="start" fill="#172b3a">2513.20</text>
+<text x="24.00" y="647.00" font-size="13" text-anchor="start" fill="#172b3a">The ±32 search evaluates many more candidate alignments than ±2. Source: scripts/certification_metrics.csv</text>
+</g>
+</svg>

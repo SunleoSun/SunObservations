@@ -92,6 +92,6 @@ cargo sun-observations-skills sync
 cargo sun-observations-skills sync --skills-dir <PATH>
 ```
 
-Both [runtime/evidence](agent-skills/sun-observations/SKILL.md) and [certification](agent-skills/certifications/SKILL.md) manuals come from the consumer’s exact active resolved `sun-observations` package, not the installed binary version. Multiple active identities fail before writes. Default destination is the consumer workspace `.agents/skills`; custom relative paths use the invocation directory.
+The package ships four atomic agent manuals: [certification methodology](agent-skills/certifications-methodology/SKILL.md), [certification API](agent-skills/certifications-api/SKILL.md), [Domain API](agent-skills/domain-api/SKILL.md), and [Observations API](agent-skills/observations-api/SKILL.md). They come from the consumer's exact active resolved sun-observations package, not the installed binary version. Multiple active identities fail before writes. Default destination is the consumer workspace .agents/skills; custom relative paths use the invocation directory.
 
 Package-local [examples](examples) cover runtime, scopes, routing, sinks, threads, Rayon, spans, capture and keyed statistical certification.

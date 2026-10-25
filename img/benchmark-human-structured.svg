@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="550" viewBox="0 0 960 550" role="img" aria-labelledby="title desc">
 <title id="title">Human capability: structured-only control</title>
-<desc id="desc">Same-machine before/after; 5 x 1M calls; render-capable type after, no human sinks. No sink, Before: 156.54 ns/call; No sink, After: 152.22 ns/call; Memory, Before: 737.08 ns/call; Memory, After: 712.75 ns/call; JSONL, Before: 674.72 ns/call; JSONL, After: 680.09 ns/call; Memory + JSONL, Before: 997.15 ns/call; Memory + JSONL, After: 848.57 ns/call. Overlapping ranges; do not interpret small median changes as universal speedups. Source: docs/BENCHMARKS.md</desc>
+<desc id="desc">Same-machine before/after; 5 x 1M calls; render-capable type after, no human sinks. No sink, Before: 156.54 ns/call; No sink, After: 152.22 ns/call; Memory, Before: 737.08 ns/call; Memory, After: 712.75 ns/call; JSONL, Before: 674.72 ns/call; JSONL, After: 680.09 ns/call; Memory + JSONL, Before: 997.15 ns/call; Memory + JSONL, After: 848.57 ns/call. Overlapping ranges; do not interpret small median changes as universal speedups. Source: scripts/benchmark_metrics.csv</desc>
 <rect width="960" height="550" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Human capability: structured-only control</text>
@@ -41,6 +41,6 @@
 <text x="749.29" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">997.15</text>
 <rect x="255" y="408" width="414.68" height="21" fill="#b55112"/>
 <text x="676.68" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">848.57</text>
-<text x="24.00" y="523.00" font-size="13" text-anchor="start" fill="#172b3a">Overlapping ranges; do not interpret small median changes as universal speedups. Source: docs/BENCHMARKS.md</text>
+<text x="24.00" y="523.00" font-size="13" text-anchor="start" fill="#172b3a">Overlapping ranges; do not interpret small median changes as universal speedups. Source: scripts/benchmark_metrics.csv</text>
 </g>
 </svg>

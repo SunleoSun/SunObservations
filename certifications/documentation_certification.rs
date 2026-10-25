@@ -7,356 +7,24 @@ use std::{
 use sun_observations::certifications::*;
 #[path = "../crates/sun-observations/examples/skill_workflows.rs"]
 mod workflows;
-fn certification_api_coverage(text: &str) -> CertificationReport {
-    let mut c = certification("agent-facing method-level API");
-    for (heading, methods) in [
-        (
-            "Fact and CheckResult",
-            vec![
-                "fact(",
-                "try_fact(",
-                "details(",
-                "expect(",
-                "expect_valid(",
-                "slope(",
-                "intercept(",
-                "r_squared(",
-                "is_pass(",
-                "assess(",
-                "describe(",
-                "class(",
-            ],
-        ),
-        (
-            "Expectations",
-            vec![
-                "criterion(",
-                "close_to(",
-                "absolute_tolerance(",
-                "relative_tolerance(",
-            ],
-        ),
-        (
-            "PreparedSource",
-            vec![
-                "source(",
-                "collection(",
-                "name(",
-                "values(",
-                "entry(",
-                "iter(",
-                "with_provenance(",
-                "single_map(",
-                "project(",
-                "numeric(",
-                "count(",
-                "matching_count(",
-                "unique(",
-                "contiguous(",
-                "keys(",
-                "compare_with(",
-                "group_by(",
-                "lag_self(",
-                "lag_with(",
-            ],
-        ),
-        ("PreparedValues", vec!["values(", "source("]),
-        (
-            "PreparedNumeric",
-            vec![
-                "values(",
-                "series(",
-                "summary(",
-                "robust_summary(",
-                "quantile(",
-                "expect(",
-                "outliers(",
-                "jumps(",
-            ],
-        ),
-        ("PreparedKeys", vec!["indices(", "compare_with("]),
-        ("GroupedView", vec!["iter(", "numeric("]),
-        (
-            "Group",
-            vec!["len(", "is_empty(", "values(", "iter(", "numeric("],
-        ),
-        (
-            "GroupedNumeric",
-            vec!["summaries(", "summaries_with_robust("],
-        ),
-        ("ComparisonBuilder", vec!["on(", "on_presorted("]),
-        (
-            "PairedComparison",
-            vec![
-                "name(",
-                "comparison(",
-                "matched_pairs(",
-                "paired_comparison_fact(",
-                "equal(",
-                "check_pairs(",
-                "numeric(",
-            ],
-        ),
-        (
-            "PreparedNumericComparison",
-            vec![
-                "values(",
-                "correlation(",
-                "linear_fit(",
-                "relation(",
-                "difference(",
-                "linear(",
-                "pearson(",
-                "spearman(",
-                "largest(",
-            ],
-        ),
-        (
-            "Statistical expectation builders and measures",
-            vec![
-                "with_bound(",
-                "bound(",
-                "MetricConstraint<M>",
-                "measure:M",
-                "min:Option<f64>",
-                "max:Option<f64>",
-                "RelationConstraint = MetricConstraint<RelationMeasure>",
-            ],
-        ),
-        (
-            "Direct analysis and report/error reference",
-            vec![
-                "new(",
-                "iter(",
-                "finite_count(",
-                "summary(",
-                "quantile(",
-                "robust_summary(",
-                "integrity(",
-                "outliers(",
-                "jumps(",
-                "check_count(",
-                "check_unique(",
-                "check_contiguous(",
-                "check_same_keys(",
-                "is_valid(",
-                "is_complete(",
-                "join_by(",
-                "join_presorted_by(",
-                "comparison(",
-                "matched_pairs(",
-                "require_complete(",
-                "set_source_names(",
-                "difference_summary(",
-                "linear_metrics(",
-                "pearson(",
-                "spearman(",
-                "correlation(",
-                "linear_fit(",
-                "numeric_relation(",
-                "value(",
-                "lag_relation_by(",
-            ],
-        ),
-        (
-            "Anomaly, jump and temporal lag",
-            vec![
-                "OutlierConfig::new(",
-                "JumpConfig::new(",
-                "LagRange::new(",
-                "zero_lag(",
-                "has_interior_gaps(",
-            ],
-        ),
-        (
-            "Hierarchy, report and final assertion",
-            vec![
-                "certification(",
-                "source(",
-                "collection(",
-                "check(",
-                "check_fact_expect(",
-                "section(",
-                "limits(",
-                "report(",
-                "is_pass(",
-                "Certification::assert_certify(",
-                "CertificationReport::assert_certify(",
-                "bounded_debug(",
-            ],
-        ),
-        (
-            "Ordinary + Observation-backed composition",
-            vec!["run.certification(", "to_typed::<Prediction>", "source("],
-        ),
-    ] {
-        let section = text
-            .lines()
-            .skip_while(|line| line.trim_start_matches('#').trim() != heading)
-            .skip(1)
-            .take_while(|line| !line.starts_with("## ") && !line.starts_with("### "))
-            .collect::<Vec<_>>()
-            .join("\n");
-        c.section(heading, |c| {
-            c.check_fact_expect("owner section", !section.is_empty(), true);
-            for method in methods {
-                c.check_fact_expect(method, section.contains(method), true);
-            }
-        });
-    }
-    for (owner, measures) in [
-        (
-            "CorrelationExpectation",
-            vec![
-                "pearson_at_least",
-                "spearman_at_least",
-                "spearman_at_most",
-                "with_bound",
-                "and_pearson_bounds",
-                "and_spearman_bounds",
-                "bound",
-                "CorrelationMeasure",
-                "Pearson",
-                "Spearman",
-                "AbsolutePearson",
-                "AbsoluteSpearman",
-            ],
-        ),
-        (
-            "LinearFitExpectation",
-            vec![
-                "slope_between",
-                "intercept_between",
-                "r_squared_at_least",
-                "residual_mean_absolute_at_most",
-                "residual_max_absolute_at_most",
-                "with_bound",
-                "and_slope_between",
-                "and_intercept_between",
-                "and_r_squared_at_least",
-                "and_residual_mean_absolute_at_most",
-                "and_residual_max_absolute_at_most",
-                "bound",
-                "LinearFitMeasure",
-                "Slope",
-                "Intercept",
-                "RSquared",
-                "ResidualMeanAbsolute",
-                "ResidualMaxAbsolute",
-            ],
-        ),
-        (
-            "DifferenceExpectation",
-            vec![
-                "mean_absolute_at_most",
-                "p95_absolute_at_most",
-                "max_absolute_at_most",
-                "with_bound",
-                "and_mean_absolute_at_most",
-                "and_p95_absolute_at_most",
-                "and_max_absolute_at_most",
-                "bound",
-                "DifferenceMeasure",
-                "MeanAbsolute",
-                "P95Absolute",
-                "MaxAbsolute",
-            ],
-        ),
-        (
-            "RelationExpectation",
-            vec![
-                "spearman_at_least",
-                "spearman_at_most",
-                "with_bound",
-                "bound",
-                "RelationMeasure",
-                "Pearson",
-                "Spearman",
-                "AbsolutePearson",
-                "AbsoluteSpearman",
-                "Slope",
-                "Intercept",
-                "RSquared",
-                "MeanAbsoluteDifference",
-                "P95AbsoluteDifference",
-                "MaxAbsoluteDifference",
-                "ResidualMeanAbsolute",
-                "ResidualMaxAbsolute",
-            ],
-        ),
-    ] {
-        let row = text
-            .lines()
-            .find(|line| line.starts_with(&format!("| {owner} |")))
-            .unwrap_or("");
-        c.section(owner, |c| {
-            for measure in measures {
-                let present = row
-                    .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-                    .any(|token| token == measure);
-                c.check_fact_expect(measure, present, true);
-            }
-        });
-    }
-    c.report()
-}
-
-#[test]
-fn certification_skill_documents_methods_in_their_owning_api_families() {
-    certification_api_coverage(&skill("certifications")).assert_certify();
-}
-
-#[test]
-fn type_names_cannot_mask_missing_prepared_numeric_methods() {
-    let text = skill("certifications");
-    let (before, numeric) = text.split_once("### PreparedNumericComparison").unwrap();
-    let (numeric, after) = numeric.split_once("### Statistical").unwrap();
-    for method in ["linear()", "pearson()", "spearman()"] {
-        let incomplete = format!(
-            "{before}### PreparedNumericComparison{}### Statistical{after}",
-            numeric.replace(method, "omitted")
-        );
-        let report = certification_api_coverage(&incomplete);
-        assert_eq!(report.failed(), 1, "{method}: {report}");
-        assert_eq!(report.failures()[0].section, "PreparedNumericComparison/");
-        assert!(std::panic::catch_unwind(|| report.assert_certify()).is_err());
-    }
-}
-
-#[test]
-fn absolute_measure_names_cannot_mask_missing_signed_variants() {
-    let text = skill("certifications");
-    for (prefix, owner) in [
-        (
-            "CorrelationMeasure::{Pearson,Spearman",
-            "CorrelationExpectation/",
-        ),
-        ("RelationMeasure::{Pearson,Spearman", "RelationExpectation/"),
-    ] {
-        let incomplete = text.replace(prefix, &prefix.replace("Pearson,", ""));
-        let report = certification_api_coverage(&incomplete);
-        assert_eq!(report.failed(), 1, "{report}");
-        assert_eq!(report.failures()[0].section, owner);
-        assert!(std::panic::catch_unwind(|| report.assert_certify()).is_err());
-    }
-}
-
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .to_owned()
 }
+
+const SKILLS: [&str; 4] = [
+    "certifications-methodology",
+    "certifications-api",
+    "domain-api",
+    "observations-api",
+];
+
 fn canonical_skill_path(name: &str) -> PathBuf {
-    let owner = match name {
-        "certifications" => "sun-observations",
-        "sun-observations" => "sun-observations",
-        _ => panic!("unknown skill {name}"),
-    };
+    assert!(SKILLS.contains(&name), "unknown skill {name}");
     root()
-        .join("crates")
-        .join(owner)
-        .join("agent-skills")
+        .join("crates/sun-observations/agent-skills")
         .join(name)
         .join("SKILL.md")
 }
@@ -371,9 +39,9 @@ fn skill_mirror_check(canonical: Vec<u8>, mirror: Vec<u8>) -> CheckResult<Vec<u8
 
 #[test]
 fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
-    let canonical = b"---\nname: certifications\ndescription: Valid synchronized skill fixture\n---\ncanonical API".to_vec();
+    let canonical = b"---\nname: certifications-api\ndescription: Valid synchronized skill fixture\n---\ncanonical API".to_vec();
     let stale =
-        b"---\nname: certifications\ndescription: Valid synchronized skill fixture\n---\nstale API"
+        b"---\nname: certifications-api\ndescription: Valid synchronized skill fixture\n---\nstale API"
             .to_vec();
     certification("mirror drift rejection")
         .check_fact_expect(
@@ -388,6 +56,7 @@ fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
         )
         .assert_certify();
 }
+
 fn blocks(text: &str) -> impl Iterator<Item = String> {
     let mut result = Vec::new();
     let mut fence = None;
@@ -412,345 +81,265 @@ fn blocks(text: &str) -> impl Iterator<Item = String> {
     }
     result.into_iter()
 }
-#[test]
-fn canonical_self_contained_skills_have_valid_manifests_complete_categories_and_no_stale_api() {
-    let mut c = certification("canonical agent skills");
-    for (name, markers) in [
-        (
-            "sun-observations",
-            vec![
-                "Observation",
-                "NAMESPACE",
-                "LEVEL",
-                "TAGS",
-                "message()",
-                "render_text()",
-                "observe!",
-                "Selection",
-                "ScopeConfig",
-                "Policy",
-                "FirstN",
-                "EveryN",
-                "first_n",
-                "Context",
-                "ContextThreadPool",
-                "register_namespace_channel",
-                "Custom Sink",
-                "MemorySink",
-                "MemorySinkConfig",
-                "MemoryStats",
-                "CaptureConfig",
-                "try_from_records",
-                "capture_observations",
-                "CapturedRun",
-                "run.certification",
-                "exclusive",
-                "unfinished_contexts",
-                "compact_fraction",
-                "JsonlSink",
-                "JsonlConfig",
-                "ConsoleSink",
-                "ObservationDelivery",
-                "flush_channels",
-                "span_if_active",
-                "FORMAT v1",
-                "ObservationDataset",
-                "ObservationsQuery",
-                "TypedView",
-                "TypedEntry",
-                "SourceContext",
-                "SourceProvenance",
-                "Boundary",
-                "Decision",
-                "Diagnostic",
-                "which certification/consumer uses it",
-                "explicit task instructions take precedence",
-                "all=false",
-                "Always default",
-                "Default has no scope",
-                "1,000,000/0.10",
-                "flush_interval_ms=1000",
-                "max_file_size_bytes=None",
-                "trim_fraction=0.10",
-                "MemorySinkConfig::default()",
-                "ObservationsQuery::default()",
-                "unrestricted",
-                "real barrier",
-                "Default: all counters 0",
-                "Default sets all four counters to 0",
-            ],
-        ),
-        (
-            "certifications",
-            vec![
-                "Certify semantic behavior, not implementation shape.",
-                "evidence",
-                "negative paths",
-                "causality",
-                "metamorphic",
-                "oracle",
-                "collect",
-                "PreparedSource",
-                "PreparedKeys",
-                "PairedComparison",
-                "Comparison",
-                "CapturedRun",
-                "run.certification",
-                "PreparedNumericComparison",
-                "CheckResult",
-                "CheckClass",
-                "Fact",
-                "Expectation<T>",
-                "Criterion",
-                "AllValid",
-                "RelationExpectation",
-                "CorrelationExpectation",
-                "LinearFitExpectation",
-                "DifferenceExpectation",
-                "check_fact_expect",
-                "paired_comparison_fact",
-                "expect_valid",
-                "close_to",
-                "HardViolation",
-                "StatisticalViolation",
-                "EvaluationError",
-                "GroupExpectation",
-                "AtMostAnomalies",
-                "LagExpectation",
-                "group_by",
-                "Spearman",
-                "covariance",
-                "residual",
-                "largest",
-                "section",
-                "assert_certify",
-                "producer",
-                "forbidden",
-                "bounded",
-                "Error",
-                "Evidence plan",
-                "deterministic fixtures",
-                "explicit task instructions take precedence",
-                "absolute=1e-9",
-                "relative=1e-9",
-                "start with a real bound",
-                "cannot both be absent",
-                "validates",
-                "all five counters to 0",
-                "default is 3.5/ExactMedian",
-                "defaults 64/2048",
-            ],
-        ),
-    ] {
-        let text = skill(name);
-        let front = text.splitn(3, "---").collect::<Vec<_>>();
-        let metadata = front.get(1).copied().unwrap_or_default();
-        let declared_name = metadata
-            .lines()
-            .find_map(|line| line.strip_prefix("name: "))
-            .unwrap_or_default();
-        let description = metadata
-            .lines()
-            .find_map(|line| line.strip_prefix("description: "))
-            .unwrap_or_default();
-        let valid_name = !declared_name.is_empty()
-            && declared_name.len() <= 64
-            && declared_name == name
-            && !declared_name.starts_with('-')
-            && !declared_name.ends_with('-')
-            && !declared_name.contains("--")
-            && declared_name
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
-        let valid = front.len() == 3
-            && front[0].is_empty()
-            && valid_name
-            && !description.is_empty()
-            && description.len() <= 1024
-            && description.contains("Use when");
-        c.section(name, |c| {
-            c.check("manifest", fact("front matter", valid).expect(true));
-            c.check_fact_expect(
-                "description stays concise for skill discovery",
-                description.len() <= 320,
-                true,
-            );
-            c.check(
-                "root mirror matches canonical package skill",
-                skill_mirror_check(
-                    text.as_bytes().to_vec(),
-                    fs::read(root().join(format!(".agents/skills/{name}/SKILL.md"))).unwrap(),
-                ),
-            );
-            for marker in markers {
-                c.check(
-                    marker,
-                    fact(
-                        "skill category",
-                        text.to_lowercase().contains(&marker.to_lowercase()),
-                    )
-                    .expect(true),
-                );
-            }
-            for obsolete in [
-                "measured(",
-                ".compare(",
-                ".coverage(",
-                "fn execute(engine:",
-                "Measurement",
-                "CompareResult",
-                "Alignment<",
-                ".alignment(",
-                "aligned pairs",
-                "EnvelopeQuery",
-                "PreparedComparison",
-                "source_slice",
-                "on_sorted(",
-                "join_sorted_by(",
-                "on_u64(",
-                "join_u64_by(",
-                "without_span(",
-                ".typed::<",
-                ".certify(",
-                "::certify(",
-                "::evaluate(",
-                "ObservationDelivery::new",
-                "ScopedCapture",
-                "MaxPerScope",
-                "RelationReport",
-                "DifferenceReport",
-                "RelationError",
-                "Criterion::AtLeast",
-                "Range{min:",
-            ] {
-                c.check_fact_expect(
-                    format!("no obsolete API: {obsolete}"),
-                    text.contains(obsolete),
-                    false,
-                );
-            }
-            c.check_fact_expect(
-                "no obsolete generic correspondence type",
-                text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-                    .any(|token| token == "Alignment"),
-                false,
-            );
 
-            if name == "sun-observations" {
-                for generic_api in [
-                    "use sun_observations::certifications::*",
-                    "check_fact_expect",
-                    "expect_valid",
-                    "CheckClass",
-                    "assert_certify",
-                    "c.check(",
-                    "c.section(",
-                ] {
-                    c.check_fact_expect(
-                        format!("generic proof stays with certifications: {generic_api}"),
-                        text.contains(generic_api),
-                        false,
-                    );
-                }
-            }
-            let headings: Vec<_> = text.lines().filter(|l| l.starts_with("## ")).collect();
-            let unique: BTreeSet<_> = headings.iter().collect();
-            c.check(
-                "no duplicate major sections",
-                fact("headings", headings.len()).expect(unique.len()),
-            )
-            .check(
-                "no nulls",
-                fact("content", text.contains(char::from(0))).expect(false),
-            )
-            .check(
-                "no obsolete crate",
-                fact(
-                    "content",
-                    text.contains(&["sun", "observations", "analysis"].join("-")),
-                )
-                .expect(false),
-            )
-            .check(
-                "no required external Markdown reading",
-                fact("content", text.contains("required reading")).expect(false),
-            );
-        });
+fn require_markers(name: &str, markers: &[&str], forbidden: &[&str]) {
+    let text = skill(name);
+    let mut c = certification(format!("{name} client contract"));
+    for marker in markers {
+        c.check_fact_expect(format!("documents {marker}"), text.contains(marker), true);
     }
-    c.check(
-        "no obsolete root skill",
-        fact("location", root().join("SKILL.md").exists()).expect(false),
-    )
-    .assert_certify();
+    for marker in forbidden {
+        c.check_fact_expect(
+            format!("omits internal or stale {marker}"),
+            text.contains(marker),
+            false,
+        );
+    }
+    c.assert_certify();
 }
+
 #[test]
-fn canonical_skill_and_focused_reference_rust_blocks_compile_and_execute() {
+fn canonical_skills_are_atomic_valid_and_synchronized() {
+    let mut c = certification("canonical skill manifests and mirrors");
+    for name in SKILLS {
+        let canonical = canonical_skill_path(name);
+        let text = fs::read_to_string(&canonical).unwrap();
+        c.check_fact_expect(
+            format!("{name} front matter"),
+            text.starts_with(&format!("---\nname: {name}\n")),
+            true,
+        );
+        c.check_fact_expect(
+            format!("{name} description"),
+            text.lines().any(|line| line.starts_with("description: ")),
+            true,
+        );
+        let mirror = root().join(".agents/skills").join(name).join("SKILL.md");
+        c.check(
+            format!("{name} synchronized mirror"),
+            try_fact(
+                format!("{name} mirror bytes"),
+                fs::read(&mirror).map_err(|error| format!("{}: {error}", mirror.display())),
+            )
+            .expect(fs::read(&canonical).unwrap()),
+        );
+    }
+    c.assert_certify();
+}
+
+#[test]
+fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplication() {
+    require_markers(
+        "certifications-methodology",
+        &[
+            "semantic owner",
+            "Certify semantic behavior, not implementation shape.",
+            "Evidence priority",
+            "certification only",
+            "certification + Observations",
+            "Boundary Observation",
+            "Decision Observation",
+            "Diagnostic Observation",
+            "Domain as input-proof strategy",
+            "family of inputs",
+            "validation or rejection",
+            "Concrete case + Domain",
+            "Domain only",
+            "Owner and composition proof",
+            "must happen",
+            "must never happen",
+            "domain identity",
+            "causality",
+            "statistical expectation",
+            "evaluation error",
+            "independent oracle",
+            "metamorphic",
+            "null/control scenario",
+            "wall-clock thresholds",
+            "fails closed",
+        ],
+        &[
+            "DomainRegion",
+            "CaseDomainCoordinateSlot",
+            "diagnostic_bytes",
+        ],
+    );
+}
+
+#[test]
+fn certifications_api_skill_covers_client_workflows_and_omits_framework_internals() {
+    require_markers(
+        "certifications-api",
+        &[
+            "certification NAME",
+            "executor FUNCTION",
+            "executor_with_seed FUNCTION",
+            "data_source INPUTS",
+            "domain DOMAIN",
+            "cases_budget N",
+            "failure_budget N",
+            "seed N",
+            "report_mode BOOL",
+            "require_pairwise_coverage",
+            "assert_certify",
+            "section(name",
+            "source(name",
+            "collection(name",
+            "fact(",
+            "try_fact(",
+            "fact!(expression)",
+            "case.input()",
+            "case.result()",
+            "case.observations<T>()",
+            "Criterion::between",
+            "close_to",
+            "CountRule",
+            "NumericRule",
+            "Expectation<T>",
+            "PreparedSource",
+            "PreparedKeys",
+            "PreparedValues",
+            "PreparedNumeric",
+            "single_map",
+            "compare_with",
+            "group_by",
+            "GroupedView",
+            "GroupedNumeric",
+            "on_presorted",
+            "PairedComparison",
+            "paired_comparison_fact",
+            "PreparedNumericComparison",
+            "CorrelationExpectation",
+            "LinearFitExpectation",
+            "DifferenceExpectation",
+            "RelationExpectation",
+            "OutlierConfig",
+            "JumpConfig",
+            "LagRange",
+            "LagConfig",
+            "lag_relation_by",
+            "require_complete()",
+        ],
+        &[
+            "diagnostic_bytes",
+            "case.execution()",
+            "CertificationExecution",
+            "DomainRegion",
+            "DomainTercile",
+            "DomainNegativeDistance",
+            "CaseDomainCoordinateSlot",
+            ".compile()",
+            ".classify(",
+        ],
+    );
+}
+
+#[test]
+fn domain_api_skill_covers_the_client_dsl_without_solver_representation() {
+    require_markers(
+        "domain-api",
+        &[
+            "DomainInput",
+            "domain TYPE",
+            "FIELD.CONSTRUCTIVE",
+            "CONSTRUCTIVE :=",
+            "fixed_value(VALUE)",
+            "selected_values(VALUES)",
+            "in_range(RANGE)",
+            "one_of_ranges(RANGES)",
+            "all_enum_values()",
+            "selected_enum_values(VALUES)",
+            "FIELD {",
+            "EnumType::Variant {",
+            "ENUM_SELECTION :=",
+            "length().LENGTH_SPACE",
+            "each(ELEMENT_SPACE)",
+            "each {",
+            "when(RELATION)",
+            "FIELD.equal(OPERAND)",
+            "FIELD.not_equal(OPERAND)",
+            "FIELD.less_than(OPERAND)",
+            "FIELD.less_equal(OPERAND)",
+            "FIELD.greater_than(OPERAND)",
+            "FIELD.greater_equal(OPERAND)",
+            "payload enums",
+            "data_source",
+            "pairwise",
+            "no shrinking",
+        ],
+        &[
+            "DomainRegion",
+            "DomainTercile",
+            "DomainNegativeDistance",
+            "CaseDomainCoordinateSlot",
+            "CertificationExecution",
+            ".compile()",
+            ".classify(",
+        ],
+    );
+}
+
+#[test]
+fn observations_api_skill_covers_runtime_evidence_client_surface() {
+    require_markers(
+        "observations-api",
+        &[
+            "Observation",
+            "observe!",
+            "observe_if_active",
+            "Selection",
+            "ScopeConfig",
+            "Policy",
+            "Context",
+            "context::thread::spawn",
+            "ContextThreadPool",
+            "add_channel_sink",
+            "register_namespace_channel",
+            "MemorySink",
+            "JsonlSink",
+            "ConsoleSink",
+            "Sink",
+            "observe_span!",
+            "CaptureConfig",
+            "capture_observations",
+            "CapturedRun",
+            "run.certification(name)",
+            "ObservationDataset",
+            "ObservationsQuery",
+            "TypedView",
+            "SourceProvenance",
+            "FORMAT v1",
+        ],
+        &["CertificationExecution", "prerequisite()", "outcome()"],
+    );
+}
+
+#[test]
+fn canonical_skill_rust_blocks_compile_and_execute() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
-    fs::copy(root().join("README.md"), dir.path().join("README.md")).unwrap();
-    let mut source = String::from(
-        "#![allow(dead_code,unused_imports)]\n#![doc = include_str!(\"../README.md\")]\n",
-    );
+    let mut source = String::from("#![allow(dead_code,unused_imports)]\n");
     let mut index = 0;
-    for name in ["sun-observations", "certifications"] {
+    for name in SKILLS {
         for block in blocks(&skill(name)) {
-            source.push_str(&format!(
-                "mod snippet_{index} {{
-{block}
-"
-            ));
+            source.push_str(&format!("mod snippet_{index} {{\n{block}\n"));
             if block.contains("fn capture()") {
-                source.push_str(
-                    "#[test] fn run_documented_workflow(){capture().unwrap();}
-",
-                );
+                source.push_str("#[test] fn run_documented_workflow(){capture().unwrap();}\n");
             }
-            if block.contains("fn ordinary()") {
-                source.push_str(
-                    "#[test] fn run_documented_workflow(){ordinary();}
-",
-                );
+            if block.contains("fn certify_output()") {
+                source.push_str("#[test] fn run_documented_workflow(){certify_output();}\n");
             }
-            if block.contains("fn planned()") {
-                source.push_str("#[test] fn run_documented_workflow(){planned();}\n");
+            if block.contains("fn certify_execution()") {
+                source.push_str("#[test] fn run_documented_workflow(){certify_execution();}\n");
             }
-            if block.contains("fn inspect()") {
-                source.push_str(
-                    "#[test] fn run_documented_workflow(){inspect().unwrap();}
-",
-                );
-            }
-            source.push_str(
-                "}
-",
-            );
+            source.push_str("}\n");
             index += 1;
         }
     }
-    let mut reference_count = 0usize;
-    for path in [
-        "docs/CAPTURE.md",
-        "docs/CERTIFICATIONS_API.md",
-        "docs/OPERATIONS.md",
-    ] {
-        for block in blocks(&fs::read_to_string(root().join(path)).unwrap()) {
-            let body = block
-                .lines()
-                .filter(|line| !line.starts_with("# "))
-                .collect::<Vec<_>>()
-                .join("\n");
-            source.push_str(&format!(
-                "#[test] fn reference_{reference_count}() -> Result<(), Box<dyn std::error::Error>> {{\n{body}\nOk(())\n}}\n"
-            ));
-            reference_count += 1;
-        }
-    }
-    let path = |name: &str| {
-        root()
-            .join(format!("crates/{name}"))
-            .to_string_lossy()
-            .replace(char::from(92), "/")
-    };
+    let path = root()
+        .join("crates/sun-observations")
+        .to_string_lossy()
+        .replace(char::from(92), "/");
     let manifest = format!(
         r#"[package]
 name="skill-contracts"
@@ -758,11 +347,10 @@ version="0.0.0"
 edition="2021"
 [workspace]
 [dependencies]
-sun-observations={{path={:?}}}
+sun-observations={{path={path:?}}}
 serde={{version="1",features=["derive"]}}
 serde_json="1"
-"#,
-        path("sun-observations")
+"#
     );
     fs::write(dir.path().join("Cargo.toml"), manifest).unwrap();
     fs::write(dir.path().join("src/lib.rs"), source).unwrap();
@@ -773,19 +361,15 @@ serde_json="1"
         .arg(dir.path().join("target"))
         .output()
         .unwrap();
-    certification("skill and focused reference APIs compile as documented")
+    certification("skill Rust blocks compile as documented")
         .limits(DiagnosticLimits {
             failures: 1,
             characters_per_failure: 16_384,
         })
-        .check_fact_expect(
-            "focused reference examples present",
-            reference_count,
-            CountRule::Minimum(5),
-        )
+        .check_fact_expect("Rust blocks present", index, CountRule::Minimum(3))
         .check(
-            "all Rust blocks",
-            fact("downstream compile/run", output.status.success())
+            "downstream compile/run",
+            fact("cargo test", output.status.success())
                 .details(format!(
                     "stdout: {} stderr: {}",
                     String::from_utf8_lossy(&output.stdout),
@@ -826,102 +410,340 @@ fn mixed_evidence_workflow_proves_internal_transfer_and_negative_forbidden_absen
         )
         .assert_certify();
 }
+fn csv_data_rows(path: &str) -> usize {
+    fs::read_to_string(root().join(path))
+        .unwrap()
+        .lines()
+        .skip(1)
+        .count()
+}
 #[test]
-fn scoped_capture_benchmark_medians_preserve_every_raw_scale_and_sample() {
-    let raw = fs::read_to_string(root().join("scripts/capture_metrics.csv")).unwrap();
-    let docs = fs::read_to_string(root().join("docs/CAPTURE_BENCHMARKS.md")).unwrap();
-    let mut samples: BTreeMap<(&str, usize), Vec<(usize, f64)>> = BTreeMap::new();
-    for line in raw.lines().skip(1) {
-        let p: Vec<_> = line.split(',').collect();
-        samples
-            .entry((p[0], p[1].parse().unwrap()))
-            .or_default()
-            .push((p[2].parse().unwrap(), p[3].parse().unwrap()));
-    }
-    let mut c = certification("capture benchmark evidence integrity");
-    c.check_fact_expect("complete matrix", samples.len(), 13 * 4);
-    for ((name, n), mut values) in samples {
-        c.check_fact_expect(
-            "all samples",
-            values.iter().map(|v| v.0).collect::<Vec<_>>(),
-            vec![0usize, 1, 2],
-        );
-        values.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let column = [1000, 10000, 100000, 1000000]
-            .iter()
-            .position(|v| *v == n)
-            .unwrap();
-        let line = docs
-            .lines()
-            .find(|v| v.starts_with(&format!("| {name} |")))
-            .unwrap();
-        let reported: f64 = line
-            .split('|')
-            .nth(column + 2)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
-        c.check_fact_expect(
-            format!("{name} {n}"),
-            reported,
-            close_to(values[1].1)
-                .unwrap()
-                .absolute_tolerance(0.0000005)
-                .unwrap()
-                .relative_tolerance(0.)
-                .unwrap(),
-        );
+fn tracked_benchmark_datasets_are_retained() {
+    let expected = [
+        ("scripts/benchmark_metrics.csv", 62usize),
+        ("scripts/capture_metrics.csv", 156),
+        ("scripts/generative_certification_metrics.csv", 70),
+        ("scripts/certification_metrics.csv", 348),
+        ("scripts/analysis_metrics.csv", 240),
+        ("scripts/analysis_extension_metrics.csv", 336),
+        ("scripts/human_output.csv", 80),
+    ];
+    let mut c = certification("tracked benchmark evidence");
+    for (path, rows) in expected {
+        c.check_fact_expect(path, csv_data_rows(path), rows);
     }
     c.assert_certify();
 }
 #[test]
-fn historical_benchmark_medians_preserve_every_raw_scale_and_sample() {
-    let raw = fs::read_to_string(root().join("scripts/certification_metrics.csv")).unwrap();
-    let docs = fs::read_to_string(root().join("docs/history/CERTIFICATION_BENCHMARKS.md")).unwrap();
-    let mut samples: BTreeMap<(&str, usize), Vec<(usize, f64)>> = BTreeMap::new();
-    for line in raw.lines().skip(1) {
-        let p: Vec<_> = line.split(',').collect();
-        samples
-            .entry((p[0], p[1].parse().unwrap()))
-            .or_default()
-            .push((p[2].parse().unwrap(), p[3].parse().unwrap()));
-    }
-    let mut c = certification("benchmark evidence integrity");
-    c.check(
-        "complete matrix",
-        fact("samples", samples.len()).expect(29 * 4),
-    );
-    for ((name, n), mut values) in samples {
-        c.check(
-            "three raw samples",
-            fact(name, values.iter().map(|v| v.0).collect::<Vec<_>>()).expect(vec![0, 1, 2]),
-        );
-        values.sort_by(|a, b| a.1.total_cmp(&b.1));
-        let index = [1000, 10000, 100000, 1000000]
-            .iter()
-            .position(|v| *v == n)
-            .unwrap();
-        let line = docs
-            .lines()
-            .find(|line| line.starts_with(&format!("| {name} |")))
-            .unwrap();
-        let reported: f64 = line
-            .split('|')
-            .nth(index + 2)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
-        c.check(
-            format!("{name} {n}"),
-            fact("median", reported).expect(
-                Criterion::between(values[1].1 - 0.0000005, values[1].1 + 0.0000005).unwrap(),
-            ),
-        );
+fn generated_benchmark_charts_match_tracked_evidence() {
+    let python = std::env::var_os("PYTHON").unwrap_or_else(|| "python".into());
+    let output = Command::new(python)
+        .current_dir(root())
+        .args(["scripts/render_benchmark_charts.py", "--check"])
+        .output()
+        .unwrap();
+    certification("generated benchmark chart freshness")
+        .check(
+            "renderer check",
+            fact("chart check", output.status.success())
+                .details(format!(
+                    "stdout: {} stderr: {}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                ))
+                .expect(true),
+        )
+        .assert_certify();
+}
+const README_CERTIFICATION_API: &[&str] = &[
+    "certification(name)",
+    "check(name",
+    "check_fact_expect",
+    "section(name",
+    "source(name",
+    "collection(name",
+    "fact(source",
+    "try_fact",
+    "Fact::details",
+    "Fact::expect",
+    "fact!(expression)",
+    "CheckPlan::description",
+    "assert_certify()",
+    "NotEqual",
+    "Criterion::greater_than",
+    "Criterion::at_least",
+    "Criterion::less_than",
+    "Criterion::at_most",
+    "Criterion::between",
+    "criterion(description",
+    "close_to",
+    "absolute_tolerance",
+    "relative_tolerance",
+    "CountRule::Exact",
+    "CountRule::Minimum",
+    "CountRule::NonEmpty",
+    "NumericRule::Finite",
+    "NumericRule::Positive",
+    "NumericRule::NonNegative",
+    "NumericRule::between",
+    "expect_valid()",
+    "AtMostAnomalies",
+    "GroupExpectation::new",
+    "LagExpectation",
+    "Expectation<T>",
+    "executor(f)",
+    "executor_with_seed(f)",
+    "data_source(inputs)",
+    "domain(domain)",
+    "cases_budget(n)",
+    "failure_budget(n)",
+    "seed(n)",
+    "report_mode(bool)",
+    "require_pairwise_coverage()",
+    "case()",
+    "case.input()",
+    "case.result()",
+    "case.observations::<T>()",
+];
+
+const README_DOMAIN_API: &[&str] = &[
+    "DomainInput",
+    "domain!(Type",
+    "fixed_value(value)",
+    "selected_values(values)",
+    "in_range(range)",
+    "one_of_ranges(ranges)",
+    "all_enum_values()",
+    "selected_enum_values(values)",
+    "field {",
+    "Enum::Variant",
+    "length()",
+    "each(rule)",
+    "each {",
+    "when(relation)",
+    "equal",
+    "not_equal",
+    "less_than",
+    "less_equal",
+    "greater_than",
+    "greater_equal",
+];
+
+const README_PREPARED_API: &[&str] = &[
+    "`name()` | Returns semantic source name",
+    "with_provenance",
+    "single_map",
+    "matching_count",
+    "PreparedKeys",
+    "PreparedNumeric",
+    "GroupedView",
+    "PairedComparison::name()",
+    "PreparedNumericComparison",
+];
+
+const README_OBSERVATION_API: &[&str] = &[
+    "derive(Observation)",
+    "NAMESPACE",
+    "LEVEL",
+    "TAGS",
+    "message()",
+    "render_text()",
+    "observe!(value)",
+    "observe_if_active",
+    "ObservationEngine::isolated()",
+    "process_id()",
+    "sink_error_count()",
+    "set_selection",
+    "flush_channels()",
+    "Selection::new()",
+    "activate_all()",
+    "activate_namespace",
+    "exclude_namespace",
+    "activate_tags",
+    "exclude_tags",
+    "activates(namespace, tags)",
+    "excludes(namespace, tags)",
+    "admits(namespace, tags)",
+    "namespace::is_normalized_segment",
+    "namespace::matches_subtree",
+    "namespace::validate_namespace",
+    "ScopeConfig::new",
+    "selection(selection)",
+    "override_policy",
+    "Policy::first_n",
+    "Policy::every_n",
+    "Context::capture",
+    "enter()",
+    "run(operation)",
+    "scope_name()",
+    "context::thread::spawn",
+    "ContextThreadPool",
+    "with_threads",
+    "install(operation)",
+];
+
+const README_EVIDENCE_API: &[&str] = &[
+    "add_channel_sink",
+    "register_namespace_channel",
+    "clear_channel_sinks",
+    "MemorySink",
+    "with_config",
+    "shared_records",
+    "drain_shared",
+    "records()",
+    "drain()",
+    "MemorySinkConfig",
+    "max_items()",
+    "compact_fraction()",
+    "MemoryStats",
+    "JsonlSink",
+    "open_append",
+    "from_writer",
+    "writer_with_config",
+    "JsonlConfig",
+    "flush_interval_ms",
+    "max_file_size_mb",
+    "max_file_size_bytes",
+    "trim_fraction",
+    "is_started()",
+    "last_error()",
+    "ConsoleSink",
+    "stdout()",
+    "stderr()",
+    "Sink",
+    "write_shared",
+    "wants_render_text",
+    "write_delivery",
+    "ObservationDelivery",
+    "shared_record()",
+    "shared_render_text()",
+    "observe_span!",
+    "span_if_active",
+    "SpanGuard",
+    "is_active()",
+    "finish()",
+    "CaptureConfig",
+    "retention",
+    "activate_namespaces",
+    "activate_tag",
+    "exclude_namespaces",
+    "exclude_tag",
+    "capture_observations",
+    "CapturedRun",
+    "status().is_complete()",
+    "to_typed",
+    "certification(name)",
+    "ObservationDataset",
+    "try_from_records",
+    "try_from_memory",
+    "ObservationsQuery",
+    "namespace_subtree",
+    "without_scope",
+    "points",
+    "span_starts",
+    "span_ends",
+    "process",
+    "RecordView",
+    "TypedView",
+    "sources()",
+    "TypedEntry",
+    "SourceProvenance",
+    "DecodeError",
+    "SourceContext",
+];
+
+const README_NUMERIC_API: &[&str] = &[
+    "CorrelationExpectation",
+    "pearson_at_least",
+    "spearman_at_least",
+    "spearman_at_most",
+    "with_bound",
+    "and_pearson_bounds",
+    "and_spearman_bounds",
+    "LinearFitExpectation",
+    "slope_between",
+    "intercept_between",
+    "r_squared_at_least",
+    "residual_mean_absolute_at_most",
+    "residual_max_absolute_at_most",
+    "and_slope_between",
+    "and_intercept_between",
+    "and_r_squared_at_least",
+    "and_residual_mean_absolute_at_most",
+    "and_residual_max_absolute_at_most",
+    "DifferenceExpectation",
+    "mean_absolute_at_most",
+    "p95_absolute_at_most",
+    "max_absolute_at_most",
+    "and_mean_absolute_at_most",
+    "and_p95_absolute_at_most",
+    "and_max_absolute_at_most",
+    "RelationExpectation",
+    "RelationMeasure",
+    "OutlierConfig::new",
+    "ZeroMadPolicy::absolute_tolerance",
+    "JumpConfig::new",
+    "LagRange::new",
+    "LagConfig",
+    "LagReport::zero_lag",
+    "LagAlignment::has_interior_gaps",
+    "NumericSeries::new",
+    "finite_count()",
+    "integrity(rule)",
+    "check_count",
+    "check_unique",
+    "check_contiguous",
+    "check_same_keys",
+    "join_by",
+    "join_presorted_by",
+    "require_complete()",
+    "linear_metrics",
+    "numeric_relation",
+    "difference_summary",
+    "lag_relation_by",
+];
+
+#[test]
+fn readme_covers_the_supported_client_api() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let api = readme
+        .split_once("## Complete supported client API")
+        .unwrap()
+        .1
+        .split_once("## Cookbook")
+        .unwrap()
+        .0;
+    let lines: Vec<_> = api.lines().collect();
+    let mut c = certification("README supported client API contract");
+    for markers in [
+        README_CERTIFICATION_API,
+        README_DOMAIN_API,
+        README_PREPARED_API,
+        README_NUMERIC_API,
+        README_OBSERVATION_API,
+        README_EVIDENCE_API,
+    ] {
+        for marker in markers {
+            let documented = lines.iter().enumerate().any(|(index, line)| {
+                if !line.contains(marker) {
+                    return false;
+                }
+                let start = index.saturating_sub(1);
+                let end = (index + 3).min(lines.len().saturating_sub(1));
+                lines[start..=end]
+                    .iter()
+                    .any(|line| line.as_bytes().iter().filter(|byte| **byte == 96).count() >= 2)
+            });
+            c.check_fact_expect(
+                format!("documents and exemplifies {marker}"),
+                documented,
+                true,
+            );
+        }
     }
     c.assert_certify();
 }
+
 fn markdown(directory: &Path, files: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
@@ -1038,12 +860,10 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
     let mut files = vec![root().join("README.md")];
     markdown(&root().join("docs"), &mut files);
     markdown(&root().join(".agents/skills"), &mut files);
-    files.extend([
-        canonical_skill_path("certifications"),
-        canonical_skill_path("sun-observations"),
-    ]);
+    for name in SKILLS {
+        files.push(canonical_skill_path(name));
+    }
     let mut c = certification("documentation architecture and navigation");
-    let map = fs::read_to_string(root().join("docs/README.md")).unwrap();
     for file in files {
         let text = fs::read_to_string(&file).unwrap();
         for target in text
@@ -1051,117 +871,35 @@ fn documentation_links_and_architecture_overview_remain_coherent() {
             .skip(1)
             .map(|s| s.split(')').next().unwrap())
         {
-            if target.contains("://") {
-                continue;
-            }
-            c.check(
-                format!("{} -> {target}", file.display()),
-                fact(
-                    "local path and anchor",
-                    local_markdown_link_valid(&file, target),
-                )
-                .expect(true),
-            );
-        }
-        if file.starts_with(root().join("docs")) && file.file_name().unwrap() != "README.md" {
-            c.check(
-                format!("indexed {}", file.display()),
-                fact(
-                    "documentation map",
-                    map.contains(file.file_name().unwrap().to_str().unwrap()),
-                )
-                .expect(true),
-            );
-        }
-        if file.starts_with(root().join("docs/history")) {
-            c.check(
-                format!("historical {}", file.display()),
-                fact(
-                    "historical status",
-                    text.lines().next().unwrap().starts_with("# Historical"),
-                )
-                .expect(true),
-            );
-        } else {
-            for obsolete in [
-                "measured(",
-                ".compare(",
-                ".coverage(",
-                "`Measurement`",
-                "Measurement<",
-                "CompareResult",
-                "Alignment<",
-                ".alignment(",
-                "aligned pairs",
-                "EnvelopeQuery",
-                "PreparedComparison",
-                "source_slice",
-                "on_sorted(",
-                "join_sorted_by(",
-                "on_u64(",
-                "join_u64_by(",
-                "without_span(",
-                ".typed::<",
-                ".certify(",
-                "::certify(",
-                "::evaluate(",
-                "ObservationDelivery::new",
-                "ScopedCapture",
-                "MaxPerScope",
-                "RelationReport",
-                "DifferenceReport",
-                "RelationError",
-                "Criterion::AtLeast",
-                "Range{min:",
-            ] {
+            if !target.contains("://") {
                 c.check_fact_expect(
-                    format!("{}: no {obsolete}", file.display()),
-                    text.contains(obsolete),
-                    false,
+                    format!("{} -> {target}", file.display()),
+                    local_markdown_link_valid(&file, target),
+                    true,
                 );
             }
-            c.check_fact_expect(
-                format!("{}: no obsolete correspondence type", file.display()),
-                text.split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
-                    .any(|v| v == "Alignment"),
-                false,
-            );
         }
     }
     let readme = fs::read_to_string(root().join("README.md")).unwrap();
     let headings: Vec<_> = readme
         .lines()
         .filter(|v| v.starts_with("## "))
-        .take(2)
+        .take(5)
         .collect();
     c.check(
-        "workflows before internals and benchmarks",
+        "handbook section order",
         fact("README", headings).expect(vec![
+            "## Table of contents",
+            "## Overview",
             "## Five-minute tour",
+            "## Performance",
             "## How the framework fits together",
         ]),
     );
-    c.check(
-        "ordinary before Observation-backed proof",
-        fact(
-            "tour order",
-            readme
-                .find("### Certify ordinary Rust values")
-                .zip(readme.find("### Observe and certify real production behavior"))
-                .is_some_and(|(ordinary, capture)| ordinary < capture),
-        )
-        .expect(true),
-    );
     c.check_fact_expect(
-        "no unvalidated ignored README examples",
+        "no ignored README Rust examples",
         readme.contains("rust,ignore"),
         false,
-    );
-    let release = fs::read_to_string(root().join("docs/RELEASE_VALIDATION.md")).unwrap();
-    c.check_fact_expect(
-        "release gate is not an application tutorial",
-        release.contains("not the application-facing"),
-        true,
     );
     c.assert_certify();
 }

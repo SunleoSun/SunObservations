@@ -1,7 +1,6 @@
 # Package-owned agent skills
 
-Operational/tooling reference. For learning the framework, use the
-[human guide](../README.md); for other documentation roles, see the [map](README.md).
+Operational/tooling reference. For learning the framework, use the [human guide](../README.md); specialized FORMAT and release-validation contracts are linked from that handbook.
 
 Install the Cargo subcommand binary from the framework package (after release):
 
@@ -21,18 +20,22 @@ cargo sun-observations-skills sync --skills-dir .my-agent/skills
 Default output is `<consumer-workspace>/.agents/skills/<name>/SKILL.md`.
 A relative `--skills-dir` is relative to the invocation directory; an absolute
 path is used directly. The custom layout is the same as the default. Only the
-discovered owner skills are updated; unrelated skills are not deleted. Identical
-files are left untouched, and stale files are replaced byte-for-byte via a
-temporary file in the destination directory and an atomic replacement, without
-truncating files shared through hard links.
+discovered owner skills are updated; unrelated skills are not deleted. Legacy
+`certifications` and `sun-observations` skill directories from the previous
+two-skill layout are removed during sync. Identical files are left untouched,
+and stale files are replaced byte-for-byte via a temporary file in the destination
+directory and an atomic replacement, without truncating files shared through hard links.
 
 ## Canonical ownership
 
-- [certifications](../crates/sun-observations/agent-skills/certifications/SKILL.md)
-  belongs to the `sun-observations` Cargo package.
-- [sun-observations](../crates/sun-observations/agent-skills/sun-observations/SKILL.md)
-  belongs to the same `sun-observations` Cargo package. Capture/query/decode/
-  provenance remains owned by its evidence layer, not generic certification.
+The sun-observations Cargo package owns four atomic skills:
+
+- [certifications-methodology](../crates/sun-observations/agent-skills/certifications-methodology/SKILL.md)
+- [certifications-api](../crates/sun-observations/agent-skills/certifications-api/SKILL.md)
+- [domain-api](../crates/sun-observations/agent-skills/domain-api/SKILL.md)
+- [observations-api](../crates/sun-observations/agent-skills/observations-api/SKILL.md)
+
+Methodology routes proof design; the three API skills describe only their client-facing surfaces.
 
 The framework manifest explicitly includes `agent-skills/**` in their Cargo package
 contents. The delivery tool does not embed manuals or depend on its own version

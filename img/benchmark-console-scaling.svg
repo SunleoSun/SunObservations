@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="473" viewBox="0 0 960 473" role="img" aria-labelledby="title desc">
 <title id="title">Console producer vs through-flush service</title>
-<desc id="desc">Default formatting; file-backed production worker; 5 x 262144 records. 1 producer, Producer: 782.36 ns/call; 1 producer, Through flush: 782.46 ns/call; 4 producers, Producer: 233.32 ns/call; 4 producers, Through flush: 767.37 ns/call; 16 producers, Producer: 157.42 ns/call; 16 producers, Through flush: 816.33 ns/call. Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: docs/BENCHMARKS.md</desc>
+<desc id="desc">Default formatting; file-backed production worker; 5 x 262144 records. 1 producer, Producer: 782.36 ns/call; 1 producer, Through flush: 782.46 ns/call; 4 producers, Producer: 233.32 ns/call; 4 producers, Through flush: 767.37 ns/call; 16 producers, Producer: 157.42 ns/call; 16 producers, Through flush: 816.33 ns/call. Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: scripts/benchmark_metrics.csv</desc>
 <rect width="960" height="473" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Console producer vs through-flush service</text>
@@ -36,6 +36,6 @@
 <text x="749.29" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">6.35</text>
 <rect x="255" y="331" width="93.97" height="21" fill="#b55112"/>
 <text x="355.97" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">1.22</text>
-<text x="24.00" y="446.00" font-size="13" text-anchor="start" fill="#172b3a">Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: docs/BENCHMARKS.md</text>
+<text x="24.00" y="446.00" font-size="13" text-anchor="start" fill="#172b3a">Not terminal-emulator capacity. More producers can grow an unbounded backlog. Source: scripts/benchmark_metrics.csv</text>
 </g>
 </svg>

@@ -14,6 +14,7 @@ const USAGE: &str = "cargo sun-observations-skills sync [--skills-dir <PATH>]
 Default: <consumer-workspace>/.agents/skills
 Relative --skills-dir paths are relative to the invocation directory.";
 
+const LEGACY_SKILLS: [&str; 2] = ["certifications", "sun-observations"];
 /// The Cargo-resolved graph, not the installed tool's dependencies, owns source identity.
 #[derive(Deserialize)]
 struct Metadata {
@@ -157,11 +158,16 @@ fn discover(
         .canonicalize()
         .map_err(|error| format!("package {}: {error}", package.id))?;
     let mut skills = BTreeMap::new();
-    for name in ["sun-observations", "certifications"] {
+    for name in [
+        "certifications-methodology",
+        "certifications-api",
+        "domain-api",
+        "observations-api",
+    ] {
         let source = directory.join("agent-skills").join(name).join("SKILL.md");
         let context = || format!("skill {name} from {} at {}", package.id, source.display());
         let canonical_source = source.canonicalize().map_err(|error| format!(
-            "missing canonical {}: {error}; the resolved owner package must contain both skills", context()
+            "missing canonical {}: {error}; the resolved owner package must contain all canonical skills", context()
         ))?;
         if !canonical_source.starts_with(&canonical_directory) {
             return Err(format!(
@@ -240,6 +246,9 @@ fn sync(base: &Path, skills: &BTreeMap<&str, Skill>) -> Result<(), String> {
         validate_destination(&directory, true)?;
         validate_destination(&directory.join("SKILL.md"), false)?;
     }
+    for name in LEGACY_SKILLS {
+        validate_destination(&base.join(name), true)?;
+    }
     for (name, skill) in skills {
         let directory = base.join(name);
         fs::create_dir_all(&directory)
@@ -260,6 +269,14 @@ fn sync(base: &Path, skills: &BTreeMap<&str, Skill>) -> Result<(), String> {
         temporary
             .persist(&destination)
             .map_err(|error| format!("replace {}: {error}", destination.display()))?;
+    }
+    for name in LEGACY_SKILLS {
+        let legacy = base.join(name);
+        match fs::remove_dir_all(&legacy) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("remove legacy skill {}: {error}", legacy.display())),
+        }
     }
     Ok(())
 }

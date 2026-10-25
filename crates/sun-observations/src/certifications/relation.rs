@@ -426,8 +426,5 @@ fn measure(report: &RelationMetrics, measure: RelationMeasure) -> Option<f64> {
 }
 
 #[cfg(test)]
-#[path = "relation_generative_certification.rs"]
-mod generative;
-#[cfg(test)]
 #[path = "relation_certification.rs"]
-mod tests;
+mod certification;

@@ -126,7 +126,7 @@ Each row is enforced by the full release commands, not solely the name-filtered 
 | Process-local last-owner Drop and explicit global flush survive real child exit | certifications/tests/process_shutdown.rs (40000 records each) |
 | Many concurrent scope/type/policy executions: exact budgets, legal unique semantic IDs, Memory/JSONL equality | certifications/concurrent_scopes_certification.rs (8 parents × 4 children × 250 inputs/type) |
 | Full public release path: derived types, tags/levels/exclusions, threads, optional Rayon, mixed policy, spans, overlapping routes, generation mutation, explicit barrier, independent file consumer | certifications/runtime_end_to_end_certification.rs + isolated scenario child |
-| Actual batch performance evidence, enqueue vs engine-barrier completion, alternative caps | BATCH_BENCHMARKS.md; benches/batch.rs |
+| Actual batch performance evidence, enqueue vs engine-barrier completion, alternative caps | ../README.md#performance; benches/batch.rs |
 
 ## Analysis certification
 
@@ -162,13 +162,13 @@ public analysis integration and documentation/API certifications are discovered 
 by the workspace gate. The runtime, derive and process-level matrices remain part of that gate.
 Statistical references use relative/absolute tolerances; timing is never a correctness threshold.
 
-[Pre-cache certification benchmark evidence](history/CERTIFICATION_BENCHMARKS.md) preserves 348 samples through 1M,
+[Pre-cache certification benchmark evidence](../scripts/certification_metrics.csv) preserves 348 samples through 1M,
 ordinary/adapted overhead, prepare-once versus repeated preparation, bounded formatting,
 grouping/anomalies/lag and storage estimates. The current harness runs with
 `cargo test -p sun-observations --release --bench certifications -- --measure`;
 this does not recreate the pre-cache samples. Current-representation capture/cache
-measurements are separate in [CAPTURE_BENCHMARKS.md](CAPTURE_BENCHMARKS.md).
-[Earlier algorithm/extension measurements](history/ANALYSIS_BENCHMARKS.md) remain historical evidence.
+measurements are separate in [../scripts/capture_metrics.csv](../scripts/capture_metrics.csv).
+[Earlier algorithm/extension measurements](../scripts/analysis_extension_metrics.csv) remain historical evidence.
 
 ## Human-presentation production group
 
@@ -191,7 +191,7 @@ are unchanged. No test uses timing sleeps to establish ordering.
 | Sticky write/flush/panic errors, no retry, 16 already-queued concurrent public barriers all released, Drop completes | sinks/console_certification.rs::write_flush_and_panic_failures_are_sticky_and_release_all_barriers; failure_releases_concurrent_already_queued_public_flush_barriers |
 | Checked error count and healthy structured fan-out after Console failure | sinks/console_certification.rs::failed_console_does_not_prevent_healthy_structured_fanout |
 | Actual stdout/stderr target selection, local Drop and explicit global flush survive child exit (4000 multiline records each) | certifications/tests/console_process.rs + certifications/src/bin/console_scenario.rs |
-| Same-machine before/after structured controls; default/custom/mixed fan-out and 1/4/16 producer enqueue versus service; raw CSV and generated charts | BENCHMARKS.md human follow-up; benches/human.rs; benches/runtime.rs |
+| Same-machine before/after structured controls; default/custom/mixed fan-out and 1/4/16 producer enqueue versus service; raw CSV and generated charts | ../README.md#performance human follow-up; benches/human.rs; benches/runtime.rs |
 
 ## Isolation and synchronization
 
@@ -224,7 +224,7 @@ warning-denying Clippy, 54 analysis tests plus its doctest, four documentation
 certifications and both executable analysis examples. The extended release harness
 retains 336 raw samples (including typed/source, grouping and ±2/±8/±32 lag windows
 at 1k/10k/100k/1M); the original 240 baseline samples remain separate. See
-[historical analysis report](history/ANALYSIS_BENCHMARKS.md) for measured evidence, materialization estimates and noise.
+[historical analysis report](../scripts/analysis_extension_metrics.csv) for measured evidence, materialization estimates and noise.
 Runtime, derive and FORMAT v1 source contracts remain unchanged.
 
 Validated human-delivery revision: 96 default/100 all-features runtime tests,
@@ -237,8 +237,8 @@ features; all seven non-Rayon examples also build and execute with default featu
 The human example's exact table output and separate stderr status were checked.
 The five-sample benchmark targets and all eight report-validated SVGs pass.
 No certification is ignored.
-Human follow-up raw samples, variation and destination limitations are in BENCHMARKS.md;
-historical JSONL batch evidence remains in BATCH_BENCHMARKS.md.
+Human follow-up raw samples, variation and destination limitations are in ../README.md#performance;
+historical JSONL batch evidence remains in ../README.md#performance.
 
 ## Findings and limits
 
@@ -259,4 +259,4 @@ multiple independent writers to the same physical file; bounded producer backlog
 atomic multi-sink rollback/retry; span completion after abort/leak/I/O failure/retention;
 async task-local propagation or distributed tracing. Batch count bounds records/messages,
 not arbitrary user payload bytes or enqueue latency. Performance results include a measured
-single-producer Rich regression; see BATCH_BENCHMARKS.md rather than assuming universal speedup.
+single-producer Rich regression; see ../README.md#performance rather than assuming universal speedup.

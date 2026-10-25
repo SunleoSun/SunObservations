@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="828" viewBox="0 0 960 828" role="img" aria-labelledby="title desc">
 <title id="title">Warm selector cost</title>
-<desc id="desc">N irrelevant rules per category (4N total); fixed observation depth and tags. 0, Rejected: 7.33 ns/call; 0, Admitted / no sink: 154.42 ns/call; 10, Rejected: 7.30 ns/call; 10, Admitted / no sink: 155.24 ns/call; 100, Rejected: 7.33 ns/call; 100, Admitted / no sink: 156.20 ns/call; 1000, Rejected: 7.32 ns/call; 1000, Admitted / no sink: 155.82 ns/call; 10000, Rejected: 7.35 ns/call; 10000, Admitted / no sink: 152.82 ns/call. Separate panel scales. Setup and cold resolution excluded. Source: docs/BENCHMARKS.md</desc>
+<desc id="desc">N irrelevant rules per category (4N total); fixed observation depth and tags. 0, Rejected: 7.33 ns/call; 0, Admitted / no sink: 154.42 ns/call; 10, Rejected: 7.30 ns/call; 10, Admitted / no sink: 155.24 ns/call; 100, Rejected: 7.33 ns/call; 100, Admitted / no sink: 156.20 ns/call; 1000, Rejected: 7.32 ns/call; 1000, Admitted / no sink: 155.82 ns/call; 10000, Rejected: 7.35 ns/call; 10000, Admitted / no sink: 152.82 ns/call. Separate panel scales. Setup and cold resolution excluded. Source: scripts/benchmark_metrics.csv</desc>
 <rect width="960" height="828" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Warm selector cost</text>
@@ -63,6 +63,6 @@
 <text x="240.00" y="704.50" font-size="14" text-anchor="end" fill="#172b3a">10000</text>
 <rect x="255" y="686" width="476.74" height="21" fill="#126b96"/>
 <text x="738.74" y="702.00" font-size="13" text-anchor="start" fill="#172b3a">152.82</text>
-<text x="24.00" y="801.00" font-size="13" text-anchor="start" fill="#172b3a">Separate panel scales. Setup and cold resolution excluded. Source: docs/BENCHMARKS.md</text>
+<text x="24.00" y="801.00" font-size="13" text-anchor="start" fill="#172b3a">Separate panel scales. Setup and cold resolution excluded. Source: scripts/benchmark_metrics.csv</text>
 </g>
 </svg>

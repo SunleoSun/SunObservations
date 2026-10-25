@@ -379,9 +379,6 @@ impl<L, R, K: Clone + fmt::Debug> PairedComparison<'_, L, R, K> {
 #[cfg(test)]
 #[path = "source_certification.rs"]
 mod certification;
-#[cfg(test)]
-#[path = "source_generative_certification.rs"]
-mod generative;
 
 /// Numeric field pair cached in aligned-key order; no new join or field projection per metric.
 /// Compact analysis results (including errors) are initialized once; sorting scratch is not retained.
