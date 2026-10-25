@@ -183,7 +183,9 @@ fn capture(mode: Mode) -> Capture {
     if matches!(mode, Mode::Memory | Mode::Both | Mode::Fanout) {
         let copies = if matches!(mode, Mode::Fanout) { 4 } else { 1 };
         for i in 0..copies {
-            let memory = Arc::new(MemorySink::new());
+            let memory = Arc::new(MemorySink::with_config(
+                sun_observations::MemorySinkConfig::new(N as usize + 1, 0.1).unwrap(),
+            ));
             global().add_channel_sink(if i < 2 { "a" } else { "b" }, memory.clone());
             memories.push(memory);
         }

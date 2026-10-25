@@ -6,6 +6,8 @@ pub use runtime::*;
 #[allow(dead_code, unused_imports)]
 #[path = "../src/certifications/mod.rs"]
 pub mod certifications;
+#[path = "support/mod.rs"]
+mod support;
 use certifications::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, hint::black_box, time::Instant};
@@ -956,11 +958,156 @@ fn capture_integration() {
         },
     );
 }
+fn seed_audit() {
+    let domain = wide(8, 32);
+    for budget in [64, 1024] {
+        for seeded in [false, true] {
+            measure(
+                if seeded {
+                    "seeded_report"
+                } else {
+                    "plain_report"
+                },
+                "cheap_enum",
+                Shape {
+                    budget,
+                    dimensions: 8,
+                    cardinality: 32,
+                    ..Shape::default()
+                },
+                || (),
+                |_| {
+                    macro_rules! report {
+                        ($c:expr) => {{
+                            let mut c = $c;
+                            c.domain(domain.clone());
+                            c.seed(SEED).cases_budget(budget).report_mode(false);
+                            c.report()
+                        }};
+                    }
+                    if seeded {
+                        report!(certification("seed audit")
+                            .executor_with_seed(|_: &Wide, seed| Ok::<_, ()>(black_box(seed))))
+                    } else {
+                        report!(certification("seed audit")
+                            .executor(|_: &Wide| Ok::<_, ()>(black_box(0u64))))
+                    }
+                },
+                checked,
+            );
+        }
+    }
+    let compiled = domain.compile().unwrap();
+    let mut cursor = 0;
+    let (_, coordinate) = compiled
+        .next(0, &mut cursor, SEED, &BTreeSet::new())
+        .unwrap()
+        .unwrap();
+    measure(
+        "coordinate_seed",
+        "eight_entries",
+        Shape {
+            budget: 10000,
+            dimensions: 8,
+            ..Shape::default()
+        },
+        || (),
+        |_| {
+            for _ in 0..10000 {
+                black_box(compilation::local_seed(
+                    SEED,
+                    &compilation::coordinate_key(black_box(&coordinate)),
+                ));
+            }
+        },
+        |_| Counts {
+            executed: 10000,
+            ..Counts::default()
+        },
+    );
+}
+
+fn relation_audit() {
+    for (name, relations, end) in [
+        ("chain", 0, 1000),
+        ("chain", 1, 1000),
+        ("chain", 3, 1000),
+        ("dense_small", 6, 8),
+        ("star", 3, 1000),
+    ] {
+        let f = DomainField::<Numbers>::root().fields();
+        let mut domain = domain!(Numbers { a.in_range(0..=end), b.in_range(0..=end), c.in_range(0..=end), d.in_range(0..=end) });
+        let rules = if name == "star" {
+            vec![
+                f.a.less_equal(&f.b),
+                f.a.less_equal(&f.c),
+                f.a.less_equal(&f.d),
+            ]
+        } else {
+            vec![
+                f.a.less_equal(&f.b),
+                f.b.less_equal(&f.c),
+                f.c.less_equal(&f.d),
+                f.a.less_equal(&f.c),
+                f.a.less_equal(&f.d),
+                f.b.less_equal(&f.d),
+            ]
+        };
+        for rule in rules.into_iter().take(relations) {
+            domain.add(rule, &[]);
+        }
+        let compiled = domain.compile().unwrap();
+        let constraints = 4 + relations;
+        let shape = Shape {
+            constraints,
+            negative_pairs: constraints * (constraints - 1) / 2,
+            budget: 256,
+            ..Shape::default()
+        };
+        measure(
+            "multi_negative",
+            name,
+            shape,
+            || (),
+            |_| {
+                let mut cursor = 0;
+                let mut occupied = BTreeSet::new();
+                let mut witnesses = Vec::new();
+                while let Some((input, coordinate)) =
+                    compiled.next(2, &mut cursor, SEED, &occupied).unwrap()
+                {
+                    assert_eq!(
+                        compiled.classify(&input).unwrap().violated,
+                        coordinate.violated
+                    );
+                    assert_eq!(coordinate.violated.len(), 2);
+                    occupied.insert(compilation::coordinate_key(&coordinate));
+                    witnesses.push((input.to_domain_value(), coordinate));
+                }
+                witnesses
+            },
+            |w| Counts {
+                executed: w.len(),
+                multi: w.len(),
+                ..Counts::default()
+            },
+        );
+    }
+}
+
 fn main() {
+    support::run(benchmark);
+}
+fn benchmark() {
     if !std::env::args().any(|v| v == "--measure") {
         return;
     }
     println!("operation,shape,budget,dimensions,cardinality,potential,constraints,negative_pairs,length,records,checks,sample,iterations,milliseconds,executed,positive,single_negative,multi_negative,stopped");
+    if std::env::args().any(|v| v == "--audit") {
+        relation_audit();
+        seed_audit();
+        return;
+    }
     lazy();
     ranges_and_execution();
     domains_and_negatives();

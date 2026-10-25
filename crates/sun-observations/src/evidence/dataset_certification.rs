@@ -1,6 +1,143 @@
 use super::*;
 
 #[test]
+fn repeated_namespace_reads_preserve_snapshot_indices_identity_and_all_selectors() {
+    for uniform in [false, true] {
+        let memory =
+            MemorySink::with_config(sun_observations::MemorySinkConfig::new(5000, 0.1).unwrap());
+        for row in 0..9000 {
+            let mut item = (*record(
+                if uniform || row % 8 == 0 {
+                    Input::NAMESPACE
+                } else {
+                    "module::other"
+                },
+                json!({"row": row, "value": row as f64}),
+            ))
+            .clone();
+            item.proc = format!("proc{}", row % 2);
+            item.scope = (row % 3 == 0).then(|| "scope".into());
+            item.level = if row % 5 == 0 {
+                ObservationLevel::WARN
+            } else {
+                ObservationLevel::INFO
+            };
+            if row % 7 == 0 {
+                item.phase = Some(Phase::Start);
+                item.span = Some(format!("span{row}"));
+            }
+            memory.write_shared(Arc::new(item)).unwrap();
+        }
+        let dataset = ObservationDataset::try_from_memory(&memory).unwrap();
+        let snapshot = dataset.records().to_vec();
+        let clone = dataset.clone();
+        memory.drain_shared();
+        memory
+            .write_shared(record(
+                Input::NAMESPACE,
+                json!({"row": 99999, "value": 0.0}),
+            ))
+            .unwrap();
+        let queries = [
+            ObservationsQuery::new().namespace(Input::NAMESPACE),
+            ObservationsQuery::new().namespace("module::other").points(),
+            ObservationsQuery::new().namespace("module::missing"),
+            ObservationsQuery::new().namespace_subtree("module"),
+            ObservationsQuery::new()
+                .namespace(Input::NAMESPACE)
+                .process("proc0")
+                .scope("scope")
+                .level(ObservationLevel::WARN),
+            ObservationsQuery::new()
+                .namespace(Input::NAMESPACE)
+                .without_scope()
+                .span_starts(),
+            ObservationsQuery::new()
+                .namespace(Input::NAMESPACE)
+                .span_ends(),
+            ObservationsQuery::new(),
+        ];
+        let mut c = certification("indexed snapshot parity");
+        for query in queries {
+            let expected: Vec<_> = snapshot
+                .iter()
+                .enumerate()
+                .filter_map(|(index, record)| query.matches(record).then_some(index))
+                .collect();
+            for _ in 0..3 {
+                let view = clone.query(query);
+                let iter = view.iter();
+                let actual: Vec<_> = iter.clone().map(|(index, _)| index).collect();
+                c.check_fact_expect("selection", actual, expected.clone());
+                c.check_fact_expect(
+                    "shared identity",
+                    iter.clone()
+                        .all(|(index, record)| Arc::ptr_eq(record, &snapshot[index])),
+                    true,
+                );
+                c.check_fact_expect("iterator replay", iter.count(), expected.len());
+            }
+        }
+        let typed = dataset.to_typed::<Input>().unwrap();
+        for entry in typed.iter() {
+            c.check_fact_expect(
+                "typed provenance",
+                entry.value.row,
+                snapshot[entry.dataset_index].data["row"].as_u64().unwrap(),
+            );
+            c.check_fact_expect(
+                "typed shared identity",
+                Arc::ptr_eq(entry.source, &snapshot[entry.dataset_index]),
+                true,
+            );
+        }
+        c.assert_certify();
+    }
+}
+#[test]
+fn concurrent_index_initialization_and_strict_decode_errors_preserve_original_coordinates() {
+    let records: Vec<_> = (0..5000)
+        .map(|row| {
+            record(
+                if row % 2 == 0 {
+                    Input::NAMESPACE
+                } else {
+                    "module::other"
+                },
+                if row == 4112 {
+                    json!({"row": "invalid", "value": 0.})
+                } else {
+                    json!({"row": row, "value": row as f64})
+                },
+            )
+        })
+        .collect();
+    let dataset = ObservationDataset::try_from_records(records).unwrap();
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                scope.spawn(|| {
+                    for _ in 0..3 {
+                        let actual: Vec<_> = dataset
+                            .query(ObservationsQuery::new().namespace(Input::NAMESPACE))
+                            .iter()
+                            .map(|(index, _)| index)
+                            .collect();
+                        assert_eq!(actual, (0..5000).step_by(2).collect::<Vec<_>>());
+                        let error = dataset.to_typed::<Input>().unwrap_err();
+                        assert_eq!(error.source.dataset_index, 4112);
+                        assert_eq!(error.source.namespace, Input::NAMESPACE);
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+    });
+}
+
+#[test]
 fn query_builders_replace_incompatible_intent_and_compose_independent_filters() {
     let point = record("module::input", json!({}));
     let mut start = (*point).clone();

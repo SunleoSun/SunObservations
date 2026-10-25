@@ -3,6 +3,9 @@
 This is a separate planned/generative dataset, not a relabeling of the
 [historical eager certification measurements](history/CERTIFICATION_BENCHMARKS.md).
 The public API and mathematical algorithms are unchanged.
+Fresh paired solver/runtime measurements and the subsequent implementation are in
+the [framework performance audit](FRAMEWORK_PERFORMANCE_AUDIT.md); the numbers below
+remain evidence of this report’s original measurement, not a current baseline.
 
 ## Reproduce
 

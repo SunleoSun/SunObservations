@@ -285,11 +285,13 @@ impl<T: DomainInput> CompiledDomain<T> {
         context: &RowContext,
         input: &impl InputProjection,
     ) -> Result<DomainNegativeDistance, AnalysisError> {
+        let candidates = SolverCandidates::new(&[], 0);
+        let empty = vec![];
         let left = self
-            .possible_operand(&relation.left, &vec![], &[], &[])
+            .possible_operand(&relation.left, &empty, &[], &candidates)
             .unwrap_or_default();
         let right = self
-            .possible_operand(&relation.right, &vec![], &[], &[])
+            .possible_operand(&relation.right, &empty, &[], &candidates)
             .unwrap_or_default();
         let a = operand_value(&relation.left, context, input)?
             .ok_or_else(|| domain_error("missing relation operand"))?;

@@ -30,6 +30,7 @@ Root skill files are synchronized mirrors, never separate authorities.
 | [Bounded writer](BATCH_BENCHMARKS.md) | Specific runtime follow-up: before/after and alternative chunk caps |
 | [Capture/cache](CAPTURE_BENCHMARKS.md) | Current-representation benchmark evidence: scoped capture, retention, cached numeric views |
 | [Generative certifications](GENERATIVE_CERTIFICATION_BENCHMARKS.md) | Separate planned execution, lazy planning, materialization, checks and capture measurements; semantic verification map |
+| [Framework performance audit](FRAMEWORK_PERFORMANCE_AUDIT.md) | Fresh paired runtime/certification measurements, solver/cache/query/parallel-lag optimizations, complete raw samples and tradeoffs |
 
 “Current” means the represented contract/implementation, not a fresh measurement
 of every checkout. Recorded machine timings never become correctness thresholds,

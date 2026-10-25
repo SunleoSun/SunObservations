@@ -444,17 +444,20 @@ impl DomainRelation {
         left: &[DomainValue],
         right: &[DomainValue],
     ) -> Vec<(DomainValue, DomainValue)> {
+        fn unique(values: &[DomainValue]) -> Vec<&DomainValue> {
+            values
+                .iter()
+                .enumerate()
+                .filter_map(|(i, value)| (!values[..i].contains(value)).then_some(value))
+                .collect()
+        }
+        let left = unique(left);
+        let right = unique(right);
         let mut pairs = vec![];
         for a in left {
-            for b in right {
-                let relation = Self {
-                    left: DomainOperand::Value(a.clone()),
-                    right: DomainOperand::Value(b.clone()),
-                    kind: self.kind,
-                };
-                if relation.evaluate(&[]) == Some(false) && !pairs.contains(&(a.clone(), b.clone()))
-                {
-                    pairs.push((a.clone(), b.clone()));
+            for b in &right {
+                if self.evaluate_values(a, b) == Some(false) {
+                    pairs.push((a.clone(), (*b).clone()));
                 }
             }
         }
@@ -480,13 +483,32 @@ impl DomainRelation {
         left: &[DomainValue],
         right: &[DomainValue],
     ) -> DomainNegativeDistance {
-        let pairs = self.invalid_pairs(left, right);
-        let Some(first) = pairs.first() else {
+        let mut bounds: Option<(f64, f64)> = None;
+        for left in left {
+            for right in right {
+                if self.evaluate_values(left, right) == Some(false) {
+                    let distance = Self::distance(left, right);
+                    bounds = Some(match bounds {
+                        None => (distance, distance),
+                        Some((low, high)) => (
+                            if distance.total_cmp(&low).is_lt() {
+                                distance
+                            } else {
+                                low
+                            },
+                            if distance.total_cmp(&high).is_gt() {
+                                distance
+                            } else {
+                                high
+                            },
+                        ),
+                    });
+                }
+            }
+        }
+        let Some((low, high)) = bounds else {
             return DomainNegativeDistance::Near;
         };
-        let last = pairs.last().unwrap();
-        let low = Self::distance(&first.0, &first.1);
-        let high = Self::distance(&last.0, &last.1);
         let distance = Self::distance(a, b);
         if high <= low || distance <= low + (high - low) / 3. {
             DomainNegativeDistance::Near
@@ -520,6 +542,9 @@ impl DomainRelation {
         }
         let a = value(&self.left, env)?;
         let b = value(&self.right, env)?;
+        self.evaluate_values(a, b)
+    }
+    pub(crate) fn evaluate_values(&self, a: &DomainValue, b: &DomainValue) -> Option<bool> {
         let c = a.cmp_scalar(b)?;
         Some(match self.kind {
             RelationKind::LessThan => c == Ordering::Less,

@@ -1,10 +1,12 @@
 use crate::certifications::join::{key_group, merge_groups, sort_indices};
 use crate::certifications::{finite, pearson, spearman, KeyGroup, Metric, NumericError, Side};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fmt};
 
 /// Maximum number of candidate shifts in one diagnostic search.
 pub const MAX_LAG_CANDIDATES: i128 = 4097;
+const PARALLEL_PEARSON_WORK: usize = 4_000_000;
 /// Validated inclusive domain-key shifts bounded by MAX_LAG_CANDIDATES.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "LagRangeInput")]
@@ -185,7 +187,7 @@ pub fn lag_relation_by<L, R>(
         candidates: Vec::with_capacity(width as usize),
         best: None,
     };
-    for lag in config.range.start..=config.range.end {
+    let evaluate = |lag: i64| -> Result<LagCandidate, LagError> {
         let shift = |key: i64| i128::from(key) + i128::from(lag);
         let mut alignment = LagAlignment::default();
         let pairs = merge_groups(&a.keys, &b.keys, |x, y| shift(*x).cmp(&i128::from(*y)))
@@ -224,6 +226,37 @@ pub fn lag_relation_by<L, R>(
             LagMeasure::Spearman => spearman(pairs),
         }
         .map_err(|error| LagError::Numeric { lag, error })?;
+        Ok(LagCandidate {
+            lag,
+            alignment,
+            relation,
+        })
+    };
+    // Each reduction keeps its original pair order. Only independent shifts run concurrently;
+    // ordered collection preserves the first numeric error and deterministic best-lag ties.
+    let work = left
+        .len()
+        .saturating_add(right.len())
+        .saturating_mul(width as usize);
+    let mut parallel = (config.measure == LagMeasure::Pearson
+        && width >= 4
+        && work >= PARALLEL_PEARSON_WORK)
+        .then(|| {
+            (0..width as usize)
+                .into_par_iter()
+                .map(|offset| evaluate((i128::from(config.range.start) + offset as i128) as i64))
+                .collect::<Vec<_>>()
+                .into_iter()
+        });
+    for lag in config.range.start..=config.range.end {
+        let LagCandidate {
+            lag,
+            alignment,
+            relation,
+        } = match &mut parallel {
+            Some(candidates) => candidates.next().unwrap(),
+            None => evaluate(lag),
+        }?;
         if let Metric::Defined(value) = relation {
             let strength = value.abs();
             if report.best.as_ref().is_none_or(|best| {

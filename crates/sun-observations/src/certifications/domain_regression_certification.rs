@@ -1,5 +1,200 @@
 use super::domain::compilation::coordinate_key;
 use super::*;
+
+#[test]
+fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_overflow() {
+    use super::domain::{DomainOperand, DomainRelation, DomainValue, RelationKind};
+    let sets = [
+        vec![
+            DomainValue::Int(-9),
+            DomainValue::Int(0),
+            DomainValue::Int(0),
+            DomainValue::Int(23),
+        ],
+        vec![
+            DomainValue::UInt(0),
+            DomainValue::UInt(1),
+            DomainValue::UInt(u128::MAX),
+        ],
+        vec![
+            DomainValue::Real(-f64::MAX),
+            DomainValue::Real(-0.0),
+            DomainValue::Real(0.0),
+            DomainValue::Real(f64::MAX),
+        ],
+        vec![DomainValue::Bool(false), DomainValue::Bool(true)],
+        vec![DomainValue::Text("a".into()), DomainValue::Text("z".into())],
+    ];
+    let distance = |a: &DomainValue, b: &DomainValue| match (a, b) {
+        (DomainValue::Int(a), DomainValue::Int(b)) => a.abs_diff(*b) as f64,
+        (DomainValue::UInt(a), DomainValue::UInt(b)) => a.abs_diff(*b) as f64,
+        (DomainValue::Real(a), DomainValue::Real(b)) => (a - b).abs(),
+        _ => 0.,
+    };
+    for values in sets {
+        for kind in [
+            RelationKind::LessThan,
+            RelationKind::LessEqual,
+            RelationKind::GreaterThan,
+            RelationKind::GreaterEqual,
+            RelationKind::Equal,
+            RelationKind::NotEqual,
+        ] {
+            let relation = DomainRelation {
+                left: DomainOperand::Value(values[0].clone()),
+                right: DomainOperand::Value(values[0].clone()),
+                kind,
+            };
+            let pairs = relation.invalid_pairs(&values, &values);
+            let mut reference = Vec::new();
+            for a in &values {
+                for b in &values {
+                    let comparison = DomainRelation {
+                        left: DomainOperand::Value(a.clone()),
+                        right: DomainOperand::Value(b.clone()),
+                        kind,
+                    };
+                    if comparison.evaluate(&[]) == Some(false)
+                        && !reference.contains(&(a.clone(), b.clone()))
+                    {
+                        reference.push((a.clone(), b.clone()));
+                    }
+                }
+            }
+            reference.sort_by(|(a, b), (c, d)| {
+                distance(a, b)
+                    .total_cmp(&distance(c, d))
+                    .then_with(|| (a.key(), b.key()).cmp(&(c.key(), d.key())))
+            });
+            assert_eq!(format!("{pairs:?}"), format!("{reference:?}"));
+            for (a, b) in &pairs {
+                let low = distance(&pairs.first().unwrap().0, &pairs.first().unwrap().1);
+                let high = distance(&pairs.last().unwrap().0, &pairs.last().unwrap().1);
+                let value = distance(a, b);
+                let expected = if high <= low || value <= low + (high - low) / 3. {
+                    DomainNegativeDistance::Near
+                } else if value < low + 2. * ((high - low) / 3.) {
+                    DomainNegativeDistance::Mid
+                } else {
+                    DomainNegativeDistance::Far
+                };
+                assert_eq!(relation.negative_distance(a, b, &values, &values), expected);
+            }
+            assert_eq!(
+                relation.negative_distance(&values[0], &values[0], &[], &values),
+                DomainNegativeDistance::Near
+            );
+        }
+    }
+}
+
+#[derive(Clone, Debug, DomainInput)]
+struct SolverNumbers {
+    a: i64,
+    b: i64,
+    c: i64,
+    d: i64,
+}
+#[test]
+fn relation_pair_witnesses_preserve_coordinates_and_exhaustive_feasibility() {
+    for (topology, relations, end) in [
+        (0, 0, 1000),
+        (0, 1, 1000),
+        (0, 3, 1000),
+        (0, 6, 8),
+        (1, 3, 1000),
+    ] {
+        let f = DomainField::<SolverNumbers>::root().fields();
+        let mut domain = domain!(SolverNumbers { a.in_range(0..=end), b.in_range(0..=end), c.in_range(0..=end), d.in_range(0..=end) });
+        let rules = if topology == 1 {
+            vec![
+                f.a.less_equal(&f.b),
+                f.a.less_equal(&f.c),
+                f.a.less_equal(&f.d),
+            ]
+        } else {
+            vec![
+                f.a.less_equal(&f.b),
+                f.b.less_equal(&f.c),
+                f.c.less_equal(&f.d),
+                f.a.less_equal(&f.c),
+                f.a.less_equal(&f.d),
+                f.b.less_equal(&f.d),
+            ]
+        };
+        for rule in rules.into_iter().take(relations) {
+            domain.add(rule, &[]);
+        }
+        let compiled = domain.compile().unwrap();
+        let mut signatures = Vec::new();
+        for seed in [1, 719, 184729361] {
+            let mut occupied = BTreeSet::new();
+            let mut cursor = 0;
+            let mut pairs = BTreeSet::new();
+            let mut witnesses = Vec::new();
+            while let Some((input, coordinate)) =
+                compiled.next(2, &mut cursor, seed, &occupied).unwrap()
+            {
+                let actual = compiled.classify(&input).unwrap();
+                assert_eq!(actual.violated, coordinate.violated);
+                assert_eq!(coordinate.violated.len(), 2);
+                pairs.insert(coordinate.violated.clone());
+                occupied.insert(coordinate_key(&coordinate));
+                witnesses.push((
+                    [input.a, input.b, input.c, input.d],
+                    coordinate_key(&coordinate),
+                ));
+            }
+            if end == 8 {
+                let mut oracle = BTreeSet::new();
+                for a in -1..=9 {
+                    for b in -1..=9 {
+                        for c in -1..=9 {
+                            for d in -1..=9 {
+                                let flags = [
+                                    !(0..=end).contains(&a),
+                                    !(0..=end).contains(&b),
+                                    !(0..=end).contains(&c),
+                                    !(0..=end).contains(&d),
+                                    a > b,
+                                    b > c,
+                                    c > d,
+                                    a > c,
+                                    a > d,
+                                    b > d,
+                                ];
+                                let violated: Vec<_> = flags
+                                    .into_iter()
+                                    .enumerate()
+                                    .filter_map(|(id, bad)| bad.then_some(id))
+                                    .collect();
+                                if violated.len() == 2 {
+                                    oracle.insert(violated);
+                                }
+                            }
+                        }
+                    }
+                }
+                assert_eq!(pairs, oracle);
+            }
+            let portable = format!("{witnesses:?}")
+                .bytes()
+                .fold(0xcbf29ce484222325u64, |hash, byte| {
+                    (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+                });
+            signatures.push(portable);
+        }
+        let expected = match (topology, relations, end) {
+            (0, 0, 1000) => 3947585941243040917,
+            (0, 1, 1000) => 15794665842306307549,
+            (0, 3, 1000) => 17098276074675806099,
+            (0, 6, 8) => 10467569229425296998,
+            (1, 3, 1000) => 9536504339960619074,
+            _ => unreachable!(),
+        };
+        assert_eq!(signatures, [expected; 3]);
+    }
+}
 use std::{
     cell::{Cell, RefCell},
     collections::BTreeSet,

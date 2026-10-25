@@ -1,6 +1,107 @@
 use crate::certifications::test_support::{close, reference_linear, reference_rank, shuffle};
 use crate::certifications::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[test]
+fn parallel_pearson_preserves_bits_order_alignment_and_projection_counts() {
+    let left: Vec<_> = (0..40000)
+        .map(|i| (i as i64 * 3 + i64::MIN, ((i * 17 % 991) as f64).sin()))
+        .collect();
+    let right: Vec<_> = left
+        .iter()
+        .copied()
+        .filter(|(key, _)| key.rem_euclid(13) != 0)
+        .rev()
+        .collect();
+    let config = config(-32, 32, LagMeasure::Pearson);
+    let single = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    let reference = single.install(|| run(&left, &right, config));
+    for candidate in &reference.candidates {
+        let independent = run(
+            &left,
+            &right,
+            LagConfig {
+                range: LagRange::new(candidate.lag, candidate.lag).unwrap(),
+                ..config
+            },
+        );
+        assert_eq!(
+            serde_json::to_vec(candidate).unwrap(),
+            serde_json::to_vec(&independent.candidates[0]).unwrap()
+        );
+    }
+    for threads in [1, 2, 4, 8] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        let projections = AtomicUsize::new(0);
+        for _ in 0..3 {
+            projections.store(0, Ordering::Relaxed);
+            let actual = pool
+                .install(|| {
+                    lag_relation_by(
+                        &left,
+                        &right,
+                        |v| {
+                            projections.fetch_add(1, Ordering::Relaxed);
+                            *v
+                        },
+                        |v| {
+                            projections.fetch_add(1, Ordering::Relaxed);
+                            *v
+                        },
+                        config,
+                    )
+                })
+                .unwrap();
+            assert_eq!(
+                serde_json::to_vec(&actual).unwrap(),
+                serde_json::to_vec(&reference).unwrap()
+            );
+            assert_eq!(
+                projections.load(Ordering::Relaxed),
+                left.len() + right.len()
+            );
+        }
+    }
+}
+#[test]
+fn parallel_pearson_returns_the_first_numeric_error_in_lag_order() {
+    let values: Vec<_> = (0..40000)
+        .map(|i| (i as i64, if i % 2 == 0 { f64::MAX } else { -f64::MAX }))
+        .collect();
+    let config = config(-32, 32, LagMeasure::Pearson);
+    for threads in [1, 2, 4, 8] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        let actual = pool
+            .install(|| lag_relation_by(&values, &values, |v| *v, |v| *v, config))
+            .unwrap_err();
+        let independent = lag_relation_by(
+            &values,
+            &values,
+            |v| *v,
+            |v| *v,
+            LagConfig {
+                range: LagRange::new(-32, -32).unwrap(),
+                ..config
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            serde_json::to_vec(&actual).unwrap(),
+            serde_json::to_vec(&independent).unwrap()
+        );
+        assert!(matches!(actual, LagError::Numeric { lag: -32, .. }));
+    }
+}
+
 fn config(start: i64, end: i64, measure: LagMeasure) -> LagConfig {
     LagConfig {
         range: LagRange::new(start, end).unwrap(),

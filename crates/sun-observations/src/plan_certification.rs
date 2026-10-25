@@ -2,6 +2,56 @@ use crate::*;
 use serde::Serialize;
 use std::sync::Arc;
 
+#[derive(Serialize, Observation)]
+#[observation(namespace = "cache::many")]
+struct Many<const TYPE: u8> {
+    kind: u8,
+    round: u8,
+}
+#[test]
+fn weak_overflow_preserves_type_budgets_generation_and_capture_completion() {
+    let engine = ObservationEngine::isolated();
+    engine.set_selection(Selection::new().activate_all());
+    let memory = Arc::new(MemorySink::new());
+    engine.add_channel_sink("many", memory.clone());
+    engine.register_namespace_channel("cache", "many").unwrap();
+    macro_rules! verify { ($($id:literal),*) => {{
+        let mut config = ScopeConfig::new("overflow");
+        $(config = config.override_policy::<Many<$id>>(Policy::first_n(1).unwrap());)*
+        let _guard = start_scope(config);
+        for round in 0..3 {
+            $(assert_eq!(engine.observe_if_active(|| Many::<$id> { kind: $id, round }).unwrap(), round == 0);)*
+        }
+        engine.set_selection(Selection::new());
+        $(assert!(!engine.observe_if_active::<Many<$id>, _>(|| panic!("inactive payload")).unwrap());)*
+        engine.set_selection(Selection::new().activate_all());
+        $(assert!(!engine.observe_if_active(|| Many::<$id> { kind: $id, round: 3 }).unwrap());)*
+    }}; }
+    verify!(
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39
+    );
+    let records = memory.records();
+    assert_eq!(records.len(), 40);
+    for (kind, record) in records.iter().enumerate() {
+        assert_eq!(record.data["kind"], kind);
+        assert_eq!(record.data["round"], 0);
+    }
+    let run = evidence::capture_observations(evidence::CaptureConfig::new().activate_all(), || {
+        macro_rules! emit { ($($id:literal),*) => { for round in 0..3 { $(observe!(Many::<$id> { kind: $id, round }).unwrap();)* } }; }
+        emit!(
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 31
+        );
+    });
+    assert!(run.status().is_complete());
+    assert_eq!(run.dataset().records().len(), 96);
+    for (index, record) in run.dataset().records().iter().enumerate() {
+        assert_eq!(record.data["kind"], index % 32);
+        assert_eq!(record.data["round"], index / 32);
+    }
+}
+
 #[test]
 fn retired_sink_can_reenter_context_and_configuration_during_generation_eviction() {
     let mut certification = sun_observations::certifications::certification(

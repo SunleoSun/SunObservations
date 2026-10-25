@@ -7,6 +7,33 @@ mod classification;
 mod coverage;
 
 type Assignment = Vec<(InputPath, DomainValue)>;
+
+/// Candidate memoization is scoped to one solve's immutable violation set.
+struct SolverCandidates<'a> {
+    violated: &'a [usize],
+    values: Vec<std::cell::OnceCell<Vec<DomainValue>>>,
+}
+impl<'a> SolverCandidates<'a> {
+    fn new(violated: &'a [usize], rules: usize) -> Self {
+        Self {
+            violated,
+            values: (0..rules).map(|_| std::cell::OnceCell::new()).collect(),
+        }
+    }
+    fn source<'b, T: DomainInput>(
+        &'b self,
+        domain: &CompiledDomain<T>,
+        var: &Variable,
+        source: &DomainSource,
+        id: usize,
+    ) -> std::borrow::Cow<'b, [DomainValue]> {
+        let build = || domain.candidates(var, source, self.violated.contains(&id));
+        match self.values.get(id) {
+            Some(cell) => std::borrow::Cow::Borrowed(cell.get_or_init(build)),
+            None => std::borrow::Cow::Owned(build()),
+        }
+    }
+}
 const SEARCH_LIMIT: usize = 100_000;
 const CONTEXT_LIMIT: usize = 4096;
 const COLLECTION_LIMIT: usize = 1_000_000;
@@ -735,42 +762,49 @@ pub struct CompiledDomain<T> {
     marker: PhantomData<fn() -> T>,
     catalog: DomainCoverageCatalog,
 }
-fn get<'a>(env: &'a [(InputPath, DomainValue)], path: &InputPath) -> Option<&'a DomainValue> {
+fn get<'a>(
+    env: &'a [(InputPath, DomainValue)],
+    path: &[DomainPathStep],
+) -> Option<&'a DomainValue> {
     env.iter().find(|(p, _)| p == path).map(|(_, v)| v)
 }
 fn path_active(path: &InputPath, env: &[(InputPath, DomainValue)]) -> Option<bool> {
-    let mut prefix = vec![];
-    for step in path {
+    for (i, step) in path.iter().enumerate() {
         match step {
-            DomainPathStep::Variant(i) => {
-                let DomainValue::Enum(tag, _) = get(env, &prefix)? else {
+            DomainPathStep::Variant(expected) => {
+                let DomainValue::Enum(tag, _) = get(env, &path[..i])? else {
                     return Some(false);
                 };
-                if i != tag {
+                if expected != tag {
                     return Some(false);
                 }
             }
-            DomainPathStep::Each => {
-                let mut length = prefix.clone();
-                length.push(DomainPathStep::Length);
-                if let Some(DomainValue::Int(0)) = get(env, &length) {
-                    return Some(false);
-                }
+            DomainPathStep::Each
+                if env
+                    .iter()
+                    .find(|(p, _)| {
+                        p.len() == i + 1 && p[..i] == path[..i] && p[i] == DomainPathStep::Length
+                    })
+                    .is_some_and(|(_, value)| matches!(value, DomainValue::Int(0))) =>
+            {
+                return Some(false);
             }
             _ => {}
         }
-        prefix.push(step.clone());
     }
     Some(true)
 }
 fn rule_active(rule: &DomainRule, env: &[(InputPath, DomainValue)]) -> Option<bool> {
     let paths = match &rule.kind {
-        DomainRuleKind::Source(s) => vec![s.path.clone()],
-        DomainRuleKind::Relation(r) => r.paths(),
+        DomainRuleKind::Source(s) => [Some(&s.path), None],
+        DomainRuleKind::Relation(r) => [&r.left, &r.right].map(|operand| match operand {
+            DomainOperand::Field(path) => Some(path),
+            DomainOperand::Value(_) => None,
+        }),
     };
     let mut unknown = false;
-    for p in paths {
-        match path_active(&p, env) {
+    for path in paths.into_iter().flatten() {
+        match path_active(path, env) {
             Some(false) => return Some(false),
             None => unknown = true,
             _ => {}
@@ -1226,50 +1260,57 @@ impl<T: DomainInput> CompiledDomain<T> {
         }
         values
     }
-    fn possible_operand(
-        &self,
-        operand: &DomainOperand,
-        env: &Assignment,
-        forced: &[(InputPath, DomainValue)],
-        violated: &[usize],
-    ) -> Option<Vec<DomainValue>> {
+    fn possible_operand<'a>(
+        &'a self,
+        operand: &'a DomainOperand,
+        env: &'a Assignment,
+        forced: &'a [(InputPath, DomainValue)],
+        candidates: &'a SolverCandidates<'_>,
+    ) -> Option<std::borrow::Cow<'a, [DomainValue]>> {
+        use std::borrow::Cow;
         let path = match operand {
-            DomainOperand::Value(v) => return Some(vec![v.clone()]),
+            DomainOperand::Value(v) => return Some(Cow::Borrowed(std::slice::from_ref(v))),
             DomainOperand::Field(p) => p,
         };
         if let Some(v) = get(env, path) {
-            return Some(vec![v.clone()]);
+            return Some(Cow::Borrowed(std::slice::from_ref(v)));
         }
         let var = self.variables.iter().find(|v| &v.path == path)?;
-        let sources: Vec<_> = self
+        let mut sources = self
             .rules
             .iter()
             .enumerate()
-            .filter_map(|(id, r)| {
-                if let DomainRuleKind::Source(s) = &r.kind {
-                    (&s.path == path && rule_active(r, env) != Some(false)).then_some((id, s))
+            .filter_map(|(id, rule)| {
+                if let DomainRuleKind::Source(source) = &rule.kind {
+                    (&source.path == path && rule_active(rule, env) != Some(false))
+                        .then_some((id, source))
                 } else {
                     None
                 }
             })
-            .collect();
-        if sources.is_empty() {
-            return None;
-        }
-        let mut all = vec![];
-        for (id, source) in sources {
-            let negative = violated.contains(&id);
-            if let Some(v) = get(forced, path) {
-                if source.space.contains(v) != negative && var.schema.accepts(v) {
-                    push_value(&mut all, v.clone())
+            .peekable();
+        sources.peek()?;
+        let mut all = Vec::new();
+        while let Some((id, source)) = sources.next() {
+            let values = if let Some(v) = get(forced, path) {
+                if source.space.contains(v) != candidates.violated.contains(&id)
+                    && var.schema.accepts(v)
+                {
+                    Cow::Borrowed(std::slice::from_ref(v))
+                } else {
+                    Cow::Borrowed(&[][..])
                 }
             } else {
-                for v in self.candidates(var, source, negative) {
-                    push_value(&mut all, v)
-                }
+                candidates.source(self, var, source, id)
+            };
+            if sources.peek().is_none() && all.is_empty() {
+                return Some(values);
+            }
+            for value in values.iter() {
+                push_value(&mut all, value.clone());
             }
         }
-        Some(all)
+        Some(Cow::Owned(all))
     }
     fn solve(
         &self,
@@ -1306,53 +1347,43 @@ impl<T: DomainInput> CompiledDomain<T> {
             d: &CompiledDomain<T>,
             i: usize,
             env: &mut Assignment,
+            known: &mut Assignment,
             forced: &[(InputPath, DomainValue)],
-            violated: &[usize],
+            candidates: &SolverCandidates<'_>,
             steps: &mut usize,
         ) -> Result<Option<Assignment>, AnalysisError> {
+            let violated = candidates.violated;
             *steps += 1;
             if *steps > SEARCH_LIMIT {
                 return Err(domain_error(
                     "Domain solver exhausted its bounded search; coverage cannot be certified",
                 ));
             }
-            let mut known = env.clone();
-            for (p, v) in forced {
-                if get(&known, p).is_none() {
-                    known.push((p.clone(), v.clone()))
-                }
-            }
             if violated
                 .iter()
-                .any(|id| rule_active(&d.rules[*id], &known) == Some(false))
+                .any(|id| rule_active(&d.rules[*id], known) == Some(false))
                 || forced
                     .iter()
-                    .any(|(p, _)| path_active(p, &known) == Some(false))
+                    .any(|(p, _)| path_active(p, known) == Some(false))
             {
                 return Ok(None);
             }
             for (id, rule) in d.rules.iter().enumerate() {
                 if let DomainRuleKind::Relation(r) = &rule.kind {
-                    if rule_active(rule, &known) == Some(true) || violated.contains(&id) {
+                    if rule_active(rule, known) == Some(true) || violated.contains(&id) {
                         let desired = !violated.contains(&id);
-                        if let Some(valid) = r.evaluate(&known) {
+                        if let Some(valid) = r.evaluate(known) {
                             if valid != desired {
                                 return Ok(None);
                             }
                         } else if let (Some(left), Some(right)) = (
-                            d.possible_operand(&r.left, &known, forced, violated),
-                            d.possible_operand(&r.right, &known, forced, violated),
+                            d.possible_operand(&r.left, known, forced, candidates),
+                            d.possible_operand(&r.right, known, forced, candidates),
                         ) {
                             if !left.iter().any(|a| {
-                                right.iter().any(|b| {
-                                    DomainRelation {
-                                        left: DomainOperand::Value(a.clone()),
-                                        right: DomainOperand::Value(b.clone()),
-                                        kind: r.kind,
-                                    }
-                                    .evaluate(&[])
-                                        == Some(desired)
-                                })
+                                right
+                                    .iter()
+                                    .any(|b| r.evaluate_values(a, b) == Some(desired))
                             }) {
                                 return Ok(None);
                             }
@@ -1376,52 +1407,72 @@ impl<T: DomainInput> CompiledDomain<T> {
             }
             let var = &d.variables[i];
             if path_active(&var.path, env) == Some(false) {
-                return dfs(d, i + 1, env, forced, violated, steps);
+                return dfs(d, i + 1, env, known, forced, candidates, steps);
             }
-            let active: Vec<_> = d
-                .rules
-                .iter()
-                .enumerate()
-                .filter_map(|(id, r)| {
-                    if let DomainRuleKind::Source(s) = &r.kind {
-                        (s.path == var.path && rule_active(r, env) == Some(true)).then_some((id, s))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            if active.is_empty() {
+            let mut active = d.rules.iter().enumerate().filter_map(|(id, r)| {
+                if let DomainRuleKind::Source(s) = &r.kind {
+                    (s.path == var.path && rule_active(r, env) == Some(true)).then_some((id, s))
+                } else {
+                    None
+                }
+            });
+            let Some((id, source)) = active.next() else {
                 return Err(domain_error(format!(
                     "field {} has no value specification",
                     var.name
                 )));
-            }
-            if active.len() != 1 {
+            };
+            if active.next().is_some() {
                 return Err(domain_error(format!(
                     "field {} has duplicate constructive value specifications",
                     var.name
                 )));
             }
-            let (id, source) = active[0];
             let negative = violated.contains(&id);
             let choices = if let Some(v) = get(forced, &var.path) {
                 if !var.schema.accepts(v) || source.space.contains(v) == negative {
                     return Ok(None);
                 }
-                vec![v.clone()]
+                std::borrow::Cow::Borrowed(std::slice::from_ref(v))
             } else {
-                d.candidates(var, source, negative)
+                candidates.source(d, var, source, id)
             };
-            for value in choices {
-                env.push((var.path.clone(), value));
-                if let Some(found) = dfs(d, i + 1, env, forced, violated, steps)? {
+            let extend_known = get(known, &var.path).is_none();
+            for value in choices.iter() {
+                if extend_known {
+                    known.push((var.path.clone(), value.clone()));
+                }
+                env.push((var.path.clone(), value.clone()));
+                if let Some(found) = dfs(d, i + 1, env, known, forced, candidates, steps)? {
                     return Ok(Some(found));
                 }
                 env.pop();
+                if extend_known {
+                    known.pop();
+                }
             }
             Ok(None)
         }
-        dfs(self, 0, &mut vec![], &forced, violated, &mut 0).map_err(|e| {
+        let cached_rules = if self
+            .rules
+            .iter()
+            .any(|rule| matches!(rule.kind, DomainRuleKind::Relation(_)))
+        {
+            self.rules.len()
+        } else {
+            0
+        };
+        let candidates = SolverCandidates::new(violated, cached_rules);
+        dfs(
+            self,
+            0,
+            &mut vec![],
+            &mut forced.clone(),
+            &forced,
+            &candidates,
+            &mut 0,
+        )
+        .map_err(|e| {
             domain_error(format!(
                 "{}; forced: {}; violated: {:?}",
                 e.message,
@@ -1436,11 +1487,12 @@ impl<T: DomainInput> CompiledDomain<T> {
         relation: &DomainRelation,
         context: &Assignment,
     ) -> Vec<DomainTarget> {
+        let candidates = SolverCandidates::new(&[], 0);
         let left = self
-            .possible_operand(&relation.left, context, context, &[])
+            .possible_operand(&relation.left, context, context, &candidates)
             .unwrap_or_default();
         let right = self
-            .possible_operand(&relation.right, context, context, &[])
+            .possible_operand(&relation.right, context, context, &candidates)
             .unwrap_or_default();
         let pairs = relation.invalid_pairs(&left, &right);
         if pairs.is_empty() {

@@ -1,5 +1,14 @@
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::{error::Error, fmt, sync::Arc};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt,
+    ops::Range,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, OnceLock,
+    },
+};
 use sun_observations::certifications::*;
 use sun_observations::{MemorySink, Observation, ObservationLevel, ObservationRecord, Phase};
 
@@ -17,14 +26,101 @@ impl fmt::Display for IngestionError {
 impl Error for IngestionError {}
 
 /// Fixed membership and order over shared immutable canonical records.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ObservationDataset {
-    records: Arc<[Arc<ObservationRecord>]>,
+    storage: Arc<DatasetStorage>,
+}
+
+const NAMESPACE_INDEX_MIN_RECORDS: usize = 4096;
+
+/// Immutable membership owns the optional, shared namespace projection; sinks never update it.
+#[derive(Debug)]
+struct DatasetStorage {
+    records: Box<[Arc<ObservationRecord>]>,
+    namespace_scan_seen: AtomicBool,
+    namespace_index: OnceLock<NamespaceIndex>,
+}
+#[derive(Debug)]
+enum NamespaceIndex {
+    Uniform(String),
+    Mixed(HashMap<String, Vec<usize>>),
+}
+impl NamespaceIndex {
+    fn build(records: &[Arc<ObservationRecord>]) -> Self {
+        let first = &records[0].namespace;
+        if records.iter().all(|record| record.namespace == *first) {
+            return Self::Uniform(first.clone());
+        }
+        let mut index: HashMap<String, Vec<usize>> = HashMap::new();
+        for (position, record) in records.iter().enumerate() {
+            if let Some(indices) = index.get_mut(&record.namespace) {
+                indices.push(position);
+            } else {
+                index.insert(record.namespace.clone(), vec![position]);
+            }
+        }
+        Self::Mixed(index)
+    }
+}
+#[derive(Clone)]
+enum RecordIndices<'a> {
+    All(Range<usize>),
+    Selected(std::slice::Iter<'a, usize>),
+}
+impl Iterator for RecordIndices<'_> {
+    type Item = usize;
+    fn next(&mut self) -> Option<usize> {
+        match self {
+            Self::All(range) => range.next(),
+            Self::Selected(indices) => indices.next().copied(),
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::All(range) => range.size_hint(),
+            Self::Selected(indices) => indices.size_hint(),
+        }
+    }
+}
+impl fmt::Debug for ObservationDataset {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        out.debug_struct("ObservationDataset")
+            .field("records", &self.storage.records)
+            .finish()
+    }
 }
 impl ObservationDataset {
+    fn indices(&self, namespace: Option<&str>) -> RecordIndices<'_> {
+        let records = self.records();
+        let Some(namespace) = namespace.filter(|_| records.len() >= NAMESPACE_INDEX_MIN_RECORDS)
+        else {
+            return RecordIndices::All(0..records.len());
+        };
+        let index = self.storage.namespace_index.get().or_else(|| {
+            self.storage
+                .namespace_scan_seen
+                .swap(true, Ordering::Relaxed)
+                .then(|| {
+                    self.storage
+                        .namespace_index
+                        .get_or_init(|| NamespaceIndex::build(records))
+                })
+        });
+        match index {
+            Some(NamespaceIndex::Mixed(index)) => {
+                RecordIndices::Selected(index.get(namespace).map_or(&[][..], Vec::as_slice).iter())
+            }
+            Some(NamespaceIndex::Uniform(name)) if name != namespace => RecordIndices::All(0..0),
+            _ => RecordIndices::All(0..records.len()),
+        }
+    }
     pub(crate) fn from_shared(records: Vec<Arc<ObservationRecord>>) -> Self {
         Self {
-            records: records.into(),
+            storage: Arc::new(DatasetStorage {
+                records: records.into_boxed_slice(),
+                namespace_scan_seen: AtomicBool::new(false),
+                namespace_index: OnceLock::new(),
+            }),
         }
     }
     pub fn try_from_records(records: Vec<Arc<ObservationRecord>>) -> Result<Self, IngestionError> {
@@ -39,7 +135,7 @@ impl ObservationDataset {
         Self::try_from_records(memory.shared_records())
     }
     pub fn records(&self) -> &[Arc<ObservationRecord>] {
-        &self.records
+        &self.storage.records
     }
     pub fn query<'a>(&'a self, query: ObservationsQuery<'a>) -> RecordView<'a> {
         RecordView {
@@ -141,19 +237,24 @@ pub struct RecordView<'a> {
     query: ObservationsQuery<'a>,
 }
 impl RecordView<'_> {
-    pub fn iter(&self) -> impl Iterator<Item = (usize, &Arc<ObservationRecord>)> + Clone {
+    fn iter_namespace(
+        &self,
+        namespace: Option<&str>,
+    ) -> impl Iterator<Item = (usize, &Arc<ObservationRecord>)> + Clone {
         self.dataset
-            .records
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| self.query.matches(r))
+            .indices(namespace)
+            .map(|index| (index, &self.dataset.records()[index]))
+            .filter(|(_, record)| self.query.matches(record))
+    }
+    pub fn iter(&self) -> impl Iterator<Item = (usize, &Arc<ObservationRecord>)> + Clone {
+        self.iter_namespace(self.query.namespace)
     }
     /// Decodes points and span starts of T's namespace; lifecycle ends have no typed payload.
     pub fn to_typed<T: Observation + DeserializeOwned>(&self) -> Result<TypedView<T>, DecodeError> {
         let mut values = Vec::new();
         let mut sources = Vec::new();
         for (index, record) in self
-            .iter()
+            .iter_namespace(Some(T::NAMESPACE))
             .filter(|(_, r)| r.namespace == T::NAMESPACE && r.phase != Some(Phase::End))
         {
             let value = T::deserialize(&record.data).map_err(|e| DecodeError {

@@ -58,6 +58,10 @@ harness = false
 name = "generative_certifications"
 harness = false
 
+[[bench]]
+name = "framework_audit"
+harness = false
+
 [[test]]
 name = "benchmark_reports"
 path = "benches/support/report_process.rs"
