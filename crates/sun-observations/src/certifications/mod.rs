@@ -1,10 +1,12 @@
 //! Generic, typed semantic proofs over ordinary Rust evidence, independent of runtime types and state.
 //! Facts never assert; expectations and final proof aggregation own acceptance.
+mod aggregate;
 mod anomaly;
 mod certification;
 mod criteria;
 mod domain;
 mod execution;
+pub use aggregate::*;
 pub use domain::*;
 pub use execution::*;
 pub use sun_observations_derive::{domain, fact, DomainInput};

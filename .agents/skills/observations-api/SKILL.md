@@ -9,7 +9,7 @@ Use sun_observations::* for runtime and sun_observations::evidence::* for captur
 
 ## DSL
 
-Authoring structure, not literal Rust. Selection controls admission; routing controls delivery; capture observes the real operation without replacing its behavior.
+Authoring structure, not literal Rust. Selection controls admission; routing controls delivery; capture observes the real operation without replacing its behavior. NAMESPACE/NS, TAG/TAGS, NAME and ID denote namespace strings, tag string(s), diagnostic/scope strings and persisted identity strings. PAYLOAD is a concrete Observation type; VALUE/START_PAYLOAD are implementation values of that type; FIELDS are its Rust fields. Declaration LEVEL is INFO/WARN/ERROR, query LEVEL is ObservationLevel::INFO/WARN/ERROR. POLICY is Policy::Always, Policy::Never, Policy::first_n(N)? or Policy::every_n(N)? (positive u64 N). OPERATION means arbitrary real production code or a closure executed under the surrounding scope/span/capture, not a framework type. CHANNEL_NAME is the logical routing-channel name/string accepted by routing APIs; PATH is a filesystem path.
 
 ~~~text
 DECLARATION :=
@@ -21,27 +21,26 @@ SELECTION := Selection::new()
     [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? ]*
     [ .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
 SCOPE := guard = start_scope(ScopeConfig::new(NAME)
-[ .selection(SELECTION) ]
-[ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
-| .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
-[ .override_policy::<PAYLOAD>(POLICY) ])
-[ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
-ROUTING := engine.add_channel_sink(CHANNEL, SINK)
-engine.register_namespace_channel(NAMESPACE, CHANNEL)?
-SINK := Arc::new(MemorySink::new() | MemorySink::with_config(RETENTION)
-| JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
-| ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
-SPAN := span = observe_span!(PAYLOAD)
-OPERATION; span.finish()?
+    [ .selection(SELECTION) ]
+    [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? | .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+    [ .override_policy::<PAYLOAD>(POLICY) ])
+    [ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
+ROUTING := engine.add_channel_sink(CHANNEL_NAME, SINK)
+    engine.register_namespace_channel(NAMESPACE, CHANNEL_NAME)?
+SINK := Arc::new(MemorySink::new() | MemorySink::with_config(MEMORY_CONFIG)
+    | JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, JSONL_CONFIG)?
+    | ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK_IMPL)
+SPAN := span = observe_span!(START_PAYLOAD)
+OPERATION
+span.finish()?
 CAPTURE := run = capture_observations(CaptureConfig::new()
-[ .selection(SELECTION) ]
-[ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
-| .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
-[ .retention(RETENTION) ], OPERATION)
+    [ .selection(SELECTION) ]
+    [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? | .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+    [ .retention(MEMORY_CONFIG) ], OPERATION)
 QUERY := dataset.query(ObservationsQuery::new()
-[ .namespace(NS) | .namespace_subtree(NS) ]
-[ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
-[ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
+    [ .namespace(NS) | .namespace_subtree(NS) ]
+    [ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
+    [ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
 TYPED_EVIDENCE := typed = (run | dataset | QUERY).to_typed::<PAYLOAD>()?; typed.source(NAME)
 SPAN_EVIDENCE := spans = (run | dataset | QUERY).to_spans::<PAYLOAD>()?; spans.source(NAME)
 ~~~
@@ -100,7 +99,7 @@ fn select_boundary_not_debug() {
 
 ## SCOPE
 
-Keep the start_scope(config) guard alive through the operation. Prefer ScopeConfig::new(name).activate_all()/activate_namespace(ns)?/activate_tags(tags)? and exclude_namespace(ns)?/exclude_tags(tags)? for scope-local selection; use .selection(selection) when reusing a prebuilt Selection. Add .override_policy::<T>(policy) as needed. Policy::Always, Policy::Never, Policy::first_n(n)?, Policy::every_n(n)? control admission; counts are positive and counters belong to scope/type lifecycle.
+Keep the start_scope(config) guard alive through the operation. Prefer ScopeConfig::new(name).activate_all()/activate_namespace(ns)?/activate_tags(tags)? and exclude_namespace(ns)?/exclude_tags(tags)? for scope-local selection; use .selection(selection) when reusing a prebuilt Selection. Add .override_policy::<T>(policy) as needed. Policy::Always, Policy::Never, Policy::first_n(n)?, Policy::every_n(n)? control admission; counts are positive u64 and counters belong to scope/type lifecycle. first_n(n) and every_n(n) return Option<Policy> (None for zero); unwrap validated positive constants, or propagate ? only from an Option-returning body.
 
 Capture context = Context::capture() in the parent. Use context.enter() when a guard must cover several calls in the current thread, context.run(operation) inside an existing worker, or context::thread::spawn(operation) for a new thread. For Rayon use ContextThreadPool::new()? for default sizing or ContextThreadPool::with_threads(nonzero_thread_count)? for an explicit size, then pool.install(operation). Ordinary threads/unrelated async tasks do not inherit context. Join workers before interpreting capture completeness.
 
@@ -139,27 +138,24 @@ fn route_to_audit() {
 
 ## SINK
 
-- MemorySink::new() uses 1,000,000 records and 0.10 compaction; use MemorySink::with_config(MemorySinkConfig::new(max_items, compact_fraction)?) for bounded retention. Inspect .len(), .is_empty(), .config(), .stats() (retained, evicted, compactions); .shared_records() snapshots and .drain_shared() removes records without cloning payloads. Eviction makes capture incomplete.
-- JsonlSink::open_append(path)? and JsonlSink::from_writer(writer) use default configuration; use JsonlSink::with_config(path, config)? or JsonlSink::writer_with_config(writer, config)? only when customizing it. JsonlConfig::new() defaults to 1000ms flush, no size bound, trim fraction 0.10. Builders .flush_interval_ms(ms)?, .max_file_size_bytes(bytes)?, .trim_fraction(fraction)? validate. Inspect .stats(), .is_started(), .last_error(); call .flush()? before reading async output.
-- ConsoleSink::stdout() or ConsoleSink::stderr() chooses human output destination.
-- Custom Sink implements write(&record) and flush(); optional write_shared(record_arc), wants_render_text(), write_delivery(&delivery). ObservationDelivery exposes .record(), .shared_record(), .render_text(), .shared_render_text(). Async flush() must be a real delivery barrier.
+MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?; MAX_ITEMS is positive usize and COMPACT_FRACTION is finite in (0,1]. JSONL_CONFIG means JsonlConfig::new() with optional flush_interval_ms(MS)?, max_file_size_bytes(BYTES)?, trim_fraction(FRACTION)?. CUSTOM_SINK_IMPL is a concrete Sink implementation value, not an Arc<dyn Sink>; Arc::new(...) is supplied by the DSL. Custom sinks provide the required write/flush behavior; override shared/render delivery only when needed, and async flush must be a real delivery barrier.
+
+- MemorySink::new() uses 1,000,000 records and 0.10 compaction; MemorySink::with_config(MEMORY_CONFIG) bounds retention. Inspect len(), is_empty(), config(), stats(); shared_records() snapshots and drain_shared() removes retained records. Eviction makes capture incomplete.
+- JsonlSink::open_append(path)? / from_writer(writer) use defaults; with_config(path, JSONL_CONFIG)? / writer_with_config(writer, JSONL_CONFIG)? customize persistence. JsonlConfig defaults to 1000 ms flush, no size bound, 0.10 trim. Inspect stats(), is_started(), last_error(); flush()? is the read barrier.
+- ConsoleSink::stdout() / stderr() select human output.
 
 ~~~rust
 use sun_observations::*;
 #[test]
-fn bounded_audit_retention() {
-    let retention = MemorySinkConfig::new(1000, 0.1).unwrap();
-    let memory = MemorySink::with_config(retention);
-    assert_eq!(memory.config().max_items(), 1000);
-    assert_eq!(memory.stats().evicted, 0);
-    let _jsonl = JsonlSink::writer_with_config(Vec::<u8>::new(),
-        JsonlConfig::new().flush_interval_ms(250).unwrap()).unwrap();
+fn bounded_memory_sink() {
+let memory = MemorySink::with_config(MemorySinkConfig::new(1000, 0.1).unwrap());
+assert_eq!(memory.config().max_items(), 1000);
 }
 ~~~
 
 ## SPAN
 
-Use observe_span!(payload), which lazily admits before payload construction. Inspect span.is_active(); call span.finish()? when end-delivery failure matters. Drop attempts end delivery. Start admission freezes scope/routing/sinks/policy through end; do not re-check current selection at finish. Match persisted spans by proc, scope, namespace, span, never adjacency.
+Use observe_span!(START_PAYLOAD), which lazily admits before payload construction. START_PAYLOAD describes the operation and attribution dimensions known at span start and is serialized on the start record. finish() records completion/end timing and carries no additional payload: the end has data: null and no message. An incomplete operation still leaves its attributable start so evidence can fail closed on the incomplete lifecycle. Inspect span.is_active(); call span.finish()? when end-delivery failure matters. Drop attempts end delivery. Start admission freezes scope/routing/sinks/policy through end; do not re-check current selection at finish. Match persisted spans by proc, scope, namespace, span, never adjacency.
 
 ~~~rust
 use sun_observations::*;
@@ -178,8 +174,8 @@ fn measure_sort() {
 
 ## CAPTURE
 
-capture_observations(config, operation) wraps real production. CaptureConfig::new() starts disabled with default memory retention. Prefer its .activate_all(), .activate_namespace(ns)?, .activate_tags(tags)?, .exclude_namespace(ns)?, and .exclude_tags(tags)? builders for capture-local selection; use .selection(selection) when reusing a prebuilt Selection. Use .retention(retention) for storage bounds.
-Read run.result(), dataset(), status().is_complete(), to_typed::<T>(). CapturedRun completeness requires no eviction, emission error, or escaped context/worker/span. Nested captures are exclusive; parallel captures have separate storage. run.certification(name) starts a proof with completeness already registered. A planned executor can return captured Result; case.observations::<T>() then accesses typed evidence and capture completeness is mandatory.
+capture_observations(config, operation) wraps real production. CaptureConfig::new() starts disabled with default memory retention. Prefer its .activate_all(), .activate_namespace(ns)?, .activate_tags(tags)?, .exclude_namespace(ns)?, and .exclude_tags(tags)? builders for capture-local selection; use .selection(selection) when reusing a prebuilt Selection. Use .retention(MEMORY_CONFIG) for MemorySinkConfig storage bounds.
+Read run.result(), dataset(), status().is_complete(), to_typed::<T>()?. Typed decoding alone does not assert capture health; use run.certification(name), the planned prerequisite, or an explicit completeness check before proof. CapturedRun completeness requires no eviction, emission error, or escaped context/worker/span. Nested captures are exclusive; parallel captures have separate storage. run.certification(name) starts a proof with completeness already registered. A planned executor can return captured Result; case.observations::<T>() then accesses typed evidence and capture completeness is mandatory.
 
 ~~~rust
 use sun_observations::*;

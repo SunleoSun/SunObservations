@@ -96,7 +96,9 @@ const LANGUAGES: &[Language] = &[
             "SECTION",
             "PLANNED_BODY",
             "CASE",
+            "CASE_AGGREGATE",
             "PLANNED_CHECK",
+            "AGGREGATE_CHECK",
             "FACT",
             "EXPECTATION",
             "PREPARED_SOURCE_CHECK",
@@ -454,6 +456,8 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
         },
         "PlannedCertification" => match method {
             "case" => "CASE",
+            "case_aggregate" => "CASE_AGGREGATE",
+            "check_aggregate" => "AGGREGATE_CHECK",
             "check" => "PLANNED_CHECK",
             "section" => "SECTION",
             "report" | "assert_certify" => "ASSERT_CERTIFY",
@@ -461,7 +465,11 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
         },
         "CertificationReport" => "CERTIFICATION",
         "PlannedCertificationReport" => "ASSERT_CERTIFY",
-        "CaseContext" => return None,
+        "CaseContext" | "CaseAggregateContext" => return None,
+        "AggregateCase" => "CASE_AGGREGATE",
+        "CaseAggregate" if method == "cases" => "CASE_AGGREGATE",
+        "CaseAggregate" | "AggregateEntry" | "AggregateEvidence" | "AggregateFact"
+        | "AggregateCheckPlan" => "AGGREGATE_CHECK",
         "TestCase" => match method {
             "input" | "result" | "observations" | "spans" => "CASE",
             _ => return None,
@@ -624,6 +632,24 @@ impl ClientApi {
             self.nodes.entry(node).or_default().insert(method);
         }
         for item in syn::parse_file(source).unwrap().items {
+            if let syn::Item::Impl(implementation) = &item {
+                if implementation
+                    .trait_
+                    .as_ref()
+                    .is_some_and(|(_, path, _)| path.is_ident("Default"))
+                {
+                    if let syn::Type::Path(path) = &*implementation.self_ty {
+                        let owner = path.path.segments.last().unwrap().ident.to_string();
+                        if let Some(node) = method_node(&owner, "default") {
+                            self.methods
+                                .entry(owner)
+                                .or_default()
+                                .insert("default".into());
+                            self.nodes.entry(node).or_default().insert("default".into());
+                        }
+                    }
+                }
+            }
             if let syn::Item::Enum(enumeration) = &item {
                 if matches!(enumeration.vis, syn::Visibility::Public(_)) {
                     self.methods
@@ -1110,6 +1136,10 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
             "wall-clock thresholds",
             "### Profiling",
             "known regression risk",
+            "runner.check(...)",
+            "runner.check_aggregate(...)",
+            "once after exploration",
+            "PreparedSource",
             "evidence set that actually contains comparable samples",
             "nanosecond hardware resolution",
             "overhead subtraction",
@@ -1123,17 +1153,138 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
     );
 }
 
+fn numeric_authoring_errors(text: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+    for (parameter, constructors) in [
+        (
+            "CORRELATION_EXPECTATION",
+            &[
+                "pearson_at_least(min)",
+                "spearman_at_least(min)",
+                "spearman_at_most(max)",
+                "and_pearson_bounds(min,max)",
+                "and_spearman_bounds(min,max)",
+            ][..],
+        ),
+        (
+            "LINEAR_FIT_EXPECTATION",
+            &[
+                "slope_between(min,max)",
+                "intercept_between(min,max)",
+                "r_squared_at_least(min)",
+                "residual_mean_absolute_at_most(max)",
+                "residual_max_absolute_at_most(max)",
+                "and_slope_between(min,max)",
+                "and_intercept_between(min,max)",
+                "and_r_squared_at_least(min)",
+                "and_residual_mean_absolute_at_most(max)",
+                "and_residual_max_absolute_at_most(max)",
+            ][..],
+        ),
+        (
+            "DIFFERENCE_EXPECTATION",
+            &[
+                "mean_absolute_at_most(max)",
+                "p95_absolute_at_most(max)",
+                "max_absolute_at_most(max)",
+                "and_mean_absolute_at_most(max)",
+                "and_p95_absolute_at_most(max)",
+                "and_max_absolute_at_most(max)",
+            ][..],
+        ),
+        (
+            "RELATION_EXPECTATION",
+            &[
+                "spearman_at_least(min)",
+                "spearman_at_most(max)",
+                "bound(measure,min,max)",
+            ][..],
+        ),
+    ] {
+        let row = text
+            .lines()
+            .find(|line| line.starts_with(&format!("| {parameter} |")))
+            .unwrap_or("");
+        for constructor in constructors {
+            if !row.contains(constructor) {
+                errors.push(format!("{parameter} missing {constructor}"));
+            }
+        }
+    }
+    for path in ["numerical.rs", "relation.rs"] {
+        let source = fs::read_to_string(
+            root()
+                .join("crates/sun-observations/src/certifications")
+                .join(path),
+        )
+        .unwrap();
+        for item in syn::parse_file(&source).unwrap().items {
+            if let syn::Item::Enum(item) = item {
+                let owner = item.ident.to_string();
+                if ![
+                    "CorrelationMeasure",
+                    "LinearFitMeasure",
+                    "DifferenceMeasure",
+                    "RelationMeasure",
+                ]
+                .contains(&owner.as_str())
+                {
+                    continue;
+                }
+                let row = text
+                    .lines()
+                    .find(|line| line.starts_with(&format!("- {owner}::")))
+                    .unwrap_or("");
+                let names = identifiers(row);
+                for variant in item.variants {
+                    let name = variant.ident.to_string();
+                    if !names.contains(name.as_str()) {
+                        errors.push(format!("missing {owner}::{name}"));
+                    }
+                }
+                let family = owner.replace("Measure", "Expectation");
+                if !text.contains(&format!("{family}::with_bound(measure, min, max)?")) {
+                    errors.push(format!("missing {family} generic bounds"));
+                }
+            }
+        }
+    }
+    let productions = grammar(text);
+    let comparison = productions
+        .get("NUMERIC_COMPARISON_CHECK")
+        .map(String::as_str)
+        .unwrap_or("");
+    for (method, expectation) in [
+        ("correlation", "CORRELATION"),
+        ("linear_fit", "LINEAR_FIT"),
+        ("difference", "DIFFERENCE"),
+        ("relation", "RELATION"),
+    ] {
+        if !comparison.contains(&format!("{method}().expect({expectation}_EXPECTATION)")) {
+            errors.push(format!("missing {method} expectation mapping"));
+        }
+    }
+    errors
+}
+
 fn authoring_errors(name: &str, text: &str) -> Vec<String> {
     let (required, forbidden): (&[&str], &[&str]) = match name {
         "observations-api" => (
             &[
                 "EMISSION := observe!(VALUE)",
-                "SPAN := span = observe_span!(PAYLOAD)",
+                "SPAN := span = observe_span!(START_PAYLOAD)",
                 "CaptureConfig::new()",
                 ".activate_namespace(NS)?",
                 ".activate_tags(TAGS)?",
                 "to_spans::<PAYLOAD>()?",
                 "SpanMeasurement",
+                "CHANNEL_NAME",
+                "CUSTOM_SINK_IMPL",
+                "not an Arc<dyn Sink>",
+                "MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?",
+                "JSONL_CONFIG means JsonlConfig::new()",
+                "OPERATION means arbitrary real production code",
+                "finish() records completion/end timing and carries no additional payload",
                 "SpanIdentity",
                 "proc_ns",
                 "SpanError",
@@ -1149,6 +1300,10 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "| engine.span_if_active",
                 "or observe_if_active",
                 "or lazy span_if_active",
+                "RETENTION",
+                "PATH, CONFIG",
+                "sink(CHANNEL,",
+                "finish_with",
             ],
         ),
         "certifications-api" => (
@@ -1166,6 +1321,20 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "spans.source(name)",
                 "summary() is optional",
                 "outliers(config)",
+                "CASE_AGGREGATE := cases = runner.case_aggregate()",
+                "AGGREGATE_CHECK :=",
+                "runner.check_aggregate(fact!(AGGREGATE_EXPRESSION)",
+                "once after exploration",
+                "for each successful positive case",
+                "cases.observations::<T>()?",
+                "cases.spans::<T>()?",
+                "OutlierConfig::default()",
+                "OutlierConfig::new(THRESHOLD, ZERO_MAD_POLICY)?",
+                "ZeroMadPolicy::ExactMedian",
+                "ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?",
+                "JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?",
+                "thresholds are Option<f64>",
+                "LagConfig { range: LagRange::new(START, END)?, measure: LagMeasure::Pearson | LagMeasure::Spearman }",
             ],
             &[
                 "c.source(",
@@ -1176,8 +1345,11 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "Criterion::BOUND(...)",
                 "AllValid",
                 "on_presorted(",
-                "::pearson_at_least(",
-                "::max_absolute_at_most(",
+                "outliers(CONFIG)",
+                "jumps(CONFIG)",
+                "PROJECT, CONFIG",
+                "aggregate_check(",
+                "case_local(",
             ],
         ),
         "domain-api" => (
@@ -1190,7 +1362,7 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
         ),
         _ => return Vec::new(),
     };
-    required
+    let mut errors: Vec<_> = required
         .iter()
         .filter(|marker| !text.to_lowercase().contains(&marker.to_lowercase()))
         .map(|marker| format!("missing {marker}"))
@@ -1200,7 +1372,29 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 .filter(|marker| text.contains(**marker))
                 .map(|marker| format!("ambiguous {marker}")),
         )
-        .collect()
+        .collect();
+    if name == "certifications-api" {
+        errors.extend(numeric_authoring_errors(text));
+    }
+    if name == "observations-api" {
+        let productions = grammar(text);
+        for node in ["CAPTURE", "SCOPE"] {
+            let production = productions.get(node).map(String::as_str).unwrap_or("");
+            for builder in [
+                ".activate_all()",
+                ".activate_namespace(NS)?",
+                ".activate_tags(TAGS)?",
+                ".exclude_namespace(NS)?",
+                ".exclude_tags(TAGS)?",
+                ".selection(SELECTION)",
+            ] {
+                if !production.contains(builder) {
+                    errors.push(format!("{node} missing {builder}"));
+                }
+            }
+        }
+    }
+    errors
 }
 
 #[test]
@@ -1212,9 +1406,28 @@ fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_gener
     }
     let original = skill("certifications-api");
     for altered in [
-        original.replace("Criterion::greater_than(bound)", "Criterion::greater_than"),
-        original.replace("Criterion::less_than(bound)", "Criterion::less_than()"),
+        original
+            .replace("Criterion::greater_than(bound)", "Criterion::greater_than")
+            .replace("Criterion::greater_than(BOUND)", "Criterion::greater_than"),
+        original
+            .replace("Criterion::less_than(bound)", "Criterion::less_than()")
+            .replace("Criterion::less_than(BOUND)", "Criterion::less_than()"),
         original.replace("source(NAME, &VALUE)", "c.source(NAME, &VALUE)"),
+        original.replace("OutlierConfig::new(THRESHOLD, ZERO_MAD_POLICY)?", "CONFIG"),
+        original.replace(
+            "JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?",
+            "CONFIG",
+        ),
+        original.replace("runner.case_aggregate()", "runner.case()"),
+        original.replace("runner.check_aggregate(", "runner.aggregate_check("),
+        original.replace("check_fact_expect", "check"),
+        original.replace("and_slope_between(min,max)", "and_slope_between"),
+        original.replace("and_pearson_bounds(min,max)", "and_pearson_bounds"),
+        original.replace("AbsoluteSpearman", "OmittedMeasure"),
+        original.replace(
+            "correlation().expect(CORRELATION_EXPECTATION)",
+            "correlation().expect(EXPECTATION)",
+        ),
     ] {
         assert!(!authoring_errors("certifications-api", &altered).is_empty());
     }
@@ -1224,6 +1437,16 @@ fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_gener
         "EMISSION := observe!(VALUE) | observe_if_active(|| VALUE)",
     );
     assert!(!authoring_errors("observations-api", &altered).is_empty());
+    for altered in [
+        original.replace("START_PAYLOAD", "PAYLOAD"),
+        original.replace("CHANNEL_NAME", "CHANNEL"),
+        original.replace("MEMORY_CONFIG", "RETENTION"),
+        original.replace("CUSTOM_SINK_IMPL", "CUSTOM_SINK"),
+        original.replace(".activate_namespace(NS)?", ""),
+        original.replace(".activate_tags(TAGS)?", ""),
+    ] {
+        assert!(!authoring_errors("observations-api", &altered).is_empty());
+    }
 }
 
 #[test]

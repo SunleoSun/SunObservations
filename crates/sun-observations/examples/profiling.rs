@@ -53,6 +53,30 @@ pub fn certify() {
         .expect(fact!((1usize, Some(case.input().delay_ms), true)))
         .description("one attributable completed wait satisfying the minimum delay"),
     );
+    let cases = runner.case_aggregate();
+    runner.check_aggregate(
+        fact!({
+            let spans = cases.spans::<Wait>().unwrap();
+            spans
+                .source("elapsed across requested delays")
+                .group_by(|row| row.case().input().delay_ms)
+                .numeric(|row| row.measurement().duration_ns() as f64)
+                .summaries_with_robust()
+        })
+        .expect(criterion(
+            "complete delay groups with valid distributions",
+            ViolationClass::Hard,
+            |report: &GroupedSummaryReport<u64>| {
+                report.groups.iter().map(|group| group.key).eq([1, 2, 3])
+                    && report.groups.iter().all(|group| {
+                        group.member_count > 0
+                            && group.summary.is_ok()
+                            && group.robust.as_ref().is_some_and(Result::is_ok)
+                    })
+            },
+        ))
+        .description("cross-execution grouped distributions retain every requested delay"),
+    );
     runner.assert_certify();
 }
 

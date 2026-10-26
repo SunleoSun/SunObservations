@@ -304,11 +304,12 @@ fn ordinary_executor_does_not_request_a_case_seed() {
     };
     assert!(execute_case(
         &mut executor,
-        &1,
+        1,
         || panic!("ordinary executor requested seed"),
         &coordinate,
         &[],
-        128
+        128,
+        None
     )
     .is_none());
 }

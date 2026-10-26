@@ -1,4 +1,6 @@
 //! Observation snapshot, envelope selection, decoding and provenance adapters.
+mod aggregate;
+pub use aggregate::*;
 mod capture;
 pub use capture::*;
 mod dataset;

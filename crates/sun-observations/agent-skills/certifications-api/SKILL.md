@@ -9,7 +9,7 @@ Use `sun_observations::certifications::*`. Read certifications-methodology for p
 
 ## DSL
 
-Authoring structure, not literal Rust; uppercase words are parameters or nodes defined here. Rust closures supply projections, predicates, executors, and section bodies.
+Authoring structure, not literal Rust; uppercase words are parameters or nodes defined here. Rust closures supply PROJECT/LEFT/RIGHT projections, KEY join/group projections, PREDICATE, EXECUTOR (|&input| -> execution), SEEDED_EXECUTOR (|&input, u64| -> execution), and section bodies. NAME/SOURCE/TEXT are diagnostic strings; VALUE/VALUES/INPUTS/RESULT are typed Rust values/collections/Results. N/MIN_COUNT/TOP are counts, BOOL is bool, DOMAIN belongs to domain-api; expressions are arbitrary Rust bodies using the indicated symbolic root. OFFSET is i64; Q is an f64 quantile in [0,1]. MIN/MAX/BOUND use the observed ordered type; CLASS is ViolationClass::Hard or ::Statistical. The concrete config and expectation parameters are defined in their sections below.
 
 ~~~text
 CERTIFICATION :=
@@ -28,38 +28,50 @@ c.check_fact_expect(NAME, OBSERVED, EXPECTATION)
 | CORRESPONDENCE_CHECK | NUMERIC_COMPARISON_CHECK)
 SECTION :=
     c.section(NAME, |s| { [ EAGER_CHECK | SECTION ]* })
-  | runner.section(NAME, |s| { [ PLANNED_CHECK | SECTION ]* })
+  | runner.section(NAME, |s| { [ PLANNED_CHECK | AGGREGATE_CHECK | SECTION ]* })
 PLANNED_BODY :=
     [ runner.data_source(INPUTS) ] [ runner.domain(DOMAIN) ]
     [ runner.cases_budget(N) ] [ runner.failure_budget(N) ]
     [ runner.seed(N) ] [ runner.report_mode(BOOL) ]
     [ runner.require_pairwise_coverage() ]
-    CASE [ PLANNED_CHECK | SECTION ]* ASSERT_CERTIFY
+    [ CASE ] [ CASE_AGGREGATE ] [ PLANNED_CHECK | AGGREGATE_CHECK | SECTION ]* ASSERT_CERTIFY
 CASE := case = runner.case()
+CASE_AGGREGATE := cases = runner.case_aggregate()
 PLANNED_CHECK :=
     runner.check(fact!(CASE_EXPRESSION).expect(EXPECTATION | fact!(CASE_EXPECTATION))
                  [ .description(TEXT) ])
   | runner.check(EAGER_CHECK_RESULT)
+AGGREGATE_CHECK :=
+    runner.check_aggregate(fact!(AGGREGATE_EXPRESSION)
+        .expect(EXPECTATION | fact!(AGGREGATE_EXPECTATION)) [ .description(TEXT) ])
 FACT := fact(SOURCE, VALUE) | try_fact(SOURCE, RESULT) | fact!(EXPRESSION)
 EXPECTATION :=
-    VALUE | NotEqual(VALUE) | Criterion::at_least(BOUND) | criterion(TEXT, CLASS, PREDICATE)
-  | close_to(VALUE) | CountRule::NonEmpty | NumericRule::Finite
-  | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
-  | GroupExpectation::new(MIN_COUNT, MIN_MEAN, MAX_MEAN)
-  | CorrelationExpectation::with_bound(MEASURE, MIN, MAX)
-  | LinearFitExpectation::with_bound(MEASURE, MIN, MAX)
-  | DifferenceExpectation::with_bound(MEASURE, MIN, MAX)
-  | RelationExpectation::with_bound(MEASURE, MIN, MAX)
+    VALUE | NotEqual(VALUE)
+  | Criterion::greater_than(BOUND)? | Criterion::at_least(BOUND)?
+  | Criterion::less_than(BOUND)? | Criterion::at_most(BOUND)? | Criterion::between(MIN, MAX)?
+  | criterion(TEXT, CLASS, PREDICATE)
+  | close_to(VALUE)? [ .absolute_tolerance(ABS)? ] [ .relative_tolerance(REL)? ]
+  | CountRule::NonEmpty | NumericRule::Finite | NumericRule::Positive | NumericRule::NonNegative
+  | NumericRule::between(MIN, MAX)? | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
+  | GroupExpectation::new(MIN_COUNT, MIN_MEAN, MAX_MEAN)?
+  | CORRELATION_EXPECTATION | LINEAR_FIT_EXPECTATION | DIFFERENCE_EXPECTATION | RELATION_EXPECTATION
 PREPARED_SOURCE_CHECK :=
     rows.count().expect(EXPECTATION) | value.single_map(PROJECT).expect(EXPECTATION)
   | rows.matching_count(PREDICATE).expect(EXPECTATION)
   | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, START, END).expect_valid()
 NUMERIC_CHECK :=
-    rows.numeric(PROJECT).expect(NUMERIC_RULE)
-  | rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
-  | rows.numeric(PROJECT).(outliers(CONFIG) | jumps(CONFIG)).expect(AtMostAnomalies(N))
-  | rows.(lag_self(PROJECT, CONFIG) | lag_with(&OTHER, LEFT, RIGHT, CONFIG))
-        .expect(LagExpectation { best_lag: OFFSET })
+rows.numeric(PROJECT).expect(NUMERIC_RULE)
+| rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
+| rows.numeric(PROJECT).outliers(OutlierConfig::default()
+| OutlierConfig::new(THRESHOLD, ZeroMadPolicy::ExactMedian
+| ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?)?).expect(AtMostAnomalies(N))
+| rows.numeric(PROJECT).jumps(JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD,
+DENOMINATOR_FLOOR)?).expect(AtMostAnomalies(N))
+| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(START, END)?,
+measure: LagMeasure::Pearson | LagMeasure::Spearman })
+| lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(START, END)?,
+measure: LagMeasure::Pearson | LagMeasure::Spearman }))
+.expect(LagExpectation { best_lag: OFFSET })
 GROUP_CHECK :=
     fact(NAME, rows.group_by(KEY).numeric(PROJECT)
         .(summaries() | summaries_with_robust())).expect(GROUP_EXPECTATION)
@@ -69,8 +81,10 @@ CORRESPONDENCE_CHECK :=
   | paired.equal(LEFT, RIGHT, TOP).expect_valid()
   | paired.check_pairs(PREDICATE, TOP).expect_valid()
 NUMERIC_COMPARISON_CHECK :=
-    paired.numeric(LEFT, RIGHT)
-        .(correlation() | linear_fit() | difference() | relation()).expect(EXPECTATION)
+    paired.numeric(LEFT, RIGHT).correlation().expect(CORRELATION_EXPECTATION)
+  | paired.numeric(LEFT, RIGHT).linear_fit().expect(LINEAR_FIT_EXPECTATION)
+  | paired.numeric(LEFT, RIGHT).difference().expect(DIFFERENCE_EXPECTATION)
+  | paired.numeric(LEFT, RIGHT).relation().expect(RELATION_EXPECTATION)
 ASSERT_CERTIFY := c.assert_certify() | runner.assert_certify()
 ~~~
 
@@ -178,7 +192,7 @@ fn magnitude_cases() {
 
 ## CASE
 
-Bind let case = runner.case() once. Inside fact!(...), use case.input(), case.result(), case.observations::<T>() for captured payloads, or case.spans::<T>() for paired profiling evidence. result() is the successful positive output, not a Result. The binding does not borrow the runner. All deferred checks reevaluate for each positive case.
+Bind let case = runner.case() once. Inside fact!(...), use case.input(), case.result(), case.observations::<T>() for captured payloads, or case.spans::<T>() for paired profiling evidence. result() is the successful positive output, not a Result. The binding does not borrow the runner. Ordinary runner.check(...) deferred checks reevaluate for each successful positive case; aggregate checks use the separate cases root below.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -193,6 +207,46 @@ fn sort_preserves_length() {
     let case = runner.case();
     runner.check(fact!(case.result().len()).expect(fact!(case.input().len())));
     runner.assert_certify();
+}
+~~~
+
+## CASE_AGGREGATE
+
+Bind let cases = runner.case_aggregate(). runner.check(...) still runs for each successful positive case; runner.check_aggregate(...) runs once after exploration. cases.cases()? exposes retained positive AggregateCase rows with id(), input(), result(), execution(); repeated equal inputs keep distinct CaseId values. Correctly rejected generated negatives are excluded. Local check failures keep otherwise valid evidence, while rejected positives, panics, or invalid prerequisites make aggregate access fail closed.
+
+For captured executors, cases.observations::<T>()? and cases.spans::<T>()? return case-associated AggregateEvidence. Each row exposes case(); Observation rows add value()/observation(), span rows add measurement()/sources(). source(name) is an ordinary PreparedSource, so grouping, numeric, comparison, relation, and anomaly analysis stay generic. Any required case decode/span error fails the whole accessor rather than producing a partial sample; zero matching evidence is valid until a cardinality expectation says otherwise.
+
+~~~rust
+use sun_observations::certifications::*;
+#[test]
+fn cross_case_relation() {
+let mut runner = certification("family relation").executor(|n: &usize| Ok::<_, ()>(n * 3 + 7));
+runner.data_source([1, 1, 2, 4]);
+let cases = runner.case_aggregate();
+runner.check_aggregate(fact!({
+let rows = collection("executions", cases.cases().unwrap());
+let paired = rows.compare_with(&rows).on(|r| r.id(), |r| r.id());
+paired.numeric(|r| *r.input() as f64, |r| *r.result() as f64)
+.linear_fit().observed.unwrap()
+}).expect(LinearFitExpectation::slope_between(2.99, 3.01).unwrap()));
+runner.assert_certify();
+}
+~~~
+
+## AGGREGATE_CHECK
+
+check_aggregate(fact!(aggregate_expression).expect(expectation)) is deferred until all actually explored cases finish, including an existing failure-budget stop. Ordinary section(name, |s| ...) groups both check kinds; aggregate panics or unavailable required evidence become EvaluationError and earlier failures remain failures. Use the canonical case/cases roots and do not mix them in one fact. Aggregate expectations may themselves be fact!(aggregate_expression); .description(text) names the diagnostic. In deferred expressions, unwrap() is safe for the proof boundary because evaluation panics become EvaluationError; use the Result itself when its value is the intended evidence.
+
+~~~rust
+use sun_observations::certifications::*;
+#[test]
+fn aggregate_count() {
+let mut runner = certification("family").executor(|n: &usize| Ok::<_, ()>(*n));
+runner.data_source([1, 2]);
+let cases = runner.case_aggregate();
+runner.check_aggregate(fact!(cases.cases().unwrap().len()).expect(2usize)
+.description("complete family"));
+runner.assert_certify();
 }
 ~~~
 
@@ -243,9 +297,23 @@ Choose by evidence semantics:
 - NumericRule::Finite, NumericRule::Positive, NumericRule::NonNegative, NumericRule::between(min, max)?: use rows.numeric(project).expect(rule), which returns a ready check, not a Fact.
 - AtMostAnomalies(n): outlier or jump count. LagExpectation { best_lag: offset }: keyed lag acceptance.
 - GroupExpectation::new(min_count, min_mean, max_mean)?: each group's count and mean.
-- CorrelationExpectation::with_bound(measure, min, max)?, LinearFitExpectation::with_bound(measure, min, max)?, DifferenceExpectation::with_bound(measure, min, max)?, RelationExpectation::with_bound(measure, min, max)?: statistical acceptance. Each min/max is Option<f64>; chain .bound(measure, min, max)? only to add another metric constraint.
+Use family-specific constructors and and_* combinators when they express the contract; use with_bound(measure, min, max)? and .bound(measure, min, max)? for explicit measures not covered by that sugar. Every constructor/combinator below returns Result. Scalar min/max are f64; generic bounds and correlation and_*_bounds arguments are Option<f64> (None means unbounded; at least one bound is required).
 
-Measures: CorrelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman}; LinearFitMeasure::{Slope, Intercept, RSquared, ResidualMeanAbsolute, ResidualMaxAbsolute}; DifferenceMeasure::{MeanAbsolute, P95Absolute, MaxAbsolute}; RelationMeasure combines these, naming direct errors MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference. Bounds validate finite/order/domain constraints. A required undefined metric is EvaluationError.
+| Expectation parameter | Constructor; chainable combinators |
+| --- | --- |
+| CORRELATION_EXPECTATION | CorrelationExpectation::pearson_at_least(min), ::spearman_at_least(min), ::spearman_at_most(max); .and_pearson_bounds(min,max), .and_spearman_bounds(min,max) |
+| LINEAR_FIT_EXPECTATION | LinearFitExpectation::slope_between(min,max), ::intercept_between(min,max), ::r_squared_at_least(min), ::residual_mean_absolute_at_most(max), ::residual_max_absolute_at_most(max); .and_slope_between(min,max), .and_intercept_between(min,max), .and_r_squared_at_least(min), .and_residual_mean_absolute_at_most(max), .and_residual_max_absolute_at_most(max) |
+| DIFFERENCE_EXPECTATION | DifferenceExpectation::mean_absolute_at_most(max), ::p95_absolute_at_most(max), ::max_absolute_at_most(max); .and_mean_absolute_at_most(max), .and_p95_absolute_at_most(max), .and_max_absolute_at_most(max) |
+| RELATION_EXPECTATION | RelationExpectation::spearman_at_least(min), ::spearman_at_most(max); .bound(measure,min,max) |
+
+All four families provide CorrelationExpectation::with_bound(measure, min, max)?, LinearFitExpectation::with_bound(measure, min, max)?, DifferenceExpectation::with_bound(measure, min, max)?, or RelationExpectation::with_bound(measure, min, max)?, followed by .bound(measure, min, max)?. Use the measure enum belonging to that family:
+
+- CorrelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman}.
+- LinearFitMeasure::{Slope, Intercept, RSquared, ResidualMeanAbsolute, ResidualMaxAbsolute}.
+- DifferenceMeasure::{MeanAbsolute, P95Absolute, MaxAbsolute}.
+- RelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman, Slope, Intercept, RSquared, MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference, ResidualMeanAbsolute, ResidualMaxAbsolute}.
+
+Bounds must be finite, ordered, and within the measure domain: signed correlations [-1,1], absolute correlations/R-squared [0,1], absolute differences/residuals nonnegative. A required undefined metric is EvaluationError.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -281,9 +349,9 @@ Profiling bridge: obtain SpanMeasurements from observations-api and use spans.so
 
 Use numeric(project) once when reused. expect(numeric_rule) registers integrity directly; summary(), robust_summary(), quantile(q), outliers(config), jumps(config) take ordinary .expect(expectation). q is in [0,1]. For custom summary acceptance use criterion over the report.
 
-- OutlierConfig::new(threshold, zero_mad_policy)?: finite nonnegative modified-z threshold; default 3.5 and ExactMedian. Use ZeroMadPolicy::absolute_tolerance(value)?, using original units when MAD is zero.
-- JumpConfig::new(Some(abs), Some(rel), floor): at least one finite nonnegative threshold and positive finite denominator floor; either strict threshold flags a transition.
-- lag_self(project, config) or lag_with(&other, left, right, config): projections return (i64 key, f64 value). LagConfig { range: LagRange::new(start,end)?, measure: LagMeasure::Pearson | Spearman }. Positive lag d pairs left k with right k+d. Inspect zero_lag() and alignment.has_interior_gaps() when interpreting boundary loss.
+- OutlierConfig::default() uses threshold 3.5 and ExactMedian; OutlierConfig::new(THRESHOLD, ZERO_MAD_POLICY)? requires finite nonnegative THRESHOLD. ZERO_MAD_POLICY is ZeroMadPolicy::ExactMedian or ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)? (finite/nonnegative, in original units when MAD is zero).
+- JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?: thresholds are Option<f64> (None disables that threshold), at least one must be Some. Enabled thresholds are finite/nonnegative; floor is finite/positive. Either strict threshold flags a transition.
+- lag_self(project, config) or lag_with(&other, left, right, config): projections return (i64 key, f64 value). LAG_CONFIG is LagConfig { range: LagRange::new(START, END)?, measure: LagMeasure::Pearson | LagMeasure::Spearman }; START/END are inclusive i64 offsets, START <= END. Positive lag d pairs left k with right k+d. Inspect zero_lag() and alignment.has_interior_gaps() when interpreting boundary loss.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -294,6 +362,24 @@ fn stable_latency() {
     let numeric = collection("latency ms", &milliseconds).numeric(|v| *v);
     c.check("finite", numeric.expect(NumericRule::Finite));
     c.check("outliers", numeric.outliers(OutlierConfig::default()).expect(AtMostAnomalies(0)));
+    c.check("tolerant outliers", numeric.outliers(OutlierConfig::new(3.5,
+        ZeroMadPolicy::absolute_tolerance(0.01).unwrap()).unwrap()).expect(AtMostAnomalies(0)));
+    c.check("jumps", numeric.jumps(JumpConfig::new(Some(1.0), None, 0.01).unwrap())
+        .expect(AtMostAnomalies(0)));
+    c.assert_certify();
+}
+~~~
+
+~~~rust
+use sun_observations::certifications::*;
+#[test]
+fn keyed_alignment() {
+    let samples = [(0i64, 1.0), (1, 2.0), (2, 1.0), (3, 4.0)];
+    let rows = collection("signal", &samples);
+    let mut c = certification("same signal aligns at zero");
+    c.check("lag", rows.lag_self(|r| *r, LagConfig {
+        range: LagRange::new(-1, 1).unwrap(), measure: LagMeasure::Pearson,
+    }).expect(LagExpectation { best_lag: 0 }));
     c.assert_certify();
 }
 ~~~
@@ -340,7 +426,7 @@ fn persistence_preserves_rows() {
 
 ## NUMERIC_COMPARISON_CHECK
 
-Use paired.numeric(left_value,right_value) once. Chain correlation(), linear_fit(), difference(), relation() with the matching expectation family. difference is right minus left, not regression residual; high correlation alone does not prove agreement. Inspect largest(top) for bounded diagnostic examples.
+Use paired.numeric(left_value,right_value) once. The computation methods are parameterless and return evidence, not expectations. Match correlation() with CorrelationExpectation, linear_fit() with LinearFitExpectation, difference() with DifferenceExpectation, and relation() with RelationExpectation. Acceptance bounds belong to those expectation families, not to the computation methods. difference is right minus left, not regression residual; high correlation alone does not prove agreement. Inspect largest(top) for bounded diagnostic examples.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -353,8 +439,8 @@ fn calibrated_sensor() {
         .on(|r| r.0, |r| r.0);
     c.check("identity", paired.paired_comparison_fact().expect_valid());
     let numeric = paired.numeric(|r| r.1, |r| r.1);
-    c.check("agreement", numeric.difference().expect(DifferenceExpectation::with_bound(DifferenceMeasure::MaxAbsolute, None, Some(0.01)).unwrap()));
-    c.check("association", numeric.correlation().expect(CorrelationExpectation::with_bound(CorrelationMeasure::Pearson, Some(0.99), None).unwrap()));
+    c.check("agreement", numeric.difference().expect(DifferenceExpectation::max_absolute_at_most(0.01).unwrap()));
+    c.check("association", numeric.correlation().expect(CorrelationExpectation::pearson_at_least(0.99).unwrap()));
     c.assert_certify();
 }
 ~~~

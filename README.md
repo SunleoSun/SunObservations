@@ -1010,38 +1010,50 @@ c.check_fact_expect(NAME, OBSERVED, EXPECTATION)
 | CORRESPONDENCE_CHECK | NUMERIC_COMPARISON_CHECK)
 SECTION :=
     c.section(NAME, |s| { [ EAGER_CHECK | SECTION ]* })
-  | runner.section(NAME, |s| { [ PLANNED_CHECK | SECTION ]* })
+  | runner.section(NAME, |s| { [ PLANNED_CHECK | AGGREGATE_CHECK | SECTION ]* })
 PLANNED_BODY :=
     [ runner.data_source(INPUTS) ] [ runner.domain(DOMAIN) ]
     [ runner.cases_budget(N) ] [ runner.failure_budget(N) ]
     [ runner.seed(N) ] [ runner.report_mode(BOOL) ]
     [ runner.require_pairwise_coverage() ]
-    CASE [ PLANNED_CHECK | SECTION ]* ASSERT_CERTIFY
+    [ CASE ] [ CASE_AGGREGATE ] [ PLANNED_CHECK | AGGREGATE_CHECK | SECTION ]* ASSERT_CERTIFY
 CASE := case = runner.case()
+CASE_AGGREGATE := cases = runner.case_aggregate()
 PLANNED_CHECK :=
     runner.check(fact!(CASE_EXPRESSION).expect(EXPECTATION | fact!(CASE_EXPECTATION))
                  [ .description(TEXT) ])
   | runner.check(EAGER_CHECK_RESULT)
+AGGREGATE_CHECK :=
+    runner.check_aggregate(fact!(AGGREGATE_EXPRESSION)
+        .expect(EXPECTATION | fact!(AGGREGATE_EXPECTATION)) [ .description(TEXT) ])
 FACT := fact(SOURCE, VALUE) | try_fact(SOURCE, RESULT) | fact!(EXPRESSION)
 EXPECTATION :=
-    VALUE | NotEqual(VALUE) | Criterion::at_least(BOUND) | criterion(TEXT, CLASS, PREDICATE)
-  | close_to(VALUE) | CountRule::NonEmpty | NumericRule::Finite
-  | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
-  | GroupExpectation::new(MIN_COUNT, MIN_MEAN, MAX_MEAN)
-  | CorrelationExpectation::with_bound(MEASURE, MIN, MAX)
-  | LinearFitExpectation::with_bound(MEASURE, MIN, MAX)
-  | DifferenceExpectation::with_bound(MEASURE, MIN, MAX)
-  | RelationExpectation::with_bound(MEASURE, MIN, MAX)
+    VALUE | NotEqual(VALUE)
+  | Criterion::greater_than(BOUND)? | Criterion::at_least(BOUND)?
+  | Criterion::less_than(BOUND)? | Criterion::at_most(BOUND)? | Criterion::between(MIN, MAX)?
+  | criterion(TEXT, CLASS, PREDICATE)
+  | close_to(VALUE)? [ .absolute_tolerance(ABS)? ] [ .relative_tolerance(REL)? ]
+  | CountRule::NonEmpty | NumericRule::Finite | NumericRule::Positive | NumericRule::NonNegative
+  | NumericRule::between(MIN, MAX)? | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
+  | GroupExpectation::new(MIN_COUNT, MIN_MEAN, MAX_MEAN)?
+  | CORRELATION_EXPECTATION | LINEAR_FIT_EXPECTATION | DIFFERENCE_EXPECTATION | RELATION_EXPECTATION
 PREPARED_SOURCE_CHECK :=
     rows.count().expect(EXPECTATION) | value.single_map(PROJECT).expect(EXPECTATION)
   | rows.matching_count(PREDICATE).expect(EXPECTATION)
   | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, START, END).expect_valid()
 NUMERIC_CHECK :=
-    rows.numeric(PROJECT).expect(NUMERIC_RULE)
-  | rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
-  | rows.numeric(PROJECT).(outliers(CONFIG) | jumps(CONFIG)).expect(AtMostAnomalies(N))
-  | rows.(lag_self(PROJECT, CONFIG) | lag_with(&OTHER, LEFT, RIGHT, CONFIG))
-        .expect(LagExpectation { best_lag: OFFSET })
+rows.numeric(PROJECT).expect(NUMERIC_RULE)
+| rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
+| rows.numeric(PROJECT).outliers(OutlierConfig::default()
+| OutlierConfig::new(THRESHOLD, ZeroMadPolicy::ExactMedian
+| ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?)?).expect(AtMostAnomalies(N))
+| rows.numeric(PROJECT).jumps(JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD,
+DENOMINATOR_FLOOR)?).expect(AtMostAnomalies(N))
+| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(START, END)?,
+measure: LagMeasure::Pearson | LagMeasure::Spearman })
+| lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(START, END)?,
+measure: LagMeasure::Pearson | LagMeasure::Spearman }))
+.expect(LagExpectation { best_lag: OFFSET })
 GROUP_CHECK :=
     fact(NAME, rows.group_by(KEY).numeric(PROJECT)
         .(summaries() | summaries_with_robust())).expect(GROUP_EXPECTATION)
@@ -1051,8 +1063,10 @@ CORRESPONDENCE_CHECK :=
   | paired.equal(LEFT, RIGHT, TOP).expect_valid()
   | paired.check_pairs(PREDICATE, TOP).expect_valid()
 NUMERIC_COMPARISON_CHECK :=
-    paired.numeric(LEFT, RIGHT)
-        .(correlation() | linear_fit() | difference() | relation()).expect(EXPECTATION)
+    paired.numeric(LEFT, RIGHT).correlation().expect(CORRELATION_EXPECTATION)
+  | paired.numeric(LEFT, RIGHT).linear_fit().expect(LINEAR_FIT_EXPECTATION)
+  | paired.numeric(LEFT, RIGHT).difference().expect(DIFFERENCE_EXPECTATION)
+  | paired.numeric(LEFT, RIGHT).relation().expect(RELATION_EXPECTATION)
 ASSERT_CERTIFY := c.assert_certify() | runner.assert_certify()
 ~~~
 
@@ -1096,18 +1110,19 @@ SCOPE := guard = start_scope(ScopeConfig::new(NAME)
 | .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
 [ .override_policy::<PAYLOAD>(POLICY) ])
 [ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
-ROUTING := engine.add_channel_sink(CHANNEL, SINK)
-engine.register_namespace_channel(NAMESPACE, CHANNEL)?
-SINK := Arc::new(MemorySink::new() | MemorySink::with_config(RETENTION)
-| JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
-| ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
-SPAN := span = observe_span!(PAYLOAD)
-OPERATION; span.finish()?
+ROUTING := engine.add_channel_sink(CHANNEL_NAME, SINK)
+engine.register_namespace_channel(NAMESPACE, CHANNEL_NAME)?
+SINK := Arc::new(MemorySink::new() | MemorySink::with_config(MEMORY_CONFIG)
+| JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, JSONL_CONFIG)?
+| ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK_IMPL)
+SPAN := span = observe_span!(START_PAYLOAD)
+OPERATION
+span.finish()?
 CAPTURE := run = capture_observations(CaptureConfig::new()
 [ .selection(SELECTION) ]
 [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
 | .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
-[ .retention(RETENTION) ], OPERATION)
+[ .retention(MEMORY_CONFIG) ], OPERATION)
 QUERY := dataset.query(ObservationsQuery::new()
 [ .namespace(NS) | .namespace_subtree(NS) ]
 [ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
@@ -1239,6 +1254,104 @@ runner.check(fact!(case.result().windows(2).all(|w| w[0] <= w[1])).expect(true))
 runner.assert_certify();
 ~~~
 
+#### CASE_AGGREGATE
+
+Bind let cases = runner.case_aggregate(). Inside fact!(...), cases.cases()? borrows all retained successful positive AggregateCase rows from the executions actually explored. Each row has id() (run-local CaseId, independent of input equality), input(), result() (successful output), and execution(). Use collection(name, cases.cases()?) for ordinary prepared analysis. Failed local acceptance keeps valid evidence; rejected positives, panics, and invalid prerequisites block aggregate access, not just individual rows. Correctly rejected generated negatives are excluded. Empty evidence needs explicit cardinality policy. Aggregate registration enables retention: successful positive inputs/executions stay alive until post-exploration checks finish, without requiring Clone. Retention is complete, not a bounded statistical subsample; budgets bound exploration, not retained bytes.
+
+~~~rust
+use sun_observations::certifications::*;
+#[test]
+fn distinct_executions() {
+    let mut runner = certification("repeated inputs are distinct executions")
+        .executor(|n: &usize| Ok::<_, ()>(n * 2));
+    runner.data_source([2, 2, 3]);
+    let cases = runner.case_aggregate();
+    runner.check_aggregate(fact!({
+        let rows = collection("positive executions", cases.cases().unwrap());
+        rows.unique(|row| row.id()).expect_valid().is_pass()
+    }).expect(true));
+    runner.check_aggregate(fact!(cases.cases().unwrap().len()).expect(3usize));
+    runner.assert_certify();
+}
+~~~
+
+#### AGGREGATE_CHECK
+
+runner.check_aggregate(fact!(aggregate_expression).expect(expectation)) runs once after exploration (including failure-budget stops), not as an eager prerequisite or once per case. Ordinary runner.section(name, |s| { ... }) groups both registration kinds. Independent aggregate failures/panics retain section and description metadata in aggregate_failures; registered checks identify their Case/Aggregate phase. Earlier failures cannot be overwritten by aggregate success.
+
+Use the canonical case/cases bindings: fact! defers the whole expression when it sees the corresponding root accessor; do not mix roots in one fact. Expectations may also be fact!(aggregate_expression). Required evidence/analysis unwrap failures inside these deferred value expressions become EvaluationError, not skipped samples. The examples use unwrap() for this boundary; ? requires a Result-returning Rust body and is not an implicit try_fact conversion. For prepared analyses returning Fact<Report>, return .observed.unwrap() from the expression and apply the report's ordinary expectation outside.
+
+For captured executors, cases.observations::<T>()? and cases.spans::<T>()? return AggregateObservations and AggregateSpans respectively (aliases of AggregateEvidence). Their values() and source(name) expose AggregateEntry rows: row.case() retains the originating AggregateCase; Observation rows expose value() and observation() (TypedEntry); span rows expose measurement() (the existing SpanMeasurement) and sources() (SpanSources). Preparation delegates decoding/pairing/provenance to evidence and fails the whole accessor on any required case error (AggregateError::Execution or ::Evidence { case, error }). Never filter errors into a partial sample. Zero spans is valid evidence; certify each case's required cardinality with an ordinary per-case check. Numeric/group/comparison/relation/anomaly policy remains PreparedSource's, not a profiling subsystem.
+
+~~~rust
+use sun_observations::{certifications::*, evidence::*, *};
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "aggregate::sort")]
+struct Sort { size: usize }
+#[test]
+fn aggregate_captured_work() {
+    let mut runner = certification("sort family evidence").executor(|size: &usize| {
+        capture_observations(CaptureConfig::new().activate_all(), || {
+            let span = observe_span!(Sort { size: *size }).unwrap();
+            let mut rows: Vec<_> = (0..*size).rev().collect();
+            rows.sort_unstable();
+            span.finish().unwrap();
+            Ok::<_, ()>(rows)
+        })
+    });
+    runner.data_source([2, 2, 4]);
+    let case = runner.case();
+    let cases = runner.case_aggregate();
+    runner.check(fact!(case.spans::<Sort>().unwrap().values().len()).expect(1usize));
+    runner.check_aggregate(fact!({
+        let spans = cases.spans::<Sort>().unwrap();
+        spans.source("elapsed by input size").group_by(|row| *row.case().input())
+            .numeric(|row| row.measurement().duration_ns() as f64).summaries()
+    }).expect(GroupExpectation::new(1, 0.0, f64::MAX).unwrap()));
+    runner.check_aggregate(fact!({
+        let observed = cases.observations::<Sort>().unwrap();
+        observed.source("start payloads").matching_count(|row| row.value().size == *row.case().input()).observed.unwrap()
+    }).expect(3usize));
+    runner.assert_certify();
+}
+~~~
+
+A family-wide resource relation is different from a per-case success check. Here production counts real loop work; the independent acceptance policy promises two work units per input item, without asserting noisy wall-clock scaling. The self-comparison joins on CaseId, not equal input values.
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+struct Request { size: u32 }
+fn work(request: &Request) -> Result<u64, ()> {
+    if !(1..=16).contains(&request.size) { return Err(()); }
+    let mut operations = 0u64;
+    for _ in 0..2 {
+        for item in 0..request.size {
+            std::hint::black_box(item);
+            operations += 1;
+        }
+    }
+    Ok(operations)
+}
+let mut runner = certification("resource scaling across a family").executor(work);
+runner.data_source([Request { size: 2 }, Request { size: 2 }]);
+runner.domain(domain!(Request { size.in_range(1..=16) }));
+runner.cases_budget(24);
+let case = runner.case();
+let cases = runner.case_aggregate();
+runner.check(fact!(*case.result() > 0).expect(true));
+runner.check_aggregate(fact!({
+    let rows = collection("positive executions", cases.cases().unwrap());
+    let paired = rows.compare_with(&rows).on(|row| row.id(), |row| row.id());
+    paired.numeric(|row| row.input().size as f64, |row| *row.result() as f64)
+        .linear_fit().observed.unwrap()
+}).expect(LinearFitExpectation::slope_between(1.99, 2.01).unwrap()
+    .and_intercept_between(-0.01, 0.01).unwrap()));
+runner.assert_certify();
+~~~
+
+For input-size versus measured duration, self-compare the aggregate span source using (row.case().id(), row.sources().start_index) as the unique key, then project the input dimension and row.measurement().duration_ns() as f64 into paired.numeric(left, right).relation(). For group-to-group comparisons, prepare semantic group projections with a shared domain key and certify correspondence before interpreting numeric comparisons. Span identity and case identity are distinct; no pairing or duration computation belongs in this analysis layer.
+
 #### PLANNED_CHECK
 
 Register `runner.check(fact!(case_expression).expect(expectation))`. An expectation can itself be `fact!(case_expression)`, allowing typed input-dependent policy. `CheckPlan::description(text)` supplies semantic diagnostic meaning independently of source expression and section. Passing `runner.check(eager_result)` instead adds a one-time eager prerequisite, not a per-case operation.
@@ -1289,16 +1402,25 @@ An expectation is scenario-owned policy. Most are passed to `FACT.expect(...)`; 
 
 `Expectation<T>` is the reusable extension trait: define `type Violation: Debug`, implement `assess(observed)` and `describe()`, and optionally override `class()`. Return `AnalysisError` when valid evaluation is impossible. An inline predicate is usually simpler than a new expectation type.
 
-Statistical builders validate finite, ordered, measure-domain bounds. Undefined required metrics (constant series, insufficient samples) are evaluation errors.
+Use family-specific constructors and and_* combinators when they express the contract; use with_bound(measure, min, max)? and .bound(measure, min, max)? for explicit measures not covered by that sugar. Every constructor/combinator below returns Result. Scalar min/max are f64; generic bounds and correlation and_*_bounds arguments are Option<f64> (None means unbounded; at least one bound is required).
 
-| Family | Constructors and combination |
+| Expectation parameter | Constructor; chainable combinators |
 | --- | --- |
-| `CorrelationExpectation` | `pearson_at_least(min)`, `spearman_at_least(min)`, `spearman_at_most(max)`; `and_pearson_bounds(min,max)`, `and_spearman_bounds(min,max)`. |
-| `LinearFitExpectation` | `slope_between(min,max)`, `intercept_between(min,max)`, `r_squared_at_least(min)`, `residual_mean_absolute_at_most(max)`, `residual_max_absolute_at_most(max)`; `and_slope_between`, `and_intercept_between`, `and_r_squared_at_least`, `and_residual_mean_absolute_at_most`, `and_residual_max_absolute_at_most` combine constraints. |
-| `DifferenceExpectation` | `mean_absolute_at_most(max)`, `p95_absolute_at_most(max)`, `max_absolute_at_most(max)`; `and_mean_absolute_at_most`, `and_p95_absolute_at_most`, `and_max_absolute_at_most` combine constraints. |
-| `RelationExpectation` | `spearman_at_least(min)` / `spearman_at_most(max)` or explicit measures. |
+| CORRELATION_EXPECTATION | CorrelationExpectation::pearson_at_least(min), ::spearman_at_least(min), ::spearman_at_most(max); .and_pearson_bounds(min,max), .and_spearman_bounds(min,max) |
+| LINEAR_FIT_EXPECTATION | LinearFitExpectation::slope_between(min,max), ::intercept_between(min,max), ::r_squared_at_least(min), ::residual_mean_absolute_at_most(max), ::residual_max_absolute_at_most(max); .and_slope_between(min,max), .and_intercept_between(min,max), .and_r_squared_at_least(min), .and_residual_mean_absolute_at_most(max), .and_residual_max_absolute_at_most(max) |
+| DIFFERENCE_EXPECTATION | DifferenceExpectation::mean_absolute_at_most(max), ::p95_absolute_at_most(max), ::max_absolute_at_most(max); .and_mean_absolute_at_most(max), .and_p95_absolute_at_most(max), .and_max_absolute_at_most(max) |
+| RELATION_EXPECTATION | RelationExpectation::spearman_at_least(min), ::spearman_at_most(max); .bound(measure,min,max) |
 
-All four also provide `with_bound(measure, Option<min>, Option<max>)` and `bound(measure,min,max)`. `CorrelationMeasure`: Pearson, Spearman, AbsolutePearson, AbsoluteSpearman. `LinearFitMeasure`: Slope, Intercept, RSquared, ResidualMeanAbsolute, ResidualMaxAbsolute. `DifferenceMeasure`: MeanAbsolute, P95Absolute, MaxAbsolute. `RelationMeasure` combines association/fit/residual measures and direct errors named MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference. `MetricConstraint::new(measure,min,max)` is the validated common bound representation with `measure()`, `min()`, `max()` inspection.
+All four families provide CorrelationExpectation::with_bound(measure, min, max)?, LinearFitExpectation::with_bound(measure, min, max)?, DifferenceExpectation::with_bound(measure, min, max)?, or RelationExpectation::with_bound(measure, min, max)?, followed by .bound(measure, min, max)?. Use the measure enum belonging to that family:
+
+- CorrelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman}.
+- LinearFitMeasure::{Slope, Intercept, RSquared, ResidualMeanAbsolute, ResidualMaxAbsolute}.
+- DifferenceMeasure::{MeanAbsolute, P95Absolute, MaxAbsolute}.
+- RelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman, Slope, Intercept, RSquared, MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference, ResidualMeanAbsolute, ResidualMaxAbsolute}.
+
+Bounds must be finite, ordered, and within the measure domain: signed correlations [-1,1], absolute correlations/R-squared [0,1], absolute differences/residuals nonnegative. A required undefined metric is EvaluationError.
+
+MetricConstraint::new(measure,min,max) is the validated common representation; measure(), min(), max() inspect it. It is not the primary client authoring path.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -1334,8 +1456,8 @@ Prepare `let numeric = rows.numeric(project)` once for an f64 projection. `Prepa
 | Configuration | Meaning |
 | --- | --- |
 | `OutlierConfig::new(threshold,policy)` | Finite nonnegative modified-z threshold; default 3.5, ZeroMadPolicy::ExactMedian. The other variant is AbsoluteTolerance, constructed with validated `ZeroMadPolicy::absolute_tolerance(v)`; the tolerance is in original numeric units, not z-score units. `threshold()` / `zero_mad()` inspect the configuration. |
-| `JumpConfig::new(abs,rel,floor)` | At least one Some threshold, finite nonnegative thresholds, positive finite floor. Either strict threshold flags adjacent transitions. `absolute_threshold()`, `relative_threshold()`, `denominator_floor()` inspect configuration. |
-| `LagConfig { range, measure }` | `LagRange::new(start,end)` validates inclusive candidates; `start()` / `end()` inspect. LagMeasure::Pearson or Spearman. |
+| `JumpConfig::new(abs,rel,floor)?` | abs/rel are Option<f64>; None disables a threshold and at least one must be Some. Enabled thresholds are finite/nonnegative; floor is finite/positive f64. Either strict threshold flags adjacent transitions. `absolute_threshold()`, `relative_threshold()`, `denominator_floor()` inspect configuration. |
+| `LagConfig { range: LagRange::new(start,end)?, measure: LagMeasure::Pearson }` | Alternatively use LagMeasure::Spearman. start/end are inclusive i64 candidates, start <= end; `start()` / `end()` inspect. LagMeasure::Pearson or Spearman. |
 
 `rows.lag_self(project,config)` and `rows.lag_with(&other,left,right,config)` take projections returning (i64 key,f64 value). Positive lag d pairs left key k with right key k+d. `LagReport::zero_lag()` and `LagAlignment::has_interior_gaps()` help distinguish missing interior keys from expected boundary loss. A lag expectation is not proof of causality by itself.
 
@@ -1604,7 +1726,7 @@ assert!(!selection.admits("orders::debug::row", &[]));
 
 #### SCOPE
 
-`start_scope(ScopeConfig::new(name)...)` installs a lifecycle until guard drop. ScopeConfig supports `selection(selection)`, `activate_all()`, `activate_namespace` / `exclude_namespace`, `activate_tags` / `exclude_tags`, `override_policy::<T>(policy)`. Policy::Always/Never or validated `first_n(n)` / `every_n(n)` control admitted frequency; FirstN/EveryN counters are scope/type-local and n must be positive.
+`start_scope(ScopeConfig::new(name)...)` installs a lifecycle until guard drop. ScopeConfig supports `selection(selection)`, `activate_all()`, `activate_namespace` / `exclude_namespace`, `activate_tags` / `exclude_tags`, `override_policy::<T>(policy)`. Policy::Always/Never or validated `first_n(n)` / `every_n(n)` control admitted frequency; FirstN/EveryN counters are scope/type-local and n is positive u64. first_n(n) and every_n(n) return Option<Policy>, None for zero; unwrap validated positive constants or propagate ? from an Option-returning body.
 
 `Context::capture()` snapshots installed state, `Context::default()` is empty. `enter()` installs until guard drop, `run(operation)` installs for a closure, `scope_name()` inspects identity. `context::thread::spawn(operation)` propagates it. Rayon propagation uses `context::rayon::ContextThreadPool::new()` or `with_threads(NonZeroUsize)`, then `install(operation)`. Ordinary threads/unrelated async tasks do not inherit automatically. Join propagated workers before interpreting effects or capture completeness.
 
@@ -1638,7 +1760,7 @@ assert_eq!(memory.len(), 1);
 
 #### SINK
 
-Choose sinks by delivery and retention semantics, not just output format.
+Choose sinks by delivery and retention semantics, not just output format. MEMORY_CONFIG is MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)? (positive usize capacity; finite f64 fraction in (0,1]). JSONL_CONFIG is JsonlConfig::new() with optional .flush_interval_ms(MS)?, .max_file_size_bytes(BYTES)?, .trim_fraction(FRACTION)? (positive u64 MS/BYTES; finite f64 fraction in (0,1)). CUSTOM_SINK_IMPL is a concrete Sink implementation value, not an Arc; the grammar wraps it once with Arc::new(...). CHANNEL_NAME is the logical routing-channel name/string, not a persisted field.
 
 | Sink | Construction, controls, inspection |
 | --- | --- |
@@ -1664,6 +1786,8 @@ jsonl.flush()?;
 #### SPAN
 
 `observe_span!(payload)` or lazy `span_if_active(|| payload)` / `engine.span_if_active` begins a typed lifecycle. `SpanGuard::is_active()` reports admission; `finish()` explicitly delivers the matching end and returns errors. Drop attempts end delivery but cannot return an error.
+
+START_PAYLOAD describes the operation and attribution dimensions known at span start and is serialized immediately on the start record. OPERATION is arbitrary real production code (or a closure for APIs accepting one), not a framework type. finish() records completion/end timing and carries no additional payload: the end has data: null and no message. An incomplete operation leaves its attributable start for fail-closed lifecycle analysis.
 
 A successful start freezes scope, routes, sinks and policy until end. Later selection changes cannot suppress the matching end. Persisted identity is (proc, scope, namespace, span), never adjacency or vector index. The start carries payload; the end is lifecycle evidence, not a second payload to decode as the same observation.
 
@@ -1785,7 +1909,7 @@ c.assert_certify();
 
 Project `duration_ns()` directly for nanosecond analysis, or use `duration()` when a typed `Duration` is the stronger hard-bound representation; integer-to-f64 conversion can lose precision at very large values. Use only the generic numeric/group/comparison/relation/anomaly analysis required by the contract; summary analysis is optional. Acceptance belongs to certifications. Profile only promised performance, bounded resources/work, or meaningful regression acceptance; incidental tuning belongs in benchmarks/diagnostics. Apply the general hard/statistical/anomaly rules: do not add a metric implied by stronger exact checks, and derive statistical/anomaly bounds from semantic requirements or independent controls rather than current timings.
 
-For planned execution return captured real production evidence from the executor, then use the planned case span accessor described in CASE. Capture completeness is a mandatory planned prerequisite. Domain owns only the generated family; real data-source cases and generated cases run the same production path. Preserve execution identity when values repeat. The runnable [profiling example](crates/sun-observations/examples/profiling.rs) demonstrates concrete plus Domain-generated inputs and per-case profiling on the real production path; generic prepared-analysis certifications cover statistical and anomaly policy without a separate profiling statistics layer.
+For planned execution return captured real production evidence from the executor. case.spans::<T>() examines only the current positive case; it does not perform cross-case statistics. Use cases = runner.case_aggregate() and runner.check_aggregate(...) for retained family evidence. Cases and typed Observation/span rows preserve run-local CaseId independently of equal inputs; aggregate access fails closed if any required positive execution/evidence is invalid. Correctly rejected negatives are not positive samples. Domain owns only the input family, aggregate execution owns retention/association, evidence owns decoding/pairing/duration/completeness/provenance, PreparedSource owns generic analysis, and certifications own acceptance. The runnable [profiling example](crates/sun-observations/examples/profiling.rs) combines per-case guarantees with post-exploration grouped evidence. The [capture-to-aggregate certification](crates/sun-observations/src/composition_certifications/capture_to_aggregate_certification.rs) demonstrates real concrete plus Domain-generated executions, cross-case resource scaling relations, grouped spans, quantiles and anomalies with a broken-scaling negative control; there is no separate profiling statistics layer.
 
 ### End-to-end scenarios
 

@@ -155,5 +155,8 @@ pub fn capture_observations<T>(
     }
 }
 #[cfg(test)]
+#[path = "../composition_certifications/capture_to_aggregate_certification.rs"]
+mod capture_to_aggregate_certification;
+#[cfg(test)]
 #[path = "capture_certification.rs"]
 mod certification;

@@ -7,7 +7,7 @@ use crate::{observe_span, MemorySinkConfig};
 mod profiling;
 
 #[test]
-fn concrete_and_generated_executions_feed_case_local_prepared_profiling() {
+fn concrete_and_generated_executions_feed_per_case_and_aggregate_prepared_profiling() {
     profiling::certify();
 }
 

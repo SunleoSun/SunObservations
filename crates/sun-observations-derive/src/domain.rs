@@ -388,29 +388,43 @@ pub fn domain(input: proc_macro::TokenStream) -> syn::Result<TokenStream> {
 pub fn fact(input: proc_macro::TokenStream) -> syn::Result<TokenStream> {
     let expr: Expr = syn::parse(input)?;
     let rt = runtime()?;
-    fn contains_case_access(e: &Expr) -> bool {
-        struct Find(bool);
-        impl<'ast> syn::visit::Visit<'ast> for Find {
-            fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-                if matches!(
-                    call.method.to_string().as_str(),
-                    "input" | "result" | "execution" | "observations" | "spans"
-                ) && matches!(
-                    &*call.receiver,
-                    Expr::Path(path) if path.path.is_ident("case")
-                ) {
-                    self.0 = true;
-                }
-                syn::visit::visit_expr_method_call(self, call);
-            }
-        }
-        let mut f = Find(false);
-        syn::visit::Visit::visit_expr(&mut f, e);
-        f.0
+    struct Find {
+        case: bool,
+        cases: bool,
     }
-    Ok(if contains_case_access(&expr) {
-        quote!(case.fact(stringify!(#expr), |case| #expr))
-    } else {
-        quote!(#rt::fact(stringify!(#expr), #expr))
-    })
+    impl<'ast> syn::visit::Visit<'ast> for Find {
+        fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+            if let Expr::Path(path) = &*call.receiver {
+                let method = call.method.to_string();
+                if path.path.is_ident("case")
+                    && matches!(
+                        method.as_str(),
+                        "input" | "result" | "execution" | "observations" | "spans"
+                    )
+                {
+                    self.case = true;
+                }
+                if path.path.is_ident("cases")
+                    && matches!(method.as_str(), "cases" | "observations" | "spans")
+                {
+                    self.cases = true;
+                }
+            }
+            syn::visit::visit_expr_method_call(self, call);
+        }
+    }
+    let mut roots = Find {
+        case: false,
+        cases: false,
+    };
+    syn::visit::Visit::visit_expr(&mut roots, &expr);
+    match (roots.case, roots.cases) {
+        (true, true) => Err(syn::Error::new_spanned(
+            expr,
+            "a fact cannot mix per-case and aggregate roots",
+        )),
+        (true, false) => Ok(quote!(case.fact(stringify!(#expr), |case| #expr))),
+        (false, true) => Ok(quote!(cases.fact(stringify!(#expr), |cases| #expr))),
+        (false, false) => Ok(quote!(#rt::fact(stringify!(#expr), #expr))),
+    }
 }
