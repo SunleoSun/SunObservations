@@ -106,7 +106,7 @@ fn fixture() -> ObservationRecord {
     ObservationRecord {
         ts: TS.into(),
         proc: PROCESS.into(),
-        proc_ms: 1234,
+        proc_ns: 1234,
         scope: Some(SCOPE.into()),
         namespace: NAMESPACE.into(),
         level: ObservationLevel::INFO,
@@ -120,7 +120,7 @@ fn envelope(data: Value, started: Instant) -> ObservationRecord {
     ObservationRecord {
         ts: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         proc: PROCESS.to_owned(),
-        proc_ms: started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+        proc_ns: started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
         scope: Some(SCOPE.to_owned()),
         namespace: NAMESPACE.to_owned(),
         level: ObservationLevel::INFO,
@@ -135,7 +135,7 @@ fn envelope(data: Value, started: Instant) -> ObservationRecord {
 struct Envelope<'a, D: ?Sized> {
     ts: &'a str,
     proc: &'a str,
-    proc_ms: u64,
+    proc_ns: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     scope: Option<&'a str>,
     namespace: &'a str,
@@ -152,7 +152,7 @@ fn borrowed<'a, D: ?Sized>(base: &'a ObservationRecord, data: &'a D) -> Envelope
     Envelope {
         ts: &base.ts,
         proc: &base.proc,
-        proc_ms: base.proc_ms,
+        proc_ns: base.proc_ns,
         scope: base.scope.as_deref(),
         namespace: &base.namespace,
         level: base.level,
@@ -267,8 +267,8 @@ fn micro(sample: usize) {
     bench("micro.utc_plus_cached_rfc3339", sample, || {
         black_box(cached_timestamp(Utc::now()));
     });
-    bench("micro.proc_ms", sample, || {
-        black_box(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+    bench("micro.proc_ns", sample, || {
+        black_box(started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
     });
     bench("micro.envelope_strings", sample, || {
         black_box((
@@ -303,7 +303,7 @@ fn micro(sample: usize) {
         black_box(Arc::new(ObservationRecord {
             ts: String::new(),
             proc: String::new(),
-            proc_ms: 0,
+            proc_ns: 0,
             scope: None,
             namespace: String::new(),
             level: ObservationLevel::INFO,
@@ -790,7 +790,7 @@ fn prefilled(unique: bool, encode: bool, file: bool, cap: usize, sample: usize) 
 struct RawRecord {
     ts: String,
     proc: String,
-    proc_ms: u64,
+    proc_ns: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     scope: Option<String>,
     namespace: String,
@@ -808,7 +808,7 @@ fn raw_fixture() -> RawRecord {
     let r = RawRecord {
         ts: b.ts.clone(),
         proc: b.proc.clone(),
-        proc_ms: b.proc_ms,
+        proc_ns: b.proc_ns,
         scope: b.scope.clone(),
         namespace: b.namespace.clone(),
         level: b.level,

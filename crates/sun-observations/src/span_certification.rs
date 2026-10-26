@@ -1,7 +1,7 @@
 use crate::*;
 use serde::Serialize;
-use std::{collections::HashMap, io, sync::Arc};
-#[derive(Serialize)]
+use std::{io, sync::Arc};
+#[derive(Serialize, serde::Deserialize)]
 struct Work {
     id: usize,
 }
@@ -65,14 +65,16 @@ fn concurrent_pairs_freeze_scope_routing_and_budget_through_mutation_and_unwind(
     certification.check_fact_expect("new.is_empty()", new.is_empty(), true);
     let records = old.records();
     certification.check_fact_expect("records.len()", &(records.len()), &(202));
-    let mut pairs = HashMap::<_, Vec<_>>::new();
-    for r in &records {
-        pairs.entry(r.span.clone().unwrap()).or_default().push(r);
-    }
-    certification.check_fact_expect("pairs.len()", &(pairs.len()), &(101));
-    for pair in pairs.values() {
-        certification.check_fact_expect("pair.len()", &(pair.len()), &(2));
-        let (start, end) = (pair[0], pair[1]);
+    let dataset = crate::evidence::ObservationDataset::try_from_memory(&old).unwrap();
+    let pairs = dataset.to_spans::<Work>().unwrap();
+    certification.check_fact_expect("completed span count", pairs.values().len(), 101usize);
+    for sources in pairs.sources() {
+        certification.check_fact_expect(
+            "start delivered before end",
+            sources.start_index < sources.end_index,
+            true,
+        );
+        let (start, end) = (&sources.start, &sources.end);
         certification.check_fact_expect("start.phase", &(start.phase), &(Some(Phase::Start)));
         certification.check_fact_expect("end.phase", &(end.phase), &(Some(Phase::End)));
         certification.check_fact_expect(
@@ -207,8 +209,8 @@ mod lifecycle {
         certification.check_fact_expect("start.span", &(start.span), &(end.span));
         certification.check_fact_expect("start.proc", &(start.proc), &(end.proc));
         certification.check_fact_expect(
-            "end.proc_ms >= start.proc_ms",
-            end.proc_ms >= start.proc_ms,
+            "end.proc_ns >= start.proc_ns",
+            end.proc_ns >= start.proc_ns,
             true,
         );
         certification.check_fact_expect(

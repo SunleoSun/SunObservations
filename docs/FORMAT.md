@@ -31,7 +31,7 @@ Downstream presentation fields inside `data` remain ordinary typed payload field
 | --- | --- | --- |
 | ts | string | UTC wall-clock RFC 3339 timestamp, exactly millisecond precision with Z suffix, e.g. 2026-10-20T00:00:00.000Z. For human/cross-process correlation, not elapsed timing. |
 | proc | string | Opaque process-instance identity, fresh on singleton engine initialization. Consumers must not parse its internal spelling. Isolated engine instances have their own identity. |
-| proc_ms | unsigned integer | Monotonic elapsed milliseconds since engine initialization (not OS process launch); truncated to millisecond resolution, never derived from wall-clock differences. |
+| proc_ns | unsigned integer | Monotonic elapsed nanoseconds since engine initialization (not OS process launch), never derived from wall-clock differences. Units preserve available precision; platform clock resolution may be coarser. |
 | scope | string, optional | Execution/run identity captured at admission. Omitted outside an execution scope. Scope is not a verbosity category; use unique names when persisted runs must be distinguishable. |
 | namespace | string | Stable, explicit semantic identity. ASCII segments matching [a-z][a-z0-9_]* separated by ::, without leading/trailing/empty segments. Independent of Rust type name. |
 | level | string | Exactly INFO, WARN or ERROR. Severity, not detail/verbosity. DEBUG/TRACE do not exist in v1. |
@@ -47,13 +47,13 @@ payload; consumers must not mistake payload content for envelope metadata.
 Example point record (one physical line):
 
 ```json
-{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2","proc_ms":1842,"scope":"run-c3d4","namespace":"compute::train::epoch","level":"INFO","data":{"epoch":7,"loss":0.0132}}
+{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2","proc_ns":1842000000,"scope":"run-c3d4","namespace":"compute::train::epoch","level":"INFO","data":{"epoch":7,"loss":0.0132}}
 ```
 
 Example point outside any scope:
 
 ```json
-{"ts":"2026-10-20T00:00:00.001Z","proc":"1234_a1b2","proc_ms":1843,"namespace":"service::ready","level":"INFO","data":{}}
+{"ts":"2026-10-20T00:00:00.001Z","proc":"1234_a1b2","proc_ns":1843000000,"namespace":"service::ready","level":"INFO","data":{}}
 ```
 
 ## Lifecycle and timing
@@ -64,15 +64,15 @@ the typed data and optional message; end has data: null and no message. Span ids
 opaque; no distributed trace identity, parent id or nesting relation is implied.
 
 ```json
-{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2","proc_ms":1842,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":{"samples":128},"phase":"start","span":"opaque-span-a"}
-{"ts":"2026-10-20T00:00:00.125Z","proc":"1234_a1b2","proc_ms":1967,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":null,"phase":"end","span":"opaque-span-a"}
+{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2","proc_ns":1842000000,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":{"samples":128},"phase":"start","span":"opaque-span-a"}
+{"ts":"2026-10-20T00:00:00.125Z","proc":"1234_a1b2","proc_ns":1967000000,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":null,"phase":"end","span":"opaque-span-a"}
 ```
 
 Pair by (proc, scope-or-absence, namespace, span), not by adjacency. Concurrent spans
 can interleave, and records can be duplicated through fan-out. For one successful pair,
-end.proc_ms - start.proc_ms gives elapsed duration at millisecond resolution; zero is
-valid. Do not subtract wall-clock ts (which can jump) and do not compare proc_ms across
-process/engine identities. No duration or total/self-time field is persisted.
+duration_ns = end.proc_ns - start.proc_ns gives elapsed duration in nanoseconds; zero is
+valid. Do not subtract wall-clock ts (which can jump) and do not compare proc_ns across
+process/engine identities. proc_ns is the only persisted elapsed clock; milliseconds and microseconds are derived views. Nanosecond units do not promise nanosecond hardware resolution or remove instrumentation/clock noise. No duration or total/self-time field is persisted.
 
 Nested/overlapping spans measure overlapping intervals. Summing their durations as
 though they were disjoint incorrectly overcounts time; a future aggregator must choose
@@ -83,7 +83,7 @@ sink snapshot even if those change later. Rejection emits neither record and con
 no payload. Policy budgets count one span admission, not two lifecycle emissions.
 Normal panic unwinding runs Drop; abort, leaked guards, termination, serialization/I/O
 failure or incomplete transport can leave unmatched pairs. Readers must handle them
-explicitly, not invent an end timestamp or duration.
+explicitly, not invent an end timestamp or duration. Evidence preparation requires exactly one start/end per identity with matching level and end.proc_ns >= start.proc_ns. Missing records, duplicate lifecycle deliveries (even identical fan-out copies), or invalid pairs fail closed; no partial profiling sample is produced. Record delivery order need not match timestamp order. Applications must prevent fan-out duplicates in a profiling input rather than silently deduplicating them.
 
 ## Ordering, fan-out and asynchronous persistence
 
@@ -91,7 +91,7 @@ JsonlSink enqueues immutable shared records into an unbounded queue. One lazy wo
 per sink performs JSONL encoding, buffered writes, flush and optional file compaction.
 Construction/registration alone creates neither a file nor a worker. Queue order defines
 per-sink delivery order; concurrent timestamps can be equal or appear out of order. There
-is no sequence number or cross-sink total ordering guarantee. ts/proc_ms are captured at
+is no sequence number or cross-sink total ordering guarantee. ts/proc_ns are captured at
 observation emission, **not** at background persistence, and do not include queue latency.
 
 One observation may route to several logical channels and each channel to several sinks.

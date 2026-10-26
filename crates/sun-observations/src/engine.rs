@@ -205,7 +205,7 @@ impl ObservationEngine {
         ObservationRecord {
             ts: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
             proc: self.process.clone(),
-            proc_ms: self.started.elapsed().as_millis().min(u64::MAX as u128) as u64,
+            proc_ns: self.started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
             scope: plan.scope.clone(),
             namespace: namespace.to_owned(),
             level,

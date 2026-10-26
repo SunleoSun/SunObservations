@@ -101,7 +101,11 @@ Strengthen statistical evidence with a null/control scenario when it distinguish
 
 Certification names should state the semantic promise, not the implementation mechanism. For large composition proofs, group checks by semantic pipeline stages so failures point to the responsible owner or boundary without re-testing owner-local details.
 
-Performance belongs in certification only when it is promised semantics such as bounded work, exactly-once external calls, or bounded queues. Keep incidental wall-clock thresholds in benchmarks.
+### Profiling
+
+Profile when performance or resource behavior is promised semantics or a known regression risk whose violation is a real defect; keep incidental tuning and non-contractual wall-clock thresholds in benchmarks/diagnostics. Apply the hard/statistical/anomaly rules above unchanged: prove exact or justified bounds first, and add statistical/anomaly evidence only for a separate reachable failure class not already excluded by stronger checks.
+
+For a promised input family, use Domain to run the real production path across semantic size/mode/shape/configuration cases and preserve execution identity. Apply required hard, statistical, and anomaly checks to the prepared span evidence available to each proof; use grouped or relational analysis only over an evidence set that actually contains comparable samples. Span Observations own measurement; evidence owns pairing/duration/completeness/provenance; prepared analysis owns metrics; certifications own acceptance. proc_ns preserves available monotonic precision, not nanosecond hardware resolution; avoid brittle thresholds for extremely short work and hidden overhead subtraction.
 
 When production code changes, preserve expectations that encode independent intent. Do not make a broken certification green by deriving expected values from the implementation under test or rewriting the contract to match the defect.
 

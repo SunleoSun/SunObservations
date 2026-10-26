@@ -7,7 +7,7 @@ fn bounded_oldest_batch_retention_preserves_identity_order_and_lifetime_stats() 
     let mut c = certification("bounded memory history");
     for i in 0..30 {
         let mut r = record("memory::event");
-        r.proc_ms = i;
+        r.proc_ns = i;
         memory.write(&r).unwrap();
         c.check_fact_expect("capacity after write", memory.len() <= 10, true);
         if i == 8 {
@@ -34,7 +34,7 @@ fn bounded_oldest_batch_retention_preserves_identity_order_and_lifetime_stats() 
     );
     c.check_fact_expect(
         "newest order",
-        snapshot.iter().map(|v| v.proc_ms).collect::<Vec<_>>(),
+        snapshot.iter().map(|v| v.proc_ns).collect::<Vec<_>>(),
         (21..30).collect::<Vec<_>>(),
     );
     let drained = memory.drain_shared();

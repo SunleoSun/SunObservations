@@ -79,7 +79,7 @@ fn main() {
                 Arc::new(ObservationRecord {
                     ts: String::new(),
                     proc: "bench".into(),
-                    proc_ms: 0,
+                    proc_ns: 0,
                     scope: None,
                     namespace: Row::NAMESPACE.into(),
                     level: ObservationLevel::INFO,

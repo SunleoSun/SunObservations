@@ -5,8 +5,21 @@ fn point_record_roundtrips_and_omits_absent_metadata() {
     let mut certification = sun_observations::certifications::certification(
         "point record roundtrips and omits absent metadata",
     );
-    let record = record("records::point");
+    let mut record = record("records::point");
+    record.proc_ns = u64::MAX;
     let value = serde_json::to_value(&record).unwrap();
+    certification.check_fact_expect(
+        "nanosecond integer",
+        value["proc_ns"].as_u64(),
+        Some(u64::MAX),
+    );
+    let mut missing_clock = value.clone();
+    missing_clock.as_object_mut().unwrap().remove("proc_ns");
+    certification.check_fact_expect(
+        "clock required",
+        serde_json::from_value::<ObservationRecord>(missing_clock).is_err(),
+        true,
+    );
     certification.check_fact_expect(
         "value.as_object().unwrap().len()",
         &(value.as_object().unwrap().len()),

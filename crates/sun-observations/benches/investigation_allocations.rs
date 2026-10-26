@@ -56,7 +56,7 @@ fn record() -> ObservationRecord {
     ObservationRecord {
         ts: "2026-10-20T12:34:56.789Z".into(),
         proc: "01234567-89ab-4cde-8123-456789abcdef".into(),
-        proc_ms: 1234,
+        proc_ns: 1234,
         scope: Some("benchmark".into()),
         namespace: "bench::event".into(),
         level: ObservationLevel::INFO,

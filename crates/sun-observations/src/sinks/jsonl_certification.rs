@@ -546,7 +546,7 @@ mod persistence {
         certification.check_fact_expect("records", records.as_slice(), [point, span].as_slice());
         for line in text.lines() {
             let value: serde_json::Value = serde_json::from_str(line).unwrap();
-            for key in ["ts", "proc", "proc_ms", "namespace", "level", "data"] {
+            for key in ["ts", "proc", "proc_ns", "namespace", "level", "data"] {
                 certification.check_fact_expect(
                     "value.get(key).is_some()",
                     value.get(key).is_some(),

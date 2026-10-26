@@ -831,8 +831,8 @@ freeze at start. Rejection builds nothing. Abort, leaks, I/O failure and retenti
 leave incomplete pairs. Spans do not invoke point renderers or imply a parent tree.
 
 Pair by `(proc, scope, namespace, span)`, never adjacency; duration is end minus start
-`proc_ms`, not wall-clock `ts`. Do not combine elapsed clocks across engines or sum
-overlapping intervals as disjoint work. See [FORMAT v1](docs/FORMAT.md#lifecycle-and-timing).
+`proc_ns`, not wall-clock `ts`. Do not combine elapsed clocks across engines or sum
+overlapping intervals as disjoint work. Nanosecond units retain available monotonic precision, not nanosecond hardware resolution; clock/instrumentation noise remains. See [FORMAT v1](docs/FORMAT.md#lifecycle-and-timing) and [typed span evidence](#span_evidence).
 
 ## Capture production evidence
 
@@ -1002,13 +1002,12 @@ CERTIFICATION :=
     | runner = c.executor(EXECUTOR); PLANNED_BODY
     | runner = c.executor_with_seed(SEEDED_EXECUTOR); PLANNED_BODY )
 SOURCE_BINDING :=
-    value = c.source(NAME, &VALUE) | rows = c.collection(NAME, &VALUES)
-  | value = source(NAME, &VALUE) | rows = collection(NAME, &VALUES)
+    value = source(NAME, &VALUE) | rows = collection(NAME, &VALUES)
 EAGER_CHECK :=
-    c.check(NAME, FACT.expect(EXPECTATION))
-  | c.check_fact_expect(NAME, OBSERVED, EXPECTATION)
-  | c.check(NAME, PREPARED_SOURCE_CHECK | NUMERIC_CHECK | GROUP_CHECK
-                  | CORRESPONDENCE_CHECK | NUMERIC_COMPARISON_CHECK)
+c.check_fact_expect(NAME, OBSERVED, EXPECTATION)
+| c.check(NAME, FACT.expect(EXPECTATION))
+| c.check(NAME, PREPARED_SOURCE_CHECK | NUMERIC_CHECK | GROUP_CHECK
+| CORRESPONDENCE_CHECK | NUMERIC_COMPARISON_CHECK)
 SECTION :=
     c.section(NAME, |s| { [ EAGER_CHECK | SECTION ]* })
   | runner.section(NAME, |s| { [ PLANNED_CHECK | SECTION ]* })
@@ -1025,12 +1024,14 @@ PLANNED_CHECK :=
   | runner.check(EAGER_CHECK_RESULT)
 FACT := fact(SOURCE, VALUE) | try_fact(SOURCE, RESULT) | fact!(EXPRESSION)
 EXPECTATION :=
-    VALUE | NotEqual(VALUE) | Criterion::BOUND(...) | criterion(TEXT, CLASS, PREDICATE)
-  | close_to(VALUE) | CountRule::VARIANT | NumericRule::VARIANT
-  | AllValid | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
-  | GroupExpectation::new(...) | CorrelationExpectation::BOUND(...)
-  | LinearFitExpectation::BOUND(...) | DifferenceExpectation::BOUND(...)
-  | RelationExpectation::BOUND(...)
+    VALUE | NotEqual(VALUE) | Criterion::at_least(BOUND) | criterion(TEXT, CLASS, PREDICATE)
+  | close_to(VALUE) | CountRule::NonEmpty | NumericRule::Finite
+  | AtMostAnomalies(N) | LagExpectation { best_lag: OFFSET }
+  | GroupExpectation::new(MIN_COUNT, MIN_MEAN, MAX_MEAN)
+  | CorrelationExpectation::with_bound(MEASURE, MIN, MAX)
+  | LinearFitExpectation::with_bound(MEASURE, MIN, MAX)
+  | DifferenceExpectation::with_bound(MEASURE, MIN, MAX)
+  | RelationExpectation::with_bound(MEASURE, MIN, MAX)
 PREPARED_SOURCE_CHECK :=
     rows.count().expect(EXPECTATION) | value.single_map(PROJECT).expect(EXPECTATION)
   | rows.matching_count(PREDICATE).expect(EXPECTATION)
@@ -1045,7 +1046,7 @@ GROUP_CHECK :=
     fact(NAME, rows.group_by(KEY).numeric(PROJECT)
         .(summaries() | summaries_with_robust())).expect(GROUP_EXPECTATION)
 CORRESPONDENCE_CHECK :=
-    paired = left.compare_with(&right).(on(LEFT_KEY, RIGHT_KEY) | on_presorted(LEFT_KEY, RIGHT_KEY)?)
+    paired = left.compare_with(&right).on(LEFT_KEY, RIGHT_KEY)
     paired.paired_comparison_fact().expect_valid()
   | paired.equal(LEFT, RIGHT, TOP).expect_valid()
   | paired.check_pairs(PREDICATE, TOP).expect_valid()
@@ -1085,29 +1086,34 @@ DECLARATION :=
     #[derive(Serialize, Deserialize, Observation)]
     #[observation(namespace = NAMESPACE, level = LEVEL, tags(TAG, ...))]
     struct PAYLOAD { FIELDS }
-EMISSION := observe!(VALUE) | observe_if_active(|| VALUE) | engine.observe_if_active(|| VALUE)
+EMISSION := observe!(VALUE)
 SELECTION := Selection::new()
     [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? ]*
     [ .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
 SCOPE := guard = start_scope(ScopeConfig::new(NAME)
-    [ .selection(SELECTION) ] [ .override_policy::<PAYLOAD>(POLICY) ])
-    [ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
+[ .selection(SELECTION) ]
+[ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
+| .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+[ .override_policy::<PAYLOAD>(POLICY) ])
+[ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
 ROUTING := engine.add_channel_sink(CHANNEL, SINK)
-           engine.register_namespace_channel(NAMESPACE, CHANNEL)?
+engine.register_namespace_channel(NAMESPACE, CHANNEL)?
 SINK := Arc::new(MemorySink::new() | MemorySink::with_config(RETENTION)
-              | JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
-              | ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
-SPAN := span = observe_span!(PAYLOAD) | span_if_active(|| PAYLOAD) | engine.span_if_active(|| PAYLOAD)
-        OPERATION; span.finish()?
+| JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
+| ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
+SPAN := span = observe_span!(PAYLOAD)
+OPERATION; span.finish()?
 CAPTURE := run = capture_observations(CaptureConfig::new()
-    [ .selection(SELECTION) | .activate_tags(TAGS)? | .activate_namespace(NS)? ]
-    [ .retention(RETENTION) ], OPERATION)
+[ .selection(SELECTION) ]
+[ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
+| .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+[ .retention(RETENTION) ], OPERATION)
 QUERY := dataset.query(ObservationsQuery::new()
-    [ .namespace(NS) | .namespace_subtree(NS) ]
-    [ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
-    [ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
-TYPED_EVIDENCE := typed = (run | dataset | QUERY).to_typed::<PAYLOAD>()?
-                  typed.source(NAME)
+[ .namespace(NS) | .namespace_subtree(NS) ]
+[ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
+[ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
+TYPED_EVIDENCE := typed = (run | dataset | QUERY).to_typed::<PAYLOAD>()?; typed.source(NAME)
+SPAN_EVIDENCE := spans = (run | dataset | QUERY).to_spans::<PAYLOAD>()?; spans.source(NAME)
 ~~~
 
 ### Certification language
@@ -1215,7 +1221,7 @@ runner.assert_certify();
 
 #### CASE
 
-`let case = runner.case()` binds the typed symbolic root without borrowing the runner. Inside `fact!(expression)`, `case.input()` borrows the materialized input and `case.result()` borrows the successful positive output, not a `Result`. `case.observations::<T>()` exists for captured execution and returns strict typed evidence or a decode error. It is not available on plain Result execution.
+`let case = runner.case()` binds the typed symbolic root without borrowing the runner. Inside `fact!(expression)`, `case.input()` borrows the materialized input and `case.result()` borrows the successful positive output, not a `Result`. `case.observations::<T>()` exists for captured execution and returns strict typed evidence or a decode error. It is not available on plain Result execution. For captured span profiling use case.spans::<T>() to obtain owned typed measurements with the same completeness prerequisite.
 
 The macro defers the whole expression containing the case root. Use input-derived independent invariants or an oracle; do not calculate expected output by calling the production algorithm again. A failure to evaluate required evidence is a failed proof, not a skipped check.
 
@@ -1551,7 +1557,7 @@ let family = domain!(Window {
 
 Manual `Observation` implementations provide `NAMESPACE` and optionally `LEVEL` / `TAGS`, `message()` and `render_text()`. message is persisted semantic text; render_text is transient human output, never evidence analyzed by certifications. Prefer typed fields for facts used in a proof.
 
-FORMAT v1 persists ts, proc, proc_ms, namespace, level, data with optional scope, message, phase, span. Tags, channels, render_text are absent. Point records have no phase/span; start carries data/message and end carries null data without message. proc_ms is monotonic within one process only. [FORMAT v1](docs/FORMAT.md) is the protocol authority.
+FORMAT v1 persists ts, proc, proc_ns, namespace, level, data with optional scope, message, phase, span. Tags, channels, render_text are absent. Point records have no phase/span; start carries data/message and end carries null data without message. proc_ns is monotonic within one process only. [FORMAT v1](docs/FORMAT.md) is the protocol authority.
 
 ~~~rust
 use sun_observations::*;
@@ -1728,7 +1734,7 @@ assert_eq!(view.iter().count(), 0);
 
 Use `run.to_typed::<Payload>()`, `dataset.to_typed::<Payload>()` or `query.to_typed::<Payload>()`. TypedView owns decoded values and original source coordinates. `values()` / `sources()` borrow them; `iter()` yields TypedEntry (use iter().nth(index) for indexed access) containing value, dataset_index and original source record. `typed.source(name)` exposes a generic PreparedSource with SourceProvenance, without decoding again.
 
-Source-local indexes are not dataset indexes. Resolve original coordinates with typed entries/sources rather than positional assumptions. The public `DecodeError.source` field contains `SourceContext`: dataset_index, namespace, proc, scope, span, phase, ts, proc_ms. Strict decode failures remain evaluation errors in proofs, never silently omitted records. Acceptance and correspondence belong to [certification language](#certification-language), not the runtime.
+Source-local indexes are not dataset indexes. Resolve original coordinates with typed entries/sources rather than positional assumptions. The public `DecodeError.source` field contains `SourceContext`: dataset_index, namespace, proc, scope, span, phase, ts, proc_ns. Strict decode failures remain evaluation errors in proofs, never silently omitted records. Acceptance and correspondence belong to [certification language](#certification-language), not the runtime.
 
 ~~~rust
 use sun_observations::*;
@@ -1738,7 +1744,7 @@ use sun_observations::certifications::fact;
 #[observation(namespace = "evidence::accepted")]
 struct Accepted { id: u64 }
 let run = capture_observations(CaptureConfig::new().activate_all(),
-    || observe!(Accepted { id: 42 }));
+|| observe!(Accepted { id: 42 }));
 run.result().as_ref().unwrap();
 let typed = run.to_typed::<Accepted>()?;
 let mut proof = run.certification("accepted identities are unique");
@@ -1747,6 +1753,39 @@ proof.check("count", fact("accepted", typed.values().len()).expect(1usize));
 proof.assert_certify();
 # Ok::<(), Box<dyn std::error::Error>>(())
 ~~~
+
+#### SPAN_EVIDENCE
+
+Capture profiling evidence with `run.to_spans::<Payload>()?`. For persisted snapshots use `dataset.to_spans::<Payload>()?` or envelope-selected `query.to_spans::<Payload>()?`. All delegate to one evidence-owned pairing path; no certification joins lifecycle records or calculates duration. `SpanIdentity` is `(proc, scope-or-absence, namespace, span)`, independent of delivery adjacency/order. The selected namespace must have exactly one start and end per identity, equal level, and `end.proc_ns >= start.proc_ns`. Points are ignored. Missing/duplicate records (including identical fan-out), reversed time, level mismatch, or strict payload decode errors return `SpanError` without a partial sample. Phase-only selection therefore fails on nonempty span evidence. Empty selections succeed but do not prove execution; certify expected cardinality.
+
+`SpanMeasurements::values()` borrows `SpanMeasurement` entries. `measurement.identity()` returns the typed identity; use `identity.process()`, `identity.scope()`, `identity.namespace()`, and `identity.span()` for its components. `measurement.value()` accesses the decoded start payload. `measurement.duration_ns()` is the canonical elapsed nanoseconds and `measurement.duration()` is the same value as `Duration`. No hidden overhead compensation is applied. `SpanMeasurements::sources()` returns both original lifecycle records and their dataset coordinates; `source(name)` exposes the measurements as `PreparedSource<SpanMeasurement<Payload>>` with endpoint provenance.
+
+`CapturedRun::to_spans()` rejects incomplete capture before pairing, even if eviction removed whole pairs and retained lifecycles look valid. Snapshot/query preparation checks selected lifecycle completeness, not transport history; capture proofs must retain the run completeness prerequisite rather than bypassing it through a raw snapshot. A point-only/disabled capture cannot prove a promised measured execution merely by returning no errors.
+
+~~~rust
+use sun_observations::{certifications::*, evidence::*, *};
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "profile::sort")]
+struct Sort { rows: usize }
+let run = capture_observations(CaptureConfig::new().activate_all(), || {
+let mut rows = [3, 1, 2];
+let span = observe_span!(Sort { rows: rows.len() }).unwrap();
+rows.sort_unstable();
+span.finish().unwrap();
+});
+let spans = run.to_spans::<Sort>()?;
+let rows = spans.source("completed sorts");
+let mut c = run.certification("profiling evidence is complete");
+c.check("one sort", rows.count().expect(1usize));
+c.check("input size", rows.single_map(|m| m.value().rows).expect(3usize));
+c.check("finite elapsed ns", rows.numeric(|m| m.duration_ns() as f64).expect(NumericRule::Finite));
+c.assert_certify();
+# Ok::<(), Box<dyn std::error::Error>>(())
+~~~
+
+Project `duration_ns()` directly for nanosecond analysis, or use `duration()` when a typed `Duration` is the stronger hard-bound representation; integer-to-f64 conversion can lose precision at very large values. Use only the generic numeric/group/comparison/relation/anomaly analysis required by the contract; summary analysis is optional. Acceptance belongs to certifications. Profile only promised performance, bounded resources/work, or meaningful regression acceptance; incidental tuning belongs in benchmarks/diagnostics. Apply the general hard/statistical/anomaly rules: do not add a metric implied by stronger exact checks, and derive statistical/anomaly bounds from semantic requirements or independent controls rather than current timings.
+
+For planned execution return captured real production evidence from the executor, then use the planned case span accessor described in CASE. Capture completeness is a mandatory planned prerequisite. Domain owns only the generated family; real data-source cases and generated cases run the same production path. Preserve execution identity when values repeat. The runnable [profiling example](crates/sun-observations/examples/profiling.rs) demonstrates concrete plus Domain-generated inputs and per-case profiling on the real production path; generic prepared-analysis certifications cover statistical and anomaly policy without a separate profiling statistics layer.
 
 ### End-to-end scenarios
 

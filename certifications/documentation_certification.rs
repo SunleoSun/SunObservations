@@ -132,6 +132,7 @@ const LANGUAGES: &[Language] = &[
             "CAPTURE",
             "QUERY",
             "TYPED_EVIDENCE",
+            "SPAN_EVIDENCE",
         ],
     },
 ];
@@ -290,7 +291,7 @@ fn language_errors(language: &Language, text: &str, reference: &str) -> Vec<Stri
                 _ => errors.push(format!("{document} {node} missing or duplicate section")),
             }
         }
-        if productions.get(*node).is_none()
+        if !productions.contains_key(*node)
             || productions.get(*node) != reference_productions.get(*node)
         {
             errors.push(format!("{node} grammar differs between skill and README"));
@@ -462,7 +463,7 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
         "PlannedCertificationReport" => "ASSERT_CERTIFY",
         "CaseContext" => return None,
         "TestCase" => match method {
-            "input" | "result" | "observations" => "CASE",
+            "input" | "result" | "observations" | "spans" => "CASE",
             _ => return None,
         },
         "CheckPlan" => "PLANNED_CHECK",
@@ -535,9 +536,12 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
         | "ConsoleSink"
         | "ObservationDelivery" => "SINK",
         "SpanGuard" => "SPAN",
+        "CapturedRun" if method == "to_spans" => "SPAN_EVIDENCE",
         "CaptureConfig" | "CapturedRun" | "CaptureStatus" => "CAPTURE",
         "ObservationDataset" => {
-            if method == "to_typed" {
+            if method == "to_spans" {
+                "SPAN_EVIDENCE"
+            } else if method == "to_typed" {
                 "TYPED_EVIDENCE"
             } else {
                 "QUERY"
@@ -545,13 +549,16 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
         }
         "ObservationsQuery" => "QUERY",
         "RecordView" => {
-            if method == "to_typed" {
+            if method == "to_spans" {
+                "SPAN_EVIDENCE"
+            } else if method == "to_typed" {
                 "TYPED_EVIDENCE"
             } else {
                 "QUERY"
             }
         }
         "TypedView" | "DecodeError" => "TYPED_EVIDENCE",
+        "SpanMeasurements" | "SpanMeasurement" | "SpanIdentity" => "SPAN_EVIDENCE",
         _ => return None,
     })
 }
@@ -1101,6 +1108,11 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
             "metamorphic",
             "null/control scenario",
             "wall-clock thresholds",
+            "### Profiling",
+            "known regression risk",
+            "evidence set that actually contains comparable samples",
+            "nanosecond hardware resolution",
+            "overhead subtraction",
             "fails closed",
         ],
         &[
@@ -1109,6 +1121,109 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
             "diagnostic_bytes",
         ],
     );
+}
+
+fn authoring_errors(name: &str, text: &str) -> Vec<String> {
+    let (required, forbidden): (&[&str], &[&str]) = match name {
+        "observations-api" => (
+            &[
+                "EMISSION := observe!(VALUE)",
+                "SPAN := span = observe_span!(PAYLOAD)",
+                "CaptureConfig::new()",
+                ".activate_namespace(NS)?",
+                ".activate_tags(TAGS)?",
+                "to_spans::<PAYLOAD>()?",
+                "SpanMeasurement",
+                "SpanIdentity",
+                "proc_ns",
+                "SpanError",
+                "start_index/end_index",
+                "certifications-api",
+                "nanosecond",
+                "exactly one",
+            ],
+            &[
+                "| observe_if_active",
+                "| engine.observe_if_active",
+                "| span_if_active",
+                "| engine.span_if_active",
+                "or observe_if_active",
+                "or lazy span_if_active",
+            ],
+        ),
+        "certifications-api" => (
+            &[
+                "source(NAME, &VALUE)",
+                "collection(NAME, &VALUES)",
+                "check_fact_expect",
+                "Criterion::greater_than(bound)",
+                "Criterion::at_least(bound)",
+                "Criterion::less_than(bound)",
+                "Criterion::at_most(bound)",
+                "Criterion::between(min, max)",
+                "with_bound(measure, min, max)",
+                "case.spans::<T>()",
+                "spans.source(name)",
+                "summary() is optional",
+                "outliers(config)",
+            ],
+            &[
+                "c.source(",
+                "c.collection(",
+                "Direct alternatives:",
+                "Direct one-off alternatives:",
+                "One-off analysis:",
+                "Criterion::BOUND(...)",
+                "AllValid",
+                "on_presorted(",
+                "::pearson_at_least(",
+                "::max_absolute_at_most(",
+            ],
+        ),
+        "domain-api" => (
+            &[
+                "equal(operand)",
+                "less_than(operand)",
+                "greater_equal(operand)",
+            ],
+            &[],
+        ),
+        _ => return Vec::new(),
+    };
+    required
+        .iter()
+        .filter(|marker| !text.to_lowercase().contains(&marker.to_lowercase()))
+        .map(|marker| format!("missing {marker}"))
+        .chain(
+            forbidden
+                .iter()
+                .filter(|marker| text.contains(**marker))
+                .map(|marker| format!("ambiguous {marker}")),
+        )
+        .collect()
+}
+
+#[test]
+fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_generic_analysis() {
+    for name in SKILLS {
+        let text = skill(name);
+        let errors = authoring_errors(name, &text);
+        assert!(errors.is_empty(), "{name}: {errors:?}");
+    }
+    let original = skill("certifications-api");
+    for altered in [
+        original.replace("Criterion::greater_than(bound)", "Criterion::greater_than"),
+        original.replace("Criterion::less_than(bound)", "Criterion::less_than()"),
+        original.replace("source(NAME, &VALUE)", "c.source(NAME, &VALUE)"),
+    ] {
+        assert!(!authoring_errors("certifications-api", &altered).is_empty());
+    }
+    let original = skill("observations-api");
+    let altered = original.replace(
+        "EMISSION := observe!(VALUE)",
+        "EMISSION := observe!(VALUE) | observe_if_active(|| VALUE)",
+    );
+    assert!(!authoring_errors("observations-api", &altered).is_empty());
 }
 
 #[test]

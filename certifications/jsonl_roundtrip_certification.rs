@@ -1,5 +1,5 @@
 use sun_observations::certifications::*;
-use sun_observations_certifications::{pair, run_scenario, validate};
+use sun_observations_certifications::{certify_spans, run_scenario, validate, Rich};
 #[test]
 fn independent_v1_consumer_validates_diverse_payloads_and_lifecycle() {
     let records = run_scenario(env!("CARGO_BIN_EXE_scenario"), "roundtrip");
@@ -10,16 +10,16 @@ fn independent_v1_consumer_validates_diverse_payloads_and_lifecycle() {
             .count()
             .expect(1004usize),
     );
-    pair(&records, 1);
+    certify_spans::<Rich>(&records, 1);
     let proc = &records[0]["proc"];
     let mut elapsed = 0;
     c.section("envelope", |c| {
         for r in &records {
             c.check_fact_expect("process identity", &r["proc"], proc);
-            let next = r["proc_ms"].as_u64().unwrap();
+            let next = r["proc_ns"].as_u64().unwrap();
             c.check(
                 "monotonic clock",
-                fact("elapsed milliseconds", next).expect(Criterion::at_least(elapsed).unwrap()),
+                fact("elapsed nanoseconds", next).expect(Criterion::at_least(elapsed).unwrap()),
             );
             elapsed = next;
         }
@@ -59,7 +59,7 @@ fn independent_v1_consumer_validates_diverse_payloads_and_lifecycle() {
     );
     let point = records[0].clone();
     c.section("schema rejection", |c| {
-        for field in ["ts", "proc", "proc_ms", "namespace", "level", "data"] {
+        for field in ["ts", "proc", "proc_ns", "namespace", "level", "data"] {
             let mut invalid = point.clone();
             invalid.as_object_mut().unwrap().remove(field);
             c.check_fact_expect(

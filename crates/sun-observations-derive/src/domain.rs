@@ -394,7 +394,7 @@ pub fn fact(input: proc_macro::TokenStream) -> syn::Result<TokenStream> {
             fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
                 if matches!(
                     call.method.to_string().as_str(),
-                    "input" | "result" | "execution" | "observations"
+                    "input" | "result" | "execution" | "observations" | "spans"
                 ) && matches!(
                     &*call.receiver,
                     Expr::Path(path) if path.path.is_ident("case")

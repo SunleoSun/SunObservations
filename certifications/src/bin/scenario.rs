@@ -5,7 +5,7 @@ use std::{
 };
 use sun_observations::certifications::{certification, fact, CountRule};
 use sun_observations::*;
-use sun_observations_certifications::pair;
+use sun_observations_certifications::{certify_spans, Rich, Work};
 
 #[derive(Serialize, Observation)]
 #[observation(namespace = "cert::point", tags("detail"))]
@@ -30,12 +30,6 @@ struct Sample {
 #[derive(Serialize, Observation)]
 #[observation(namespace = "cert::blocked", level = ERROR, tags("excluded"))]
 struct Blocked;
-#[derive(Serialize, Observation)]
-#[observation(namespace = "cert::work")]
-struct Work {
-    parent: usize,
-    child: usize,
-}
 
 fn setup(directory: &Path) -> Arc<MemorySink> {
     let engine = global();
@@ -253,17 +247,7 @@ fn fanout(memory: &Arc<MemorySink>) {
     }
     c.assert_certify();
 }
-#[derive(Serialize)]
-struct Rich {
-    nested: serde_json::Value,
-    message: Option<String>,
-}
-impl Observation for Rich {
-    const NAMESPACE: &'static str = "cert::rich";
-    fn message(&self) -> Option<&str> {
-        self.message.as_deref()
-    }
-}
+
 fn roundtrip() {
     global().set_selection(Selection::new().activate_all());
     for sequence in 0..1000 {
@@ -460,6 +444,6 @@ fn main() {
             .iter()
             .map(|r| serde_json::to_value(r).unwrap())
             .collect();
-        pair(&records, 32);
+        certify_spans::<Work>(&records, 32);
     }
 }

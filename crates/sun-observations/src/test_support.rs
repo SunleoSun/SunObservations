@@ -14,7 +14,7 @@ pub fn record(namespace: &str) -> ObservationRecord {
     ObservationRecord {
         ts: "2026-10-20T00:00:00.000Z".into(),
         proc: "1234_opaque".into(),
-        proc_ms: 42,
+        proc_ns: 42,
         scope: None,
         namespace: namespace.into(),
         level: ObservationLevel::INFO,

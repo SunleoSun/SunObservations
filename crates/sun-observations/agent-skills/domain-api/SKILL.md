@@ -36,7 +36,7 @@ RELATION := FIELD.(equal(OPERAND) | not_equal(OPERAND)
 
 Derive DomainInput on concrete named-field structs and enums; derive Clone when production fixtures need it. Built-ins include integers, f32/f64, bool, String, Vec<T>. No generic input derives, unions, or unnamed struct fields. Register the Domain with a planned runner; real data_source cases can prefill generated coverage.
 
-Generation chooses deterministic representatives and meaningful constraint-breaking negative inputs. Declare only states at the validation owner; downstream owners should receive reachable valid inputs. No shrinking, regex/arbitrary-string generation, map/set, uniqueness, or collection-order rule language exists.
+Generation chooses deterministic representatives and meaningful constraint-breaking negative inputs. Declare only states at the validation owner; downstream owners should receive reachable valid inputs. No shrinking, regex/arbitrary-string generation, map/set, uniqueness, or collection-order rule language exists. For family-wide profiling use the same runner.domain(domain) and real captured executor; observations-api owns paired measurements and certifications-api owns analysis/acceptance.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -155,7 +155,7 @@ fn conditional_windows() {
 
 ## RELATION
 
-Use equal, not_equal, less_than, less_equal, greater_than, greater_equal with a compatible scalar constant or typed field operand. Nested field paths and collection.length() are supported. Constructive rules choose candidates; relations constrain their legal combinations.
+Use equal(operand), not_equal(operand), less_than(operand), less_equal(operand), greater_than(operand), greater_equal(operand) with a compatible scalar constant or typed field operand. Nested field paths and collection.length() are supported. Constructive rules choose candidates; relations constrain their legal combinations.
 
 ~~~rust
 use sun_observations::certifications::*;

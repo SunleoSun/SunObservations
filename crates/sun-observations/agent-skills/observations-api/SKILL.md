@@ -16,36 +16,41 @@ DECLARATION :=
     #[derive(Serialize, Deserialize, Observation)]
     #[observation(namespace = NAMESPACE, level = LEVEL, tags(TAG, ...))]
     struct PAYLOAD { FIELDS }
-EMISSION := observe!(VALUE) | observe_if_active(|| VALUE) | engine.observe_if_active(|| VALUE)
+EMISSION := observe!(VALUE)
 SELECTION := Selection::new()
     [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? ]*
     [ .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
 SCOPE := guard = start_scope(ScopeConfig::new(NAME)
-    [ .selection(SELECTION) ] [ .override_policy::<PAYLOAD>(POLICY) ])
-    [ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
+[ .selection(SELECTION) ]
+[ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
+| .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+[ .override_policy::<PAYLOAD>(POLICY) ])
+[ Context::capture().run(OPERATION) | context::thread::spawn(OPERATION) ]
 ROUTING := engine.add_channel_sink(CHANNEL, SINK)
-           engine.register_namespace_channel(NAMESPACE, CHANNEL)?
+engine.register_namespace_channel(NAMESPACE, CHANNEL)?
 SINK := Arc::new(MemorySink::new() | MemorySink::with_config(RETENTION)
-              | JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
-              | ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
-SPAN := span = observe_span!(PAYLOAD) | span_if_active(|| PAYLOAD) | engine.span_if_active(|| PAYLOAD)
-        OPERATION; span.finish()?
+| JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, CONFIG)?
+| ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK)
+SPAN := span = observe_span!(PAYLOAD)
+OPERATION; span.finish()?
 CAPTURE := run = capture_observations(CaptureConfig::new()
-    [ .selection(SELECTION) | .activate_tags(TAGS)? | .activate_namespace(NS)? ]
-    [ .retention(RETENTION) ], OPERATION)
+[ .selection(SELECTION) ]
+[ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)?
+| .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
+[ .retention(RETENTION) ], OPERATION)
 QUERY := dataset.query(ObservationsQuery::new()
-    [ .namespace(NS) | .namespace_subtree(NS) ]
-    [ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
-    [ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
-TYPED_EVIDENCE := typed = (run | dataset | QUERY).to_typed::<PAYLOAD>()?
-                  typed.source(NAME)
+[ .namespace(NS) | .namespace_subtree(NS) ]
+[ .scope(NAME) | .without_scope() ] [ .level(LEVEL) ]
+[ .points() | .span_starts() | .span_ends() ] [ .span(ID) ] [ .process(ID) ])
+TYPED_EVIDENCE := typed = (run | dataset | QUERY).to_typed::<PAYLOAD>()?; typed.source(NAME)
+SPAN_EVIDENCE := spans = (run | dataset | QUERY).to_spans::<PAYLOAD>()?; spans.source(NAME)
 ~~~
 
 ## DECLARATION
 
 Derive Observation on Serialize payloads; add Deserialize for typed decoding. namespace is required stable schema identity; level is INFO (default), WARN, ERROR; tags are optional selection labels. Manual implementations provide NAMESPACE, LEVEL, TAGS and optionally message() (persisted semantic text) and render_text() (transient human output).
 
-FORMAT v1 persists ts, proc, proc_ms, namespace, level, data plus optional scope, message, phase, span. Tags, channels, render_text are not persisted. Point records have no phase/span; span starts carry data/message and ends have null data without message. proc_ms is monotonic only within one process.
+FORMAT v1 persists ts, proc, proc_ns, namespace, level, data plus optional scope, message, phase, span. Tags, channels, render_text are not persisted. Point records have no phase/span; span starts carry data/message and ends have null data without message. proc_ns is monotonic only within one process.
 
 ~~~rust
 use sun_observations::*;
@@ -60,9 +65,9 @@ fn stable_identity() {
 
 ## EMISSION
 
-Emit through the global production engine with observe!(value) or observe_if_active(|| value). Put expensive construction inside the lazy closure. Ok(false) means rejected before construction/serialization; Ok(true) means admitted/dispatched, not durable persistence. ObservationError exposes serialization or sink failures.
+Emit with observe!(value) through the global production engine. The macro admits lazily: expensive payload construction stays inside its argument and is skipped on rejection. Ok(false) means rejected before construction/serialization; Ok(true) means admitted/dispatched, not durable persistence. ObservationError exposes serialization or sink failures.
 
-Use global() to configure the process engine; process_id(), sink_error_count(), flush_channels() inspect effects. ObservationEngine::isolated() and engine.observe_if_active are for independent runtime/routing proofs, not dependency injection into ordinary production functions.
+Use global() to configure the process engine; engine.process_id(), engine.sink_error_count(), engine.flush_channels() inspect effects. For isolated runtime/routing proofs only, use ObservationEngine::isolated() and engine.observe_if_active(|| value), not dependency injection into ordinary production functions.
 
 ~~~rust
 use sun_observations::*;
@@ -80,7 +85,7 @@ fn production_validation() { assert!(validate(42).unwrap()); }
 
 ## SELECTION
 
-Selection::new()/default() starts disabled. Combine activate_all, activate_namespace(ns), activate_tags(tags); exclude_namespace/exclude_tags veto positives. Namespace matching respects segment boundaries. Dynamic invalid namespaces/tags return errors. Inspect activates(ns,tags), excludes(ns,tags), admits(ns,tags). namespace::{is_normalized_segment, validate_tag, matches_subtree, validate_namespace} support dynamic inputs.
+Selection::new() starts disabled. Combine .activate_all(), .activate_namespace(ns)?, .activate_tags(tags)?; .exclude_namespace(ns)? and .exclude_tags(tags)? veto positives. Namespace matching respects segment boundaries; invalid dynamic namespaces/tags return errors. Inspect .activates(ns, tags), .excludes(ns, tags), .admits(ns, tags).
 
 ~~~rust
 use sun_observations::*;
@@ -95,17 +100,17 @@ fn select_boundary_not_debug() {
 
 ## SCOPE
 
-Keep the start_scope guard alive through the operation. ScopeConfig::new(name) supports selection(selection), activate_all, activate_namespace/exclude_namespace, activate_tags/exclude_tags, override_policy::<T>(policy). Policy::Always/Never or first_n(n)/every_n(n) use validated positive counts; counters belong to scope/type lifecycle.
+Keep the start_scope(config) guard alive through the operation. Prefer ScopeConfig::new(name).activate_all()/activate_namespace(ns)?/activate_tags(tags)? and exclude_namespace(ns)?/exclude_tags(tags)? for scope-local selection; use .selection(selection) when reusing a prebuilt Selection. Add .override_policy::<T>(policy) as needed. Policy::Always, Policy::Never, Policy::first_n(n)?, Policy::every_n(n)? control admission; counts are positive and counters belong to scope/type lifecycle.
 
-Propagate with Context::capture(), then .enter() (guard), .run(operation), or context::thread::spawn(operation). Context::default() is empty; scope_name() inspects identity. For Rayon use context::rayon::ContextThreadPool::new() or with_threads(NonZeroUsize), then install(operation). Ordinary threads/unrelated async tasks do not inherit context. Join workers before interpreting capture completeness.
+Capture context = Context::capture() in the parent. Use context.enter() when a guard must cover several calls in the current thread, context.run(operation) inside an existing worker, or context::thread::spawn(operation) for a new thread. For Rayon use ContextThreadPool::new()? for default sizing or ContextThreadPool::with_threads(nonzero_thread_count)? for an explicit size, then pool.install(operation). Ordinary threads/unrelated async tasks do not inherit context. Join workers before interpreting capture completeness.
 
 ~~~rust
 use sun_observations::*;
 #[test]
 fn propagate_batch_identity() {
-    let _guard = start_scope(ScopeConfig::new("batch-42").activate_all());
-    let worker = context::thread::spawn(|| Context::capture().scope_name().map(str::to_owned));
-    assert_eq!(worker.join().unwrap().as_deref(), Some("batch-42"));
+ let _guard = start_scope(ScopeConfig::new("batch-42").activate_all());
+ let worker = context::thread::spawn(|| Context::capture().scope_name().map(str::to_owned));
+ assert_eq!(worker.join().unwrap().as_deref(), Some("batch-42"));
 }
 ~~~
 
@@ -134,10 +139,10 @@ fn route_to_audit() {
 
 ## SINK
 
-- MemorySink::new/default or with_config(MemorySinkConfig::new(max_items,compact_fraction)?). Default: 1,000,000 records, 0.10 compaction. Inspect len/is_empty/config/stats (MemoryStats: retained, evicted, compactions); shared_records/drain_shared avoid record cloning; records/drain clone. Retention eviction makes capture incomplete.
-- JsonlSink::open_append(path) / with_config(path,config), or from_writer(writer) / writer_with_config(writer,config). JsonlConfig::new/default uses 1000ms flush, no size bound, trim fraction 0.10. Builders flush_interval_ms, max_file_size_mb, max_file_size_bytes, trim_fraction validate. Inspect stats/is_started/last_error; flush before reading async output.
-- ConsoleSink::stdout/stderr/new(writer) provides human output.
-- Custom Sink implements write(record), flush(); optional write_shared, wants_render_text, write_delivery. ObservationDelivery exposes record/shared_record/render_text/shared_render_text. A custom async sink must make flush a real delivery barrier.
+- MemorySink::new() uses 1,000,000 records and 0.10 compaction; use MemorySink::with_config(MemorySinkConfig::new(max_items, compact_fraction)?) for bounded retention. Inspect .len(), .is_empty(), .config(), .stats() (retained, evicted, compactions); .shared_records() snapshots and .drain_shared() removes records without cloning payloads. Eviction makes capture incomplete.
+- JsonlSink::open_append(path)? and JsonlSink::from_writer(writer) use default configuration; use JsonlSink::with_config(path, config)? or JsonlSink::writer_with_config(writer, config)? only when customizing it. JsonlConfig::new() defaults to 1000ms flush, no size bound, trim fraction 0.10. Builders .flush_interval_ms(ms)?, .max_file_size_bytes(bytes)?, .trim_fraction(fraction)? validate. Inspect .stats(), .is_started(), .last_error(); call .flush()? before reading async output.
+- ConsoleSink::stdout() or ConsoleSink::stderr() chooses human output destination.
+- Custom Sink implements write(&record) and flush(); optional write_shared(record_arc), wants_render_text(), write_delivery(&delivery). ObservationDelivery exposes .record(), .shared_record(), .render_text(), .shared_render_text(). Async flush() must be a real delivery barrier.
 
 ~~~rust
 use sun_observations::*;
@@ -154,7 +159,7 @@ fn bounded_audit_retention() {
 
 ## SPAN
 
-Use observe_span!(payload) or lazy span_if_active (global/engine); inspect is_active(), call finish() when end-delivery failure matters. Drop attempts end delivery. Start admission freezes scope/routing/sinks/policy through end; do not re-check current selection at finish. Match persisted spans by proc, scope, namespace, span, never adjacency.
+Use observe_span!(payload), which lazily admits before payload construction. Inspect span.is_active(); call span.finish()? when end-delivery failure matters. Drop attempts end delivery. Start admission freezes scope/routing/sinks/policy through end; do not re-check current selection at finish. Match persisted spans by proc, scope, namespace, span, never adjacency.
 
 ~~~rust
 use sun_observations::*;
@@ -173,8 +178,7 @@ fn measure_sort() {
 
 ## CAPTURE
 
-capture_observations(config, operation) wraps real production. CaptureConfig::new/default starts disabled with default memory retention. selection and retention replace defaults; activate_all, activate_namespace(s), activate_tag(s), exclude_namespace(s), exclude_tag(s) select evidence.
-
+capture_observations(config, operation) wraps real production. CaptureConfig::new() starts disabled with default memory retention. Prefer its .activate_all(), .activate_namespace(ns)?, .activate_tags(tags)?, .exclude_namespace(ns)?, and .exclude_tags(tags)? builders for capture-local selection; use .selection(selection) when reusing a prebuilt Selection. Use .retention(retention) for storage bounds.
 Read run.result(), dataset(), status().is_complete(), to_typed::<T>(). CapturedRun completeness requires no eviction, emission error, or escaped context/worker/span. Nested captures are exclusive; parallel captures have separate storage. run.certification(name) starts a proof with completeness already registered. A planned executor can return captured Result; case.observations::<T>() then accesses typed evidence and capture completeness is mandatory.
 
 ~~~rust
@@ -190,8 +194,8 @@ fn normalize(raw: &str) -> Result<String, ObservationError> {
 }
 #[test]
 fn capture_normalization() {
-    let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"]).unwrap(),
-        || normalize(" ALPHA "));
+ let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"]).unwrap(),
+ || normalize(" ALPHA "));
     assert_eq!(run.result().as_ref().unwrap(), "alpha");
     assert!(run.status().is_complete());
     assert_eq!(run.to_typed::<Normalized>().unwrap().values().len(), 1);
@@ -215,7 +219,7 @@ fn select_one_execution() {
 
 ## TYPED_EVIDENCE
 
-Use run/dataset/query.to_typed::<Payload>() for strict decode. Read typed.values(), sources(), iter() (or iter().nth(index)); TypedEntry exposes value, dataset_index, source record. typed.source(name) prepares generic certification evidence without re-decoding and preserves SourceProvenance. DecodeError carries SourceContext (dataset_index, namespace, proc, scope, span, phase, ts, proc_ms). Source-local and dataset indexes differ.
+Use run.to_typed::<Payload>()? for captured payloads, dataset.to_typed::<Payload>()? for a full persisted snapshot, or query.to_typed::<Payload>()? for selected persisted evidence. Read typed.values(), typed.sources(), typed.iter() (or typed.iter().nth(index)); TypedEntry exposes value, dataset_index, source record. typed.source(name) prepares generic certification evidence without re-decoding and preserves SourceProvenance. DecodeError carries SourceContext (dataset_index, namespace, proc, scope, span, phase, ts, proc_ns). Source-local and dataset indexes differ.
 
 Filter by process/scope first when domain keys repeat across executions, or use typed execution identity in the comparison key. Acceptance and correspondence rules belong to certifications-api.
 
@@ -227,11 +231,37 @@ use sun_observations::evidence::*;
 struct Accepted { id: u64 }
 #[test]
 fn retain_provenance() {
-    let run = capture_observations(CaptureConfig::new().activate_all(),
-        || observe!(Accepted { id: 42 }));
+ let run = capture_observations(CaptureConfig::new().activate_all(),
+ || observe!(Accepted { id: 42 }));
     let typed = run.to_typed::<Accepted>().unwrap();
     let prepared = typed.source("accepted orders");
     assert_eq!(prepared.values()[0].id, 42);
     assert_eq!(typed.iter().next().unwrap().dataset_index, 0);
+}
+~~~
+
+## SPAN_EVIDENCE
+
+Use run.to_spans::<Payload>()? for a complete capture, dataset.to_spans::<Payload>()? for a full persisted snapshot, or query.to_spans::<Payload>()? for selected persisted traces; then spans.source(name) exposes PreparedSource<SpanMeasurement<Payload>>. Evidence pairs by SpanIdentity = (proc, scope-or-absence, namespace, span), independent of record order. Exactly one start/end is required: missing, duplicate (including fan-out), reversed-time, mismatched-level, or undecodable lifecycles return SpanError; no partial sample is returned. Capture health is also mandatory for run.to_spans::<Payload>().
+
+measurement.identity() exposes SpanIdentity; use identity.process(), identity.scope(), identity.namespace(), identity.span(). measurement.value() is the decoded start payload, measurement.duration_ns() is canonical elapsed nanoseconds, and measurement.duration() is the same value as Duration. spans.sources() retains both original records and start_index/end_index; spans.source(name) reuses generic PreparedSource analysis with provenance. Empty evidence is not proof of execution. Nanoseconds preserve available clock precision, not hardware resolution or freedom from instrumentation noise; certifications-api owns analysis and acceptance.
+~~~rust
+use sun_observations::{certifications::*, evidence::*, *};
+#[derive(serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "profile::sort")]
+struct Sort { rows: usize }
+#[test]
+fn prepare_elapsed_evidence() {
+ let run = capture_observations(CaptureConfig::new().activate_all(), || {
+ let mut rows = [3, 1, 2];
+ let span = observe_span!(Sort { rows: rows.len() }).unwrap();
+ rows.sort_unstable();
+ span.finish().unwrap();
+ });
+ let spans = run.to_spans::<Sort>().unwrap();
+ let mut c = run.certification("sort profiling evidence");
+ c.check("one completed sort", spans.source("sort spans").count().expect(1usize));
+ c.check("input size", spans.source("sort spans").single_map(|m| m.value().rows).expect(3usize));
+ c.assert_certify();
 }
 ~~~

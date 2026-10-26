@@ -1,5 +1,27 @@
 use serde_json::Value;
-use std::{collections::BTreeMap, path::Path, process::Command};
+use std::{path::Path, process::Command};
+use sun_observations::Observation;
+
+/// Production work-span schema shared by the child process and persisted consumers.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Observation)]
+#[observation(namespace = "cert::work")]
+pub struct Work {
+    pub parent: usize,
+    pub child: usize,
+}
+
+/// Rich production payload used to prove JSONL and memory envelope correspondence.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Rich {
+    pub nested: Value,
+    pub message: Option<String>,
+}
+impl Observation for Rich {
+    const NAMESPACE: &'static str = "cert::rich";
+    fn message(&self) -> Option<&str> {
+        self.message.as_deref()
+    }
+}
 
 /// Independent v1 consumer used by process parents, not runtime deserialization.
 pub fn validate(value: &Value) -> Result<(), String> {
@@ -9,7 +31,7 @@ pub fn validate(value: &Value) -> Result<(), String> {
             return Err(key.into());
         }
     }
-    if value["proc_ms"].as_u64().is_none() || !object.contains_key("data") {
+    if value["proc_ns"].as_u64().is_none() || !object.contains_key("data") {
         return Err("required".into());
     }
     let ts = value["ts"].as_str().unwrap();
@@ -69,50 +91,41 @@ pub fn read(path: &Path) -> Vec<Value> {
         })
         .collect()
 }
-/// Pair interleaved lifecycle records independently of their adjacency.
-pub fn pair(records: &[Value], expected: usize) {
-    let mut pairs = BTreeMap::new();
-    for r in records.iter().filter(|r| r.get("span").is_some()) {
-        pairs
-            .entry((
-                r["proc"].as_str().unwrap().to_owned(),
-                r.get("scope")
-                    .map(|scope| scope.as_str().unwrap().to_owned()),
-                r["namespace"].as_str().unwrap().to_owned(),
-                r["span"].as_str().unwrap().to_owned(),
-            ))
-            .or_insert_with(Vec::new)
-            .push(r);
-    }
-    let mut c = sun_observations::certifications::certification("persisted span lifecycle");
-    c.check_fact_expect("pair count", pairs.len(), expected);
-    for (identity, pair) in &pairs {
-        c.section(format!("{identity:?}"), |c| {
-            c.check_fact_expect("two lifecycle halves", pair.len(), 2usize);
-            if let [a, b] = pair.as_slice() {
-                c.check_fact_expect("start phase", a["phase"].as_str(), Some("start"));
-                c.check_fact_expect("end phase", b["phase"].as_str(), Some("end"));
-                for key in ["proc", "scope", "namespace", "level", "span"] {
-                    c.check_fact_expect(key, &a[key], &b[key]);
-                }
-                c.check_fact_expect("end has no payload", b["data"].is_null(), true);
-                c.check_fact_expect("end has no message", b.get("message").is_none(), true);
-                c.check(
-                    "ordered time",
-                    sun_observations::certifications::fact(
-                        "end milliseconds",
-                        b["proc_ms"].as_u64().unwrap(),
-                    )
-                    .expect(
-                        sun_observations::certifications::Criterion::at_least(
-                            a["proc_ms"].as_u64().unwrap(),
-                        )
-                        .unwrap(),
-                    ),
-                );
-            }
-        });
-    }
+/// Certify persisted span completeness through the canonical evidence interpreter.
+pub fn certify_spans<T: sun_observations::Observation + serde::de::DeserializeOwned>(
+    records: &[Value],
+    expected: usize,
+) {
+    use sun_observations::certifications::*;
+    use sun_observations::evidence::ObservationDataset;
+    let records = records
+        .iter()
+        .map(|record| {
+            std::sync::Arc::new(
+                serde_json::from_value::<sun_observations::ObservationRecord>(record.clone())
+                    .unwrap(),
+            )
+        })
+        .collect();
+    let dataset = ObservationDataset::try_from_records(records).unwrap();
+    let spans = dataset.to_spans::<T>().unwrap();
+    let mut c = certification("persisted span lifecycle");
+    c.check(
+        "pair count",
+        spans.source("completed spans").count().expect(expected),
+    );
+    c.check(
+        "all lifecycle records accounted for",
+        collection("records", dataset.records())
+            .matching_count(|record| record.phase.is_some())
+            .expect(expected * 2),
+    );
+    c.check(
+        "start delivered before end",
+        collection("span endpoints", spans.sources())
+            .matching_count(|source| source.start_index < source.end_index)
+            .expect(expected),
+    );
     c.assert_certify();
 }
 /// Run each global scenario in a new OS process and compare independent persisted views.

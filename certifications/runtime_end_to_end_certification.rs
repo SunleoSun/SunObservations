@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use sun_observations_certifications::{pair, run_scenario as capture};
+use sun_observations_certifications::{certify_spans, run_scenario as capture, Work};
 #[test]
 fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutation() {
     use sun_observations::certifications::{certification as proof, *};
@@ -10,7 +10,7 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
         "total delivery",
         fact("persisted artifact", records.len()).expect(4 * (points + 73 + 160 + 16)),
     );
-    pair(&records, 32);
+    certify_spans::<Work>(&records, 32);
     let mut unique = BTreeSet::new();
     let mut duplicate_count = 0;
     for parent in 0..4 {

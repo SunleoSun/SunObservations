@@ -237,7 +237,7 @@ pub struct RecordView<'a> {
     query: ObservationsQuery<'a>,
 }
 impl RecordView<'_> {
-    fn iter_namespace(
+    pub(super) fn iter_namespace(
         &self,
         namespace: Option<&str>,
     ) -> impl Iterator<Item = (usize, &Arc<ObservationRecord>)> + Clone {
@@ -279,10 +279,10 @@ pub struct SourceContext {
     pub span: Option<String>,
     pub phase: Option<Phase>,
     pub ts: String,
-    pub proc_ms: u64,
+    pub proc_ns: u64,
 }
 impl SourceContext {
-    fn new(index: usize, r: &ObservationRecord) -> Self {
+    pub(super) fn new(index: usize, r: &ObservationRecord) -> Self {
         Self {
             dataset_index: index,
             namespace: r.namespace.clone(),
@@ -291,7 +291,7 @@ impl SourceContext {
             span: r.span.clone(),
             phase: r.phase,
             ts: r.ts.clone(),
-            proc_ms: r.proc_ms,
+            proc_ns: r.proc_ns,
         }
     }
 }

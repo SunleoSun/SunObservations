@@ -14,7 +14,8 @@ pub enum Phase {
 pub struct ObservationRecord {
     pub ts: String,
     pub proc: String,
-    pub proc_ms: u64,
+    /// Monotonic nanoseconds since this engine initialized, not wall-clock time.
+    pub proc_ns: u64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub scope: Option<String>,
     pub namespace: String,

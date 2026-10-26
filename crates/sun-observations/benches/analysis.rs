@@ -59,7 +59,7 @@ fn benchmark() {
                 .write_shared(Arc::new(ObservationRecord {
                     ts: "2026-10-20T00:00:00.000Z".into(),
                     proc: "benchmark".into(),
-                    proc_ms: row as u64,
+                    proc_ns: row as u64,
                     scope: None,
                     namespace: Sample::NAMESPACE.into(),
                     level: ObservationLevel::INFO,

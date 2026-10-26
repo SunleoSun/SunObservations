@@ -84,6 +84,14 @@ proof.assert_certify();
 
 Use `run.certification` for completeness-aware proofs: eviction, emission errors and unfinished contexts/workers/spans fail closed. Join workers and finish spans inside the capture closure.
 
+## Profile span evidence
+
+Emit production lifecycles with `observe_span!(payload)` and finish the guard inside capture. FORMAT v1 persists one monotonic process clock, `proc_ns: u64`. Nanosecond units preserve available precision, not hardware resolution or freedom from instrumentation noise.
+
+`run.to_spans::<Payload>()?` produces owned `SpanMeasurements<Payload>`. Evidence pairs by typed `SpanIdentity` `(proc, scope, namespace, span)`, rejects incomplete/duplicate/invalid lifecycles and incomplete captures, and retains both original records. `measurement.value()` is the decoded start, `measurement.duration_ns()` is canonical elapsed nanoseconds, and `measurement.duration()` is the derived `Duration`. Keep the owner alive, call `spans.source(name)`, then reuse ordinary prepared numeric/group/comparison/relation/anomaly APIs; no summary stage is required. Empty measurements need explicit count acceptance.
+
+Planned captured executors expose `case.spans::<Payload>()` inside `fact!(...)` for concrete `data_source` and generated Domain cases. Domain owns the input family, evidence owns timing interpretation, generic analysis owns metrics, and certification owns policy. Profile promised performance/resource behavior or a meaningful regression contract; apply ordinary hard/statistical/anomaly rules and keep incidental exploration in benchmarks/diagnostics. See the [profiling example](examples/profiling.rs) for real per-case Domain profiling.
+
 ## Agent skills
 
 ```text

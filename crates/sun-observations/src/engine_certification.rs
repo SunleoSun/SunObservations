@@ -325,8 +325,16 @@ mod admission {
         let train = capture(&engine, "engine_tests::train");
         let sibling = capture(&engine, "engine_tests::infer");
         engine.set_selection(Selection::new().activate_namespace("engine_tests").unwrap());
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let before_ns = engine.started.elapsed().as_nanos();
         engine.observe_if_active(|| Event { epoch: 7 }).unwrap();
+        let after_ns = engine.started.elapsed().as_nanos();
         let record = all.records().pop().unwrap();
+        certification.check_fact_expect(
+            "clock retains nanosecond units",
+            (before_ns..=after_ns).contains(&u128::from(record.proc_ns)),
+            true,
+        );
         certification.check_fact_expect("record.proc", record.proc.as_str(), engine.process_id());
         certification.check_fact_expect(
             "chrono::DateTime::parse_from_rfc3339(&record.ts).is_ok()",
@@ -346,8 +354,8 @@ mod admission {
         certification.check_fact_expect("sibling.is_empty()", sibling.is_empty(), true);
         engine.observe_if_active(|| Event { epoch: 8 }).unwrap();
         certification.check_fact_expect(
-            "all.records()[1].proc_ms >= record.proc_ms",
-            all.records()[1].proc_ms >= record.proc_ms,
+            "all.records()[1].proc_ns >= record.proc_ns",
+            all.records()[1].proc_ns >= record.proc_ns,
             true,
         );
         certification.check_fact_expect(

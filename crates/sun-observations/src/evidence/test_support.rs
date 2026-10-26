@@ -6,7 +6,7 @@ pub fn record(namespace: &str, data: Value) -> Arc<ObservationRecord> {
     Arc::new(ObservationRecord {
         ts: "2026-10-20T00:00:00.000Z".into(),
         proc: "test".into(),
-        proc_ms: 0,
+        proc_ns: 0,
         scope: None,
         namespace: namespace.into(),
         level: ObservationLevel::INFO,

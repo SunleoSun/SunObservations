@@ -43,7 +43,7 @@ fn record() -> Arc<ObservationRecord> {
     Arc::new(ObservationRecord {
         ts: String::new(),
         proc: "bench".into(),
-        proc_ms: 0,
+        proc_ns: 0,
         scope: None,
         namespace: Event::NAMESPACE.into(),
         level: sun_observations::ObservationLevel::INFO,
