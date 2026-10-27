@@ -101,11 +101,13 @@ Strengthen statistical evidence with a null/control scenario when it distinguish
 
 Certification names should state the semantic promise, not the implementation mechanism. For large composition proofs, group checks by semantic pipeline stages so failures point to the responsible owner or boundary without re-testing owner-local details.
 
+### Per-case and aggregate checks
+
+Ordinary runner.check(...) proves each successful positive execution. Use runner.check_aggregate(...) once after exploration whenever the contract spans multiple executions—not only profiling: cross-case invariants, grouped distributions, scaling relationships, aggregate correspondence, or cross-case anomalies. Aggregate evidence preserves distinct execution identity even for equal inputs; correctly rejected generated negatives are excluded, while invalid positive execution evidence makes required aggregate access fail closed. Use the cases root and PreparedSource analysis described by certifications-api.
+
 ### Profiling
 
-Profile when performance or resource behavior is promised semantics or a known regression risk whose violation is a real defect; incidental tuning and non-contractual wall-clock thresholds remain benchmark/diagnostic work. Apply the general hard/statistical/anomaly policy above unchanged.
-
-Ordinary runner.check(...) proves properties of each successful positive execution. Use runner.check_aggregate(...) once after exploration when the property exists across the execution family: grouped distributions, scaling relationships, cross-case anomalies, or aggregate correspondence. Domain owns only the input family; aggregate execution retains case evidence and distinct execution identity; span runtime owns measurement emission; evidence owns pairing/duration/completeness/provenance; PreparedSource owns generic metrics; certifications own acceptance. Use an evidence set that actually contains comparable samples. proc_ns preserves available monotonic precision, not nanosecond hardware resolution; avoid unjustified brittle wall-clock thresholds for extremely short operations and hidden overhead subtraction.
+Profile when performance or resource behavior is promised semantics or a known regression risk whose violation is a real defect; incidental tuning and non-contractual wall-clock thresholds remain benchmark/diagnostic work. Apply the general hard/statistical/anomaly policy above unchanged. For cross-case profiling use the aggregate mechanism above over comparable span evidence: Domain owns only the input family; span runtime owns measurement emission; evidence owns pairing/duration/completeness/provenance; PreparedSource owns generic metrics; certifications own acceptance. Use an evidence set that actually contains comparable samples. proc_ns preserves available monotonic precision, not nanosecond hardware resolution; avoid unjustified brittle wall-clock thresholds for extremely short operations and hidden overhead subtraction.
 
 When production code changes, preserve expectations that encode independent intent. Do not make a broken certification green by deriving expected values from the implementation under test or rewriting the contract to match the defect.
 

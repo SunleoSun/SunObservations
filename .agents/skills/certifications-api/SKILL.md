@@ -9,7 +9,7 @@ Use `sun_observations::certifications::*`. Read certifications-methodology for p
 
 ## DSL
 
-Authoring structure, not literal Rust; uppercase words are parameters or nodes defined here. Rust closures supply PROJECT/LEFT/RIGHT projections, KEY join/group projections, PREDICATE, EXECUTOR (|&input| -> execution), SEEDED_EXECUTOR (|&input, u64| -> execution), and section bodies. NAME/SOURCE/TEXT are diagnostic strings; VALUE/VALUES/INPUTS/RESULT are typed Rust values/collections/Results. N/MIN_COUNT/TOP are counts, BOOL is bool, DOMAIN belongs to domain-api; expressions are arbitrary Rust bodies using the indicated symbolic root. OFFSET is i64; Q is an f64 quantile in [0,1]. MIN/MAX/BOUND use the observed ordered type; CLASS is ViolationClass::Hard or ::Statistical. The concrete config and expectation parameters are defined in their sections below.
+Authoring structure, not literal Rust. PROJECT/LEFT/RIGHT are value projections; KEY and LEFT_KEY/RIGHT_KEY are group/join key projections; PREDICATE is a predicate. EXECUTOR is |&input| -> execution and SEEDED_EXECUTOR is |&input, u64| -> execution. NAME/SOURCE/TEXT are diagnostic strings; VALUE/OBSERVED are typed values, VALUES/INPUTS typed collections, RESULT a Rust Result, OTHER another PreparedSource. EXPRESSION is eager Rust; CASE_EXPRESSION/AGGREGATE_EXPRESSION and CASE_EXPECTATION/AGGREGATE_EXPECTATION are Rust expressions using their symbolic root; EAGER_CHECK_RESULT is an already evaluated check. N/MIN_COUNT/TOP are counts; MIN_MEAN/MAX_MEAN, THRESHOLD, ABSOLUTE_TOLERANCE, DENOMINATOR_FLOOR, ABS and REL are f64; ABSOLUTE_THRESHOLD/RELATIVE_THRESHOLD are Option<f64>. START/END/OFFSET are i64, Q is an f64 quantile in [0,1], BOOL is bool, MIN/MAX/BOUND use the observed ordered type, CLASS is ViolationClass::Hard or ::Statistical. NUMERIC_RULE, GROUP_EXPECTATION, CORRELATION_EXPECTATION, LINEAR_FIT_EXPECTATION, DIFFERENCE_EXPECTATION and RELATION_EXPECTATION are concrete types defined below; DOMAIN belongs to domain-api.
 
 ~~~text
 CERTIFICATION :=
@@ -67,7 +67,7 @@ NUMERIC_CHECK :=
     | ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?)?).expect(AtMostAnomalies(N))
     | rows.numeric(PROJECT).jumps(JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?)
         .expect(AtMostAnomalies(N))
-    | rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(START, END)?, 
+| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(START, END)?,
         measure: LagMeasure::Pearson | LagMeasure::Spearman })
     | lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(START, END)?,
     measure: LagMeasure::Pearson | LagMeasure::Spearman }))
@@ -92,6 +92,8 @@ ASSERT_CERTIFY := c.assert_certify() | runner.assert_certify()
 
 Start one proof with certification(NAME). Register prerequisites and prepare borrowed evidence before optionally consuming c with executor(EXECUTOR) or executor_with_seed(SEEDED_EXECUTOR). Do not create two independent proofs for those phases.
 
+Diagnostic controls are c.limits(DiagnosticLimits { failures, characters_per_failure }) and c.report(). CertificationReport exposes name(), checks(), failed(), failures(), is_pass(), and assert_certify().
+
 ~~~rust
 use sun_observations::certifications::*;
 #[test]
@@ -107,7 +109,7 @@ fn export_contract() {
 
 Use source(name, &value) for one value and collection(name, &slice) for many. Names are diagnostics, not join keys. Bindings borrow evidence, not the certification; they survive the transition to planned execution.
 
-Inspect with name(), values(), entry(index), iter(); attach custom provenance with with_provenance(&provider). A custom provider implements SourceProvenance::describe(index, out) and writes bounded diagnostic coordinates only. Cache a typed projection with project(project), then use .values() or .source().
+Inspect with name(), values(), entry(index), iter(); attach custom provenance with with_provenance(&provider). A custom provider implements SourceProvenance::describe(index, out) and writes bounded diagnostic coordinates only. Cache projections with project(project) or keys(key); PreparedValues exposes values()/source(), and PreparedKeys exposes indices()/compare_with(&other_keys).
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -127,7 +129,7 @@ fn prepared_before_execution() {
 
 ## EAGER_CHECK
 
-Use c.check_fact_expect(name, observed, expectation) for a direct observed/expected check. Use c.check(name, fact.expect(expectation)) when the Fact needs its own source/details/description, and c.check(name, prepared_check) for prepared analysis. These are authoring roles, not competing acceptance engines.
+Use c.check_fact_expect(name, observed, expectation) for a direct observed/expected check. Use c.check(name, fact.expect(expectation)) when the Fact needs its own source/details/description, and c.check(name, prepared_check) for prepared analysis. CheckResult::description(text) overrides the diagnostic name before registration. These are authoring roles, not competing acceptance engines.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -173,6 +175,7 @@ The executor runs real production: |input| -> Result<Output, Error>, or |input, 
 - seed(n): reproducible framework/Domain seed; seeded executors additionally receive a deterministic per-case seed.
 - report_mode(bool): coverage and registered-check summary.
 - require_pairwise_coverage(): require feasible enum values/pairs within the existing budget, not extra generation capacity.
+- diagnostic_bytes(bytes): per-failure diagnostic character budget.
 
 Positive executor errors, accepted generated-negative cases, and executor panics fail. Expected negative rejection passes and skips positive-only checks. Missing inputs, invalid Domain/configuration, incomplete capture, or undefined required analysis fail closed.
 
@@ -273,6 +276,8 @@ fn rounded_capacity() {
 
 Use fact!(expression) for ordinary expressions. Use fact(source_name, value) for a prepared report/value with an explicit diagnostic source, and try_fact(source_name, result) for fallible evidence so analysis errors remain EvaluationError. Add .details(text) for context. Apply .expect(expectation) before registering; facts never assert.
 
+CheckResult inspection is source(), expected(), observed(), violations(), class(), analysis_error(), details(), is_pass(), plus description(text). CheckClass is Pass, HardViolation, StatisticalViolation, or EvaluationError.
+
 ~~~rust
 use sun_observations::certifications::*;
 #[test]
@@ -292,9 +297,9 @@ Choose by evidence semantics:
 - Criterion::greater_than(bound), Criterion::at_least(bound), Criterion::less_than(bound), Criterion::at_most(bound), Criterion::between(min, max): ordered scalar bounds; constructors validate and return Result.
 - criterion(text, ViolationClass::Hard | ViolationClass::Statistical, predicate): custom typed predicate. Implement Expectation<T> only for reusable policy: define type Violation: Debug, assess(observed), describe(), and optionally class(); return AnalysisError when evaluation is impossible.
 - close_to(expected)?.absolute_tolerance(abs)?.relative_tolerance(rel)?: validated f64 comparison.
-- CountRule::NonEmpty: nonempty counts; use VALUE for exact counts or Criterion::at_least(bound) for a minimum.
+- CountRule::{Exact(n), Minimum(n), NonEmpty}: structural counts.
 - .expect_valid(): integrity, correspondence, and pair-predicate reports only, not arbitrary object validation.
-- NumericRule::Finite, NumericRule::Positive, NumericRule::NonNegative, NumericRule::between(min, max)?: use rows.numeric(project).expect(rule), which returns a ready check, not a Fact.
+- NumericRule::{Finite, Range(NumericRange), Positive, NonNegative}; prefer NumericRule::between(min,max)? to construct Range. NumericRange::new(min,max)? is the validated explicit range.
 - AtMostAnomalies(n): outlier or jump count. LagExpectation { best_lag: offset }: keyed lag acceptance.
 - GroupExpectation::new(min_count, min_mean, max_mean)?: each group's count and mean.
 Use family-specific constructors and and_* combinators when they express the contract; use with_bound(measure, min, max)? and .bound(measure, min, max)? for explicit measures not covered by that sugar. Every constructor/combinator below returns Result. Scalar min/max are f64; generic bounds and correlation and_*_bounds arguments are Option<f64> (None means unbounded; at least one bound is required).
@@ -313,7 +318,7 @@ All four families provide CorrelationExpectation::with_bound(measure, min, max)?
 - DifferenceMeasure::{MeanAbsolute, P95Absolute, MaxAbsolute}.
 - RelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman, Slope, Intercept, RSquared, MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference, ResidualMeanAbsolute, ResidualMaxAbsolute}.
 
-Bounds must be finite, ordered, and within the measure domain: signed correlations [-1,1], absolute correlations/R-squared [0,1], absolute differences/residuals nonnegative. A required undefined metric is EvaluationError.
+Bounds must be finite, ordered, and within the measure domain: signed correlations [-1,1], absolute correlations/R-squared [0,1], absolute differences/residuals nonnegative. MetricConstraint::new(measure, min, max)? is the common validated representation; inspect measure(), min(), max(). A required undefined metric is EvaluationError.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -329,7 +334,7 @@ fn tolerance_and_identity() {
 
 ## PREPARED_SOURCE_CHECK
 
-Use count().expect(count_rule), matching_count(predicate).expect(count_rule), single_map(project).expect(expectation), unique(key).expect_valid(), contiguous(key, start, end).expect_valid(). single_map requires exactly one value. contiguous uses inclusive u64 endpoints. unique/contiguous end with expect_valid(); names never substitute for typed keys.
+Use count().expect(count_rule), matching_count(predicate).expect(count_rule), single_map(project).expect(expectation), unique(key).expect_valid(), contiguous(key, start, end).expect_valid(). single_map requires exactly one value. contiguous uses inclusive u64 endpoints. unique/contiguous end with expect_valid(); names never substitute for typed keys. Lower-level direct helpers are check_count(actual, rule), check_unique(values, key), check_same_keys(left, right, left_key, right_key), and check_contiguous(values, key, start, end); their IntegrityReport supports is_valid().
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -347,11 +352,11 @@ fn exported_sequence() {
 ## NUMERIC_CHECK
 Profiling bridge: obtain SpanMeasurements from observations-api and use spans.source(name) as an ordinary PreparedSource. Project duration_ns() as f64 for generic numeric analysis or duration() for exact typed bounds; then reuse group_by, compare_with, relation, outliers, and jumps. summary() is optional; preserve execution identity when generated inputs repeat.
 
-Use numeric(project) once when reused. expect(numeric_rule) registers integrity directly; summary(), robust_summary(), quantile(q), outliers(config), jumps(config) take ordinary .expect(expectation). q is in [0,1]. For custom summary acceptance use criterion over the report.
+Use numeric(project) once when reused. PreparedNumeric exposes values(), series(), summary(), robust_summary(), quantile(q), outliers(config), jumps(config), and expect(numeric_rule). NumericSeries::new(iter) constructs a reusable series; it exposes iter(), finite_count(), integrity(rule), and the same fallible statistical/anomaly analyses. q is in [0,1]; for custom summary acceptance use criterion over the report.
 
-- OutlierConfig::default() uses threshold 3.5 and ExactMedian; OutlierConfig::new(THRESHOLD, ZERO_MAD_POLICY)? requires finite nonnegative THRESHOLD. ZERO_MAD_POLICY is ZeroMadPolicy::ExactMedian or ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)? (finite/nonnegative, in original units when MAD is zero).
-- JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?: thresholds are Option<f64> (None disables that threshold), at least one must be Some. Enabled thresholds are finite/nonnegative; floor is finite/positive. Either strict threshold flags a transition.
-- lag_self(project, config) or lag_with(&other, left, right, config): projections return (i64 key, f64 value). LAG_CONFIG is LagConfig { range: LagRange::new(START, END)?, measure: LagMeasure::Pearson | LagMeasure::Spearman }; START/END are inclusive i64 offsets, START <= END. Positive lag d pairs left k with right k+d. Inspect zero_lag() and alignment.has_interior_gaps() when interpreting boundary loss.
+- OutlierConfig::default() uses threshold 3.5 and ZeroMadPolicy::ExactMedian. OutlierConfig::new(threshold, zero_mad)? accepts a finite nonnegative threshold and ZeroMadPolicy::ExactMedian or the AbsoluteTolerance variant constructed by ZeroMadPolicy::absolute_tolerance(tolerance)?; inspect threshold() and zero_mad(). The underlying validated wrapper is NonNegativeFinite::new(value)? with get().
+- JumpConfig::new(absolute_threshold, relative_threshold, denominator_floor)?: thresholds are Option<f64> (None disables that threshold), at least one must be Some. Enabled thresholds are finite/nonnegative; floor is finite/positive. Inspect absolute_threshold(), relative_threshold(), denominator_floor().
+- lag_self(project, LagConfig { range: LagRange::new(start,end)?, measure }) or lag_with(&other,left,right,config): projections return (i64 key, f64 value); measure is LagMeasure::Pearson or ::Spearman. start/end are inclusive i64 offsets with start <= end; inspect range.start(), range.end(), zero_lag(), and alignment.has_interior_gaps(). The lower-level equivalent is lag_relation_by(left,right,left_project,right_project,config).
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -407,7 +412,7 @@ fn per_region_latency() {
 
 Bind paired = left.compare_with(&right).on(left_key, right_key). Both keys must have the same ordered type. Always certify paired_comparison_fact().expect_valid() before interpreting matched subsets. equal(left,right,top) and check_pairs(predicate,top) fail closed on incomplete correspondence; top bounds examples (capped at 32).
 
-Inspect comparison(), matched_pairs(), name() for diagnostics.
+Inspect comparison(), matched_pairs(), name() for diagnostics. Comparison exposes left_source(), right_source(), left_count(), right_count(), matched(), left_only(), right_only(), duplicate_left(), duplicate_right(), is_complete(). Join exposes set_source_names(left,right), comparison(), matched_pairs(), require_complete(). Lower-level join_by(left,right,left_key,right_key) and join_presorted_by(left,right,left_key,right_key) use the same correspondence semantics; ComparisonBuilder::on_presorted(left_key,right_key) validates pre-sorted inputs.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -426,7 +431,9 @@ fn persistence_preserves_rows() {
 
 ## NUMERIC_COMPARISON_CHECK
 
-Use paired.numeric(left_value,right_value) once. The computation methods are parameterless and return evidence, not expectations. Match correlation() with CorrelationExpectation, linear_fit() with LinearFitExpectation, difference() with DifferenceExpectation, and relation() with RelationExpectation. Acceptance bounds belong to those expectation families, not to the computation methods. difference is right minus left, not regression residual; high correlation alone does not prove agreement. Inspect largest(top) for bounded diagnostic examples.
+Use paired.numeric(left_value,right_value) once. PreparedNumericComparison exposes values(); correlation(), linear_fit(), relation(), difference(), linear(), pearson(), spearman() are parameterless evidence methods, while largest(top) returns bounded diagnostic pairs. A Fact<LinearMetrics> also supports slope(), intercept(), r_squared(); Metric::value() returns Option<f64>. Match correlation() with CorrelationExpectation, linear_fit() with LinearFitExpectation, difference() with DifferenceExpectation, and relation() with RelationExpectation. difference is right minus left, not regression residual; high correlation alone does not prove agreement.
+
+Lower-level numeric functions take pair iterators: linear_metrics(pairs), pearson(pairs), spearman(pairs), correlation(pairs), linear_fit(pairs), difference_summary(pairs), numeric_relation(pairs).
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -447,7 +454,7 @@ fn calibrated_sensor() {
 
 ## ASSERT_CERTIFY
 
-End normal proofs with c.assert_certify() or runner.assert_certify(). It aggregates hard/statistical violations and evaluation errors. No checks is an eager failure; no executed cases is a planned failure. report() is for programmatic diagnostics, not a replacement for assertion in normal tests.
+End normal proofs with c.assert_certify() or runner.assert_certify(). It aggregates hard/statistical violations and evaluation errors. No checks is an eager failure; no executed cases is a planned failure. c.report() yields CertificationReport; runner.report() yields PlannedCertificationReport with is_pass(), cases_executed(), and assert_certify(). Reports are for programmatic diagnostics, not a replacement for final assertion in normal tests.
 
 ~~~rust
 use sun_observations::certifications::*;

@@ -9,7 +9,7 @@ Use sun_observations::certifications::*. Read certifications-methodology for inp
 
 ## DSL
 
-Authoring structure, not literal Rust; the actual macro is domain!(Type { ... }).
+Authoring structure, not literal Rust; the actual macro is domain!(TYPE { ... }). TYPE is a concrete DomainInput type; FIELD/ENUM_FIELD/COLLECTION are typed field paths. VALUE is one compatible value; VALUES/LENGTHS/VARIANTS are explicit compatible collections. RANGE is a supported Rust range and RANGES is a collection of them. OPERAND is a compatible scalar constant or typed field operand.
 
 ~~~text
 DOMAIN := domain!(TYPE { RULE, ... })
@@ -55,7 +55,7 @@ fn reading_family() {
 
 ## RULE
 
-FIELD.CONSTRUCTIVE selects a field's value space. FIELD { RULE, ... } descends into a nested struct, enum, or collection. Every active scalar/length field needs exactly one constructive source. Nested blocks, enum payloads, each blocks, and when bodies contain ordinary rules; they are not opaque predicates.
+FIELD.CONSTRUCTIVE selects a field's value space. FIELD { RULE, ... } descends into a nested struct, enum, or collection. DomainField::fields() is the macro backing for that nested descent and normally is not handwritten. Every active scalar/length field needs exactly one constructive source. Nested blocks, enum payloads, each blocks, and when bodies contain ordinary rules; they are not opaque predicates.
 
 ~~~rust
 use sun_observations::certifications::*;

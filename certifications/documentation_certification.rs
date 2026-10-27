@@ -321,7 +321,6 @@ fn language_errors(language: &Language, text: &str, reference: &str) -> Vec<Stri
         "case.execution()",
         ".compile()",
         ".classify(",
-        "diagnostic_bytes",
         "runner.source(",
         "runner.collection(",
     ] {
@@ -334,6 +333,57 @@ fn language_errors(language: &Language, text: &str, reference: &str) -> Vec<Stri
 
 fn reference(readme: &str) -> &str {
     sections(readme)["Complete client DSL and API reference"][0]
+}
+
+fn prose_identifiers(text: &str) -> BTreeSet<&str> {
+    let mut result = BTreeSet::new();
+    let mut in_grammar = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == "~~~text" {
+            in_grammar = true;
+            continue;
+        }
+        if in_grammar && trimmed == "~~~" {
+            in_grammar = false;
+            continue;
+        }
+        if !in_grammar {
+            result.extend(identifiers(line));
+        }
+    }
+    result
+}
+
+#[test]
+fn portable_dsl_parameters_are_explained_outside_the_grammar() {
+    for language in LANGUAGES {
+        let text = skill(language.skill);
+        let productions = grammar(&text);
+        let nodes: BTreeSet<_> = productions.keys().map(String::as_str).collect();
+        let prose = prose_identifiers(&text);
+        let mut missing = BTreeSet::new();
+        for production in productions.values() {
+            for token in identifiers(production) {
+                if nodes.contains(token) {
+                    continue;
+                }
+                let symbolic = token.len() > 1
+                    && token
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    && token.chars().any(|c| c.is_ascii_uppercase());
+                if symbolic && !prose.contains(token) {
+                    missing.insert(token);
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{} has unexplained DSL parameters: {missing:?}",
+            language.skill
+        );
+    }
 }
 
 #[test]
@@ -466,10 +516,10 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
         "CertificationReport" => "CERTIFICATION",
         "PlannedCertificationReport" => "ASSERT_CERTIFY",
         "CaseContext" | "CaseAggregateContext" => return None,
-        "AggregateCase" => "CASE_AGGREGATE",
-        "CaseAggregate" if method == "cases" => "CASE_AGGREGATE",
-        "CaseAggregate" | "AggregateEntry" | "AggregateEvidence" | "AggregateFact"
-        | "AggregateCheckPlan" => "AGGREGATE_CHECK",
+        "AggregateCase" | "CaseAggregate" | "AggregateEntry" | "AggregateEvidence" => {
+            "CASE_AGGREGATE"
+        }
+        "AggregateFact" | "AggregateCheckPlan" => "AGGREGATE_CHECK",
         "TestCase" => match method {
             "input" | "result" | "observations" | "spans" => "CASE",
             _ => return None,
@@ -507,8 +557,11 @@ fn method_node(owner: &str, method: &str) -> Option<&'static str> {
             _ => "PREPARED_SOURCE_CHECK",
         },
         "PreparedValues" | "PreparedKeys" => "SOURCE_BINDING",
-        "PreparedNumeric" | "NumericSeries" | "OutlierConfig" | "ZeroMadPolicy" | "JumpConfig"
-        | "LagRange" | "LagAlignment" | "LagReport" => "NUMERIC_CHECK",
+        "PreparedNumeric" | "NumericSeries" | "OutlierConfig" | "ZeroMadPolicy"
+        | "NonNegativeFinite" | "JumpConfig" | "LagRange" | "LagAlignment" | "LagReport" => {
+            "NUMERIC_CHECK"
+        }
+        "IntegrityReport" => "PREPARED_SOURCE_CHECK",
         "GroupedView" | "GroupedNumeric" | "Group" => "GROUP_CHECK",
         "ComparisonBuilder" | "Comparison" | "Join" => "CORRESPONDENCE_CHECK",
         "PairedComparison" => {
@@ -916,6 +969,99 @@ fn source_contract_items(source: &str) -> Vec<(String, String, &'static str)> {
     items
 }
 
+fn source_parameterized_calls(source: &str) -> Vec<(String, String, &'static str, usize)> {
+    let mut calls = Vec::new();
+    for item in syn::parse_file(source).unwrap().items {
+        match item {
+            syn::Item::Impl(implementation) if implementation.trait_.is_none() => {
+                let syn::Type::Path(path) = &*implementation.self_ty else {
+                    continue;
+                };
+                let owner = path.path.segments.last().unwrap().ident.to_string();
+                for item in implementation.items {
+                    let syn::ImplItem::Fn(method) = item else {
+                        continue;
+                    };
+                    if !matches!(method.vis, syn::Visibility::Public(_)) || hidden(&method.attrs) {
+                        continue;
+                    }
+                    if !method
+                        .sig
+                        .inputs
+                        .iter()
+                        .any(|arg| matches!(arg, syn::FnArg::Typed(_)))
+                    {
+                        continue;
+                    }
+                    let name = method.sig.ident.to_string();
+                    if let Some(node) = method_node(&owner, &name) {
+                        calls.push((
+                            owner.clone(),
+                            name,
+                            node,
+                            method
+                                .sig
+                                .inputs
+                                .iter()
+                                .filter(|arg| matches!(arg, syn::FnArg::Typed(_)))
+                                .count(),
+                        ));
+                    }
+                }
+            }
+            syn::Item::Fn(function)
+                if matches!(function.vis, syn::Visibility::Public(_))
+                    && !hidden(&function.attrs)
+                    && !function.sig.inputs.is_empty() =>
+            {
+                let name = function.sig.ident.to_string();
+                if let Some(node) = free_node(&name) {
+                    calls.push((
+                        "free function".into(),
+                        name,
+                        node,
+                        function.sig.inputs.len(),
+                    ));
+                }
+            }
+            syn::Item::Trait(contract)
+                if matches!(contract.vis, syn::Visibility::Public(_))
+                    && !hidden(&contract.attrs) =>
+            {
+                let owner = contract.ident.to_string();
+                let Some(node) = trait_node(&owner) else {
+                    continue;
+                };
+                for item in contract.items {
+                    let syn::TraitItem::Fn(method) = item else {
+                        continue;
+                    };
+                    if method
+                        .sig
+                        .inputs
+                        .iter()
+                        .any(|arg| matches!(arg, syn::FnArg::Typed(_)))
+                    {
+                        calls.push((
+                            owner.clone(),
+                            method.sig.ident.to_string(),
+                            node,
+                            method
+                                .sig
+                                .inputs
+                                .iter()
+                                .filter(|arg| matches!(arg, syn::FnArg::Typed(_)))
+                                .count(),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    calls
+}
+
 fn source_coverage_errors(source: &str, reference: &str) -> Vec<String> {
     let sections = sections(reference);
     source_contract_items(source)
@@ -967,6 +1113,131 @@ fn reference_tracks_public_methods_at_their_semantic_owner() {
         count > 150,
         "public client surface was not scanned: {count}"
     );
+    assert!(errors.is_empty(), "{errors:#?}");
+}
+
+#[test]
+fn portable_skills_track_public_methods_at_their_semantic_owner() {
+    let mut paths = Vec::new();
+    rust_sources(&root().join("crates/sun-observations/src"), &mut paths);
+    let mut errors = Vec::new();
+    let mut count = 0;
+    for path in paths {
+        let source = fs::read_to_string(&path).unwrap();
+        for (owner, name, node) in source_contract_items(&source) {
+            let Some(language) = LANGUAGES
+                .iter()
+                .find(|language| language.nodes.contains(&node))
+            else {
+                continue;
+            };
+            count += 1;
+            let skill = skill(language.skill);
+            let skill_sections = sections(&skill);
+            let body = skill_sections
+                .get(node)
+                .and_then(|sections| sections.first())
+                .copied()
+                .unwrap_or("");
+            if !identifiers(body).contains(name.as_str()) {
+                errors.push(format!(
+                    "{} {node} must document {owner}::{name}",
+                    language.skill
+                ));
+            }
+        }
+    }
+    assert!(
+        count > 150,
+        "public client surface was not scanned: {count}"
+    );
+    assert!(errors.is_empty(), "{errors:#?}");
+}
+
+fn documented_call_arities(text: &str, name: &str) -> Vec<usize> {
+    let mut result = Vec::new();
+    for (start, _) in text.match_indices(name) {
+        let before = text[..start].chars().next_back();
+        let after_name = start + name.len();
+        let after = text[after_name..].chars().next();
+        if before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+            || after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+        {
+            continue;
+        }
+        let rest = &text[after_name..];
+        let Some(open_rel) = rest.find('(') else {
+            continue;
+        };
+        let prefix = &rest[..open_rel];
+        if prefix.contains('\n') || (!prefix.trim().is_empty() && !prefix.trim().starts_with("::<"))
+        {
+            continue;
+        }
+        let args = &rest[open_rel + 1..];
+        let mut paren = 1usize;
+        let mut bracket = 0usize;
+        let mut brace = 0usize;
+        let mut angle = 0usize;
+        let mut commas = 0usize;
+        let mut non_ws = false;
+        for ch in args.chars() {
+            match ch {
+                '(' => paren += 1,
+                ')' => {
+                    paren -= 1;
+                    if paren == 0 {
+                        result.push(if non_ws { commas + 1 } else { 0 });
+                        break;
+                    }
+                }
+                '[' => bracket += 1,
+                ']' => bracket = bracket.saturating_sub(1),
+                '{' => brace += 1,
+                '}' => brace = brace.saturating_sub(1),
+                '<' => angle += 1,
+                '>' => angle = angle.saturating_sub(1),
+                ',' if paren == 1 && bracket == 0 && brace == 0 && angle == 0 => commas += 1,
+                _ => {}
+            }
+            if !ch.is_whitespace() && !(ch == ')' && paren == 0) {
+                non_ws = true;
+            }
+        }
+    }
+    result
+}
+
+#[test]
+fn portable_skills_show_call_syntax_for_parameterized_public_methods() {
+    let mut paths = Vec::new();
+    rust_sources(&root().join("crates/sun-observations/src"), &mut paths);
+    let mut errors = Vec::new();
+    for path in paths {
+        let source = fs::read_to_string(&path).unwrap();
+        for (owner, name, node, arity) in source_parameterized_calls(&source) {
+            let Some(language) = LANGUAGES
+                .iter()
+                .find(|language| language.nodes.contains(&node))
+            else {
+                continue;
+            };
+            let skill = skill(language.skill);
+            let skill_sections = sections(&skill);
+            let body = skill_sections
+                .get(node)
+                .and_then(|sections| sections.first())
+                .copied()
+                .unwrap_or("");
+            let arities = documented_call_arities(body, &name);
+            if !arities.contains(&arity) {
+                errors.push(format!(
+                    "{} {node} must show {owner}::{name} with {arity} parameter(s); documented arities: {arities:?}",
+                    language.skill
+                ));
+            }
+        }
+    }
     assert!(errors.is_empty(), "{errors:#?}");
 }
 
@@ -1134,6 +1405,8 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
             "metamorphic",
             "null/control scenario",
             "wall-clock thresholds",
+            "### Per-case and aggregate checks",
+            "not only profiling",
             "### Profiling",
             "known regression risk",
             "runner.check(...)",
@@ -1329,12 +1602,13 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "cases.observations::<T>()?",
                 "cases.spans::<T>()?",
                 "OutlierConfig::default()",
-                "OutlierConfig::new(THRESHOLD, ZERO_MAD_POLICY)?",
-                "ZeroMadPolicy::ExactMedian",
+                "OutlierConfig::new(THRESHOLD, ZeroMadPolicy::ExactMedian",
                 "ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?",
                 "JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?",
                 "thresholds are Option<f64>",
-                "LagConfig { range: LagRange::new(START, END)?, measure: LagMeasure::Pearson | LagMeasure::Spearman }",
+                "LagRange::new(START, END)?",
+                "LagMeasure::Pearson | LagMeasure::Spearman",
+                "ComparisonBuilder::on_presorted(left_key,right_key)",
             ],
             &[
                 "c.source(",
@@ -1344,10 +1618,11 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "One-off analysis:",
                 "Criterion::BOUND(...)",
                 "AllValid",
-                "on_presorted(",
                 "outliers(CONFIG)",
                 "jumps(CONFIG)",
                 "PROJECT, CONFIG",
+                "ZERO_MAD_POLICY",
+                "LAG_CONFIG",
                 "aggregate_check(",
                 "case_local(",
             ],
@@ -1413,7 +1688,7 @@ fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_gener
             .replace("Criterion::less_than(bound)", "Criterion::less_than()")
             .replace("Criterion::less_than(BOUND)", "Criterion::less_than()"),
         original.replace("source(NAME, &VALUE)", "c.source(NAME, &VALUE)"),
-        original.replace("OutlierConfig::new(THRESHOLD, ZERO_MAD_POLICY)?", "CONFIG"),
+        original.replace("ZeroMadPolicy::ExactMedian", "CONFIG"),
         original.replace(
             "JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?",
             "CONFIG",

@@ -1058,10 +1058,10 @@ GROUP_CHECK :=
     fact(NAME, rows.group_by(KEY).numeric(PROJECT)
         .(summaries() | summaries_with_robust())).expect(GROUP_EXPECTATION)
 CORRESPONDENCE_CHECK :=
-    paired = left.compare_with(&right).on(LEFT_KEY, RIGHT_KEY)
-    paired.paired_comparison_fact().expect_valid()
-  | paired.equal(LEFT, RIGHT, TOP).expect_valid()
-  | paired.check_pairs(PREDICATE, TOP).expect_valid()
+paired = left.compare_with(&right).on(LEFT_KEY, RIGHT_KEY)
+| paired.paired_comparison_fact().expect_valid()
+| paired.equal(LEFT, RIGHT, TOP).expect_valid()
+| paired.check_pairs(PREDICATE, TOP).expect_valid()
 NUMERIC_COMPARISON_CHECK :=
     paired.numeric(LEFT, RIGHT).correlation().expect(CORRELATION_EXPECTATION)
   | paired.numeric(LEFT, RIGHT).linear_fit().expect(LINEAR_FIT_EXPECTATION)
@@ -1258,6 +1258,8 @@ runner.assert_certify();
 
 Bind let cases = runner.case_aggregate(). Inside fact!(...), cases.cases()? borrows all retained successful positive AggregateCase rows from the executions actually explored. Each row has id() (run-local CaseId, independent of input equality), input(), result() (successful output), and execution(). Use collection(name, cases.cases()?) for ordinary prepared analysis. Failed local acceptance keeps valid evidence; rejected positives, panics, and invalid prerequisites block aggregate access, not just individual rows. Correctly rejected generated negatives are excluded. Empty evidence needs explicit cardinality policy. Aggregate registration enables retention: successful positive inputs/executions stay alive until post-exploration checks finish, without requiring Clone. Retention is complete, not a bounded statistical subsample; budgets bound exploration, not retained bytes.
 
+For captured executors, cases.observations::<T>()? and cases.spans::<T>()? return AggregateObservations and AggregateSpans respectively (aliases of AggregateEvidence). Their values() and source(name) expose AggregateEntry rows: row.case() retains the originating AggregateCase; Observation rows expose value() and observation() (TypedEntry); span rows expose measurement() (the existing SpanMeasurement) and sources() (SpanSources). Preparation delegates decoding/pairing/provenance to evidence and fails the whole accessor on any required case error (AggregateError::Execution or ::Evidence { case, error }). Never filter errors into a partial sample. Zero spans is valid evidence; certify each case's required cardinality with an ordinary per-case check. Numeric/group/comparison/relation/anomaly policy remains PreparedSource's, not a profiling subsystem.
+
 ~~~rust
 use sun_observations::certifications::*;
 #[test]
@@ -1280,8 +1282,6 @@ fn distinct_executions() {
 runner.check_aggregate(fact!(aggregate_expression).expect(expectation)) runs once after exploration (including failure-budget stops), not as an eager prerequisite or once per case. Ordinary runner.section(name, |s| { ... }) groups both registration kinds. Independent aggregate failures/panics retain section and description metadata in aggregate_failures; registered checks identify their Case/Aggregate phase. Earlier failures cannot be overwritten by aggregate success.
 
 Use the canonical case/cases bindings: fact! defers the whole expression when it sees the corresponding root accessor; do not mix roots in one fact. Expectations may also be fact!(aggregate_expression). Required evidence/analysis unwrap failures inside these deferred value expressions become EvaluationError, not skipped samples. The examples use unwrap() for this boundary; ? requires a Result-returning Rust body and is not an implicit try_fact conversion. For prepared analyses returning Fact<Report>, return .observed.unwrap() from the expression and apply the report's ordinary expectation outside.
-
-For captured executors, cases.observations::<T>()? and cases.spans::<T>()? return AggregateObservations and AggregateSpans respectively (aliases of AggregateEvidence). Their values() and source(name) expose AggregateEntry rows: row.case() retains the originating AggregateCase; Observation rows expose value() and observation() (TypedEntry); span rows expose measurement() (the existing SpanMeasurement) and sources() (SpanSources). Preparation delegates decoding/pairing/provenance to evidence and fails the whole accessor on any required case error (AggregateError::Execution or ::Evidence { case, error }). Never filter errors into a partial sample. Zero spans is valid evidence; certify each case's required cardinality with an ordinary per-case check. Numeric/group/comparison/relation/anomaly policy remains PreparedSource's, not a profiling subsystem.
 
 ~~~rust
 use sun_observations::{certifications::*, evidence::*, *};
@@ -1437,7 +1437,7 @@ c.assert_certify();
 
 Write `rows.count().expect(...)`, `rows.matching_count(predicate).expect(...)`, or `single.single_map(project).expect(...)`. single_map requires exactly one row; zero/many rows is an evaluation error, not an arbitrary first match. `unique(key).expect_valid()` proves identity uniqueness. `contiguous(key,start,end).expect_valid()` proves an inclusive u64 range, including no duplicates/missing/unexpected keys.
 
-Direct one-off alternatives are `check_count(actual,rule)`, `check_unique(values,key)`, `check_contiguous(values,key,start,end)`, `check_same_keys(left,right,left_key,right_key)`. They return reports rather than assertions; wrap reports with fact/try_fact and apply acceptance.
+Direct one-off alternatives are `check_count(actual,rule)`, `check_unique(values,key)`, `check_contiguous(values,key,start,end)`, `check_same_keys(left,right,left_key,right_key)`. They return IntegrityReport values; inspect `is_valid()` or wrap reports with fact/try_fact and apply acceptance.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -1455,7 +1455,7 @@ Prepare `let numeric = rows.numeric(project)` once for an f64 projection. `Prepa
 
 | Configuration | Meaning |
 | --- | --- |
-| `OutlierConfig::new(threshold,policy)` | Finite nonnegative modified-z threshold; default 3.5, ZeroMadPolicy::ExactMedian. The other variant is AbsoluteTolerance, constructed with validated `ZeroMadPolicy::absolute_tolerance(v)`; the tolerance is in original numeric units, not z-score units. `threshold()` / `zero_mad()` inspect the configuration. |
+| `OutlierConfig::new(threshold,policy)` | Finite nonnegative modified-z threshold; default 3.5, ZeroMadPolicy::ExactMedian. The other variant is AbsoluteTolerance, constructed with validated `ZeroMadPolicy::absolute_tolerance(v)`; the tolerance is in original numeric units, not z-score units. `threshold()` / `zero_mad()` inspect the configuration. The underlying validated wrapper is `NonNegativeFinite::new(value)?` with `get()`. |
 | `JumpConfig::new(abs,rel,floor)?` | abs/rel are Option<f64>; None disables a threshold and at least one must be Some. Enabled thresholds are finite/nonnegative; floor is finite/positive f64. Either strict threshold flags adjacent transitions. `absolute_threshold()`, `relative_threshold()`, `denominator_floor()` inspect configuration. |
 | `LagConfig { range: LagRange::new(start,end)?, measure: LagMeasure::Pearson }` | Alternatively use LagMeasure::Spearman. start/end are inclusive i64 candidates, start <= end; `start()` / `end()` inspect. LagMeasure::Pearson or Spearman. |
 
