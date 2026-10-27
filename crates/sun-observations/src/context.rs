@@ -64,7 +64,10 @@ impl Context {
         operation()
     }
     pub fn scope_name(&self) -> Option<&str> {
-        self.scope.as_ref().map(|s| s.config.name.as_str())
+        self.scope
+            .as_ref()
+            .filter(|s| !s.is_unscoped)
+            .map(|s| s.config.name.as_str())
     }
 }
 

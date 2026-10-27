@@ -71,13 +71,14 @@ impl ScopeConfig {
 #[derive(Default)]
 pub(crate) struct ScopePlans {
     pub plans: HashMap<(u64, TypeId), Arc<ResolvedPlan>>,
-    pub counters: HashMap<TypeId, Arc<AtomicU64>>,
 }
 
 pub(crate) struct ScopeState {
     pub id: u64,
     pub config: ScopeConfig,
     pub plans: Mutex<ScopePlans>,
+    pub counters: Arc<Mutex<HashMap<TypeId, Arc<AtomicU64>>>>,
+    pub is_unscoped: bool,
     pub capture: Option<Arc<crate::capture::CaptureStorage>>,
 }
 impl ScopeState {
@@ -86,7 +87,24 @@ impl ScopeState {
             id: next_identity(),
             config,
             plans: Mutex::new(ScopePlans::default()),
+            counters: Arc::new(Mutex::new(HashMap::new())),
+            is_unscoped: false,
             capture: None,
+        }
+    }
+    pub fn unscoped() -> Self {
+        let mut scope = Self::new(ScopeConfig::new(""));
+        scope.is_unscoped = true;
+        scope
+    }
+    pub fn with_capture(&self, capture: Arc<crate::capture::CaptureStorage>) -> Self {
+        Self {
+            id: next_identity(),
+            config: self.config.clone(),
+            plans: Mutex::new(ScopePlans::default()),
+            counters: self.counters.clone(),
+            is_unscoped: self.is_unscoped,
+            capture: Some(capture),
         }
     }
 }

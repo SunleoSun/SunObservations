@@ -194,7 +194,7 @@ pub(super) fn finish_deferred_check<T: fmt::Debug, V: fmt::Debug>(
     let mut c = certification("deferred check");
     c.limits(DiagnosticLimits {
         failures: 1,
-        characters_per_failure: limit,
+        bytes_per_failure: limit,
     });
     c.check(name, result);
     c.report().failures.into_iter().next()
@@ -1031,7 +1031,7 @@ impl CoverageTracker {
                 if self.catalog.negative_sectors.contains(&e.sector) {
                     self.negative.insert(e.sector.clone());
                 }
-            } else {
+            } else if c.violated.is_empty() {
                 let anchor = (e.sector.clone(), e.slot.clone());
                 if self.catalog.positive_anchors.contains(&anchor) {
                     self.anchors.insert(anchor.clone());
@@ -1083,24 +1083,68 @@ impl CoverageTracker {
     }
 }
 /// Immutable multi-case proof. Display and assertion remain silent on ordinary success.
+///
+/// ```compile_fail
+/// use sun_observations::certifications::*;
+/// let mut runner = certification("proof").executor(|x: &i32| Ok::<_, ()>(*x));
+/// runner.data_source([1]);
+/// let mut report = runner.report();
+/// report.failures.clear();
+/// ```
 #[derive(Clone, Debug)]
 pub struct PlannedCertificationReport {
-    pub name: String,
-    pub seed: u64,
-    pub budget: usize,
-    pub executed: [usize; 2],
-    pub categories: [usize; 3],
-    pub failure_budget: usize,
-    pub failures: Vec<CaseFailure>,
-    pub aggregate_failures: Vec<CheckFailure>,
-    pub evaluation_error: Option<AnalysisError>,
-    pub stopped: bool,
-    pub coverage: CoverageReport,
-    pub checks: Vec<PlannedCheckReport>,
+    pub(crate) name: String,
+    pub(crate) seed: u64,
+    pub(crate) budget: usize,
+    pub(crate) executed: [usize; 2],
+    pub(crate) categories: [usize; 3],
+    pub(crate) failure_budget: usize,
+    pub(crate) failures: Vec<CaseFailure>,
+    pub(crate) aggregate_failures: Vec<CheckFailure>,
+    pub(crate) evaluation_error: Option<AnalysisError>,
+    pub(crate) stopped: bool,
+    pub(crate) coverage: CoverageReport,
+    pub(crate) checks: Vec<PlannedCheckReport>,
     report_mode: bool,
     eager: CertificationReport,
 }
 impl PlannedCertificationReport {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+    pub fn budget(&self) -> usize {
+        self.budget
+    }
+    pub fn executed(&self) -> [usize; 2] {
+        self.executed
+    }
+    pub fn categories(&self) -> [usize; 3] {
+        self.categories
+    }
+    pub fn failure_budget(&self) -> usize {
+        self.failure_budget
+    }
+    pub fn failures(&self) -> &[CaseFailure] {
+        &self.failures
+    }
+    pub fn aggregate_failures(&self) -> &[CheckFailure] {
+        &self.aggregate_failures
+    }
+    pub fn evaluation_error(&self) -> Option<&AnalysisError> {
+        self.evaluation_error.as_ref()
+    }
+    pub fn stopped(&self) -> bool {
+        self.stopped
+    }
+    pub fn coverage(&self) -> &CoverageReport {
+        &self.coverage
+    }
+    pub fn checks(&self) -> &[PlannedCheckReport] {
+        &self.checks
+    }
     pub fn is_pass(&self) -> bool {
         self.evaluation_error.is_none()
             && self.failures.is_empty()

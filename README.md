@@ -457,7 +457,7 @@ proof.assert_certify();
 
 Use one unique temporal domain per search: partition repeated fold/target/execution
 keys first. `LagAlignment` distinguishes expected boundary truncation from interior
-gaps; undefined candidates or interior missing keys cannot establish the expected lag.
+gaps; no defined candidate or an interior-incomplete best alignment is an EvaluationError. A complete, defined alignment at the wrong best lag is a StatisticalViolation.
 When offsets are known, prove them exactly too—lag is diagnosis, not a substitute for
 causal identity; see the complete client API section below for correspondence, relation, and lag.
 
@@ -989,7 +989,7 @@ This is one embedded proof/evidence language: bind evidence, choose acceptance, 
 
 ### DSL
 
-Uppercase words are nodes or parameters, not Rust identifiers to import. Parenthesized alternatives describe a choice of real calls, not a method literally named after the alternative. Use Rust closures for projections, predicates, and section bodies.
+LAG_START/LAG_END/OFFSET are i64, while SEQUENCE_START/SEQUENCE_END are u64. SCALAR_TYPE is a built-in scalar DomainInput; WRITER is an owned Write + Send + 'static value. Uppercase words are nodes or parameters, not Rust identifiers to import. Parenthesized alternatives describe a choice of real calls, not a method literally named after the alternative. Use Rust closures for projections, predicates, and section bodies.
 
 #### Certification grammar
 
@@ -1040,7 +1040,7 @@ EXPECTATION :=
 PREPARED_SOURCE_CHECK :=
     rows.count().expect(EXPECTATION) | value.single_map(PROJECT).expect(EXPECTATION)
   | rows.matching_count(PREDICATE).expect(EXPECTATION)
-  | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, START, END).expect_valid()
+  | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, SEQUENCE_START, SEQUENCE_END).expect_valid()
 NUMERIC_CHECK :=
 rows.numeric(PROJECT).expect(NUMERIC_RULE)
 | rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
@@ -1049,9 +1049,9 @@ rows.numeric(PROJECT).expect(NUMERIC_RULE)
 | ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?)?).expect(AtMostAnomalies(N))
 | rows.numeric(PROJECT).jumps(JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD,
 DENOMINATOR_FLOOR)?).expect(AtMostAnomalies(N))
-| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(START, END)?,
+| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(LAG_START, LAG_END)?,
 measure: LagMeasure::Pearson | LagMeasure::Spearman })
-| lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(START, END)?,
+| lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(LAG_START, LAG_END)?,
 measure: LagMeasure::Pearson | LagMeasure::Spearman }))
 .expect(LagExpectation { best_lag: OFFSET })
 GROUP_CHECK :=
@@ -1073,7 +1073,7 @@ ASSERT_CERTIFY := c.assert_certify() | runner.assert_certify()
 #### Domain grammar
 
 ~~~text
-DOMAIN := domain!(TYPE { RULE, ... })
+DOMAIN := domain!(TYPE { RULE, ... }) | domain!(SCALAR_TYPE { CONSTRUCTIVE })
 RULE := FIELD.CONSTRUCTIVE | FIELD { RULE, ... }
       | ENUM_RULE | COLLECTION_RULE | WHEN | RELATION
 CONSTRUCTIVE := fixed_value(VALUE) | selected_values(VALUES)
@@ -1114,7 +1114,7 @@ ROUTING := engine.add_channel_sink(CHANNEL_NAME, SINK)
 engine.register_namespace_channel(NAMESPACE, CHANNEL_NAME)?
 SINK := Arc::new(MemorySink::new() | MemorySink::with_config(MEMORY_CONFIG)
 | JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, JSONL_CONFIG)?
-| ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK_IMPL)
+| ConsoleSink::stdout() | ConsoleSink::stderr() | ConsoleSink::new(WRITER) | CUSTOM_SINK_IMPL)
 SPAN := span = observe_span!(START_PAYLOAD)
 OPERATION
 span.finish()?
@@ -1139,7 +1139,7 @@ SPAN_EVIDENCE := spans = (run | dataset | QUERY).to_spans::<PAYLOAD>()?; spans.s
 
 Names describe a semantic promise, not a function's implementation. Evidence sources borrow their values independently of the certification, so consuming `c` does not invalidate prepared bindings. The proof must not outlive borrowed evidence.
 
-`limits(DiagnosticLimits { failures, characters_per_failure })` bounds eager retained/rendered diagnostics (defaults 64 and 2048). `report()` returns immutable `CertificationReport` with `name()`, `checks()`, `failed()`, `failures()`, `is_pass()` and `assert_certify()`. Empty eager proofs fail; silently constructing a report proves nothing.
+`limits(DiagnosticLimits { failures, bytes_per_failure })` bounds eager retained/rendered diagnostics (defaults 64 and 2048). `report()` returns immutable `CertificationReport` with `name()`, `checks()`, `failed()`, `failures()`, `is_pass()` and `assert_certify()`. Empty eager proofs fail; silently constructing a report proves nothing.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -1185,7 +1185,7 @@ c.assert_certify();
 
 `section(name, |s| { ... })` exists on both `Certification` and `PlannedCertification`. Nest by semantic responsibility: preparation, transfer, decision, persistence. Register through the closure argument. Sections organize checks; they are not Domain conditions, case loops, or additional execution phases.
 
-The path uses the same bounded composition in both phases (256-byte name budget and 512-byte path budget, with UTF-8-safe truncation and an appended ellipsis). `CheckFailure.section` is distinct from `name` and `diagnostic`. Planned `CaseFailure.checks` retains every independent failing check with its own path, even if the aggregate diagnostic is truncated. `PlannedCertificationReport.checks` contains `PlannedCheckReport { section, expression }` for successful as well as failing registrations. Check construction outside a section does not determine its path: registration does. Executor/rejection/completeness failures are unsectioned because no section owns execution itself.
+The path uses the same bounded composition in both phases (256-byte name budget and 512-byte path budget, with UTF-8-safe truncation and an appended ellipsis). `CheckFailure.section` is distinct from `name` and `diagnostic`. Planned `CaseFailure.checks` retains every independent failing check with its own path, even if the aggregate diagnostic is truncated. The planned report check metadata contains `PlannedCheckReport { section, expression }` for successful as well as failing registrations. Check construction outside a section does not determine its path: registration does. Executor/rejection/completeness failures are unsectioned because no section owns execution itself.
 
 An eager `CheckResult` registered inside a planned section keeps that section in the eager prerequisite report. A panicking planned check becomes an evaluation error at its registered path; later independent checks still evaluate. A panic during section registration restores the parent path and discards that section's checks before resuming unwinding.
 
@@ -1219,7 +1219,7 @@ A failed nested check is reported as section `allocation/alignment/` plus check 
 | `seed(n)` | Reproducible framework/Domain seed; seeded executors additionally receive derived case-local seeds. |
 | `report_mode(bool)` | On success, prints coverage and registered check expressions with section context. |
 | `require_pairwise_coverage()` | Requires all feasible enum values and pairs within existing capacity. Missing/non-pairwise Domain or insufficient coverage fails closed. |
-| `diagnostic_bytes(n)` | Bounds per-case diagnostic text, not source input size. |
+| `diagnostic_bytes(n)` | Bounds per-case diagnostic UTF-8 bytes including any truncation marker, not source input size. |
 
 Real inputs with a Domain are classified under it and prefill coverage. Positive outcomes must succeed and satisfy checks. Expected rejection of generated-negative inputs passes without evaluating positive-only checks. Accepted invalid inputs, rejected valid inputs, executor panics, incomplete evidence, or invalid configuration fail. A seeded executor's seed follows case identity, not traversal order; the [internals](#case-local-seeds) explain this distinction.
 
@@ -1539,7 +1539,7 @@ c.assert_certify();
 
 Finish normal proofs with `c.assert_certify()` or `runner.assert_certify()`. All hard/statistical violations and evaluation errors fail. Eager success requires at least one check; planned success requires executed cases, no eager failures, no case failures, and no evaluation error. Merely running a production closure or returning a report does not assert the promise.
 
-`report()` is appropriate for tooling inspecting structured diagnostics. Eager report is cloned; planned report consumes the runner and executes the plan once. `PlannedCertificationReport::is_pass()` exposes status and `cases_executed()` sums actual executions. `assert_certify()` can assert an already produced report and prints success details only in report mode.
+`report()` is appropriate for tooling inspecting structured diagnostics. Eager report is cloned; planned report consumes the runner and executes the plan once. `PlannedCertificationReport::is_pass()` exposes status and `cases_executed()` sums actual executions. Read-only inspection uses `name()`, `seed()`, `budget()`, `executed()`, `categories()`, `failure_budget()`, `failures()`, `aggregate_failures()`, `evaluation_error()`, `stopped()`, `coverage()`, and `checks()`. `assert_certify()` can assert an already produced report and prints success details only in report mode.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -1553,7 +1553,7 @@ c.assert_certify();
 
 #### DOMAIN
 
-`#[derive(DomainInput)]` supplies a typed schema for concrete named-field structs and enums. Built-ins include integers, f32/f64, bool, String, Vec<T>. Generic derives, unions and unnamed struct fields are unsupported. Construct `domain!(Type { RULE, ... })` and register it with `runner.domain(...)`. Input generation is a separate concern from executor success or output acceptance.
+`#[derive(DomainInput)]` supplies a typed schema for concrete named-field structs and enums. Built-ins include integers, f32/f64, bool, String, Vec<T>. Generic derives, unions and unnamed struct fields are unsupported. Construct `domain!(Type { RULE, ... })`; a scalar root uses its constructive rule directly without a field receiver. Register it with `runner.domain(...)`. Input generation is a separate concern from executor success or output acceptance.
 
 The generator chooses deterministic representatives and constraint-breaking negatives instead of enumerating arbitrary random Rust values. Use it at the owner that validates that input contract. Downstream owners should receive only reachable validated states. Keep concrete regression inputs when their identity matters. Budgets, seeds, pairwise enforcement, checks, and reporting belong to [PLANNED_BODY](#planned_body); the [generation internals](#how-domain-generation-works-internally) explain coverage, classification and bounds.
 
@@ -1561,6 +1561,7 @@ The generator chooses deterministic representatives and constraint-breaking nega
 use sun_observations::certifications::*;
 #[derive(Clone, DomainInput)]
 struct Reading { raw: i32 }
+let _scalar = domain!(i32 { in_range(1..=3) });
 let mut runner = certification("magnitude cannot be negative")
     .executor(|r: &Reading| Ok::<_, ()>(i64::from(r.raw).abs()));
 runner.domain(domain!(Reading { raw.in_range(i32::MIN..=i32::MAX) }));
@@ -1610,7 +1611,7 @@ let family = domain!(Adjustment {
 
 For unit variants, `field.all_enum_values()` or `field.selected_enum_values([Enum::Variant,...])` suffices. For payload enums, open the enum field, select variants in that context, and describe each selected payload under `EnumType::Variant { RULE, ... }`. Payload blocks do not select variants on their own.
 
-The runner tracks enum values and feasible pairs, and real cases may prefill them. Require pairwise coverage only when those combinations strengthen the intended proof; it does not increase the budget.
+The runner tracks enum values and feasible pairs under ordinary relations and conditional activation. Only valid positive cases, including valid real cases, prefill positive coverage; rejected negatives count only toward negative sectors. Require pairwise coverage only when those combinations strengthen the intended proof; it does not increase the budget.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -1766,7 +1767,7 @@ Choose sinks by delivery and retention semantics, not just output format. MEMORY
 | --- | --- |
 | MemorySink | `new()` / `default()`, `with_config(MemorySinkConfig::new(max_items,compact_fraction)?)`. Default retains 1,000,000 records with 0.10 compaction fraction. `len()` / `is_empty()`, `config()`, `stats()`; MemoryStats exposes retained, evicted, compactions. `shared_records()` / `drain_shared()` retain shared records; `records()` / `drain()` clone. Config `max_items()` / `compact_fraction()` inspect validated bounds. |
 | JsonlSink | `open_append(path)`, `with_config(path,config)`, `from_writer(writer)` / `writer_with_config(writer,config)`. JsonlConfig::new/default: 1000ms flush, no size bound, trim fraction 0.10. Validated builders `flush_interval_ms`, `max_file_size_mb` (MiB), `max_file_size_bytes`, `trim_fraction`. Inspect `stats()`, `is_started()`, `last_error()`; flush before reading completed async output. |
-| ConsoleSink | `stdout()` / `stderr()` / `new(writer)` for human output. |
+| ConsoleSink | `stdout()` / `stderr()` / `new(writer)` for human output; the writer must be owned, Send, and 'static. Inspect `is_started()` and `last_error()`. |
 
 Custom `Sink` implementations provide `write(record)` and `flush()`; optional `write_shared(record)` avoids cloning, `wants_render_text()` requests transient human rendering, `write_delivery(delivery)` receives both views. `ObservationDelivery` exposes `record()`, `shared_record()`, `render_text()`, `shared_render_text()`. An async custom sink must make flush a real completion barrier; process success is not proof of durable effects.
 
@@ -1806,7 +1807,7 @@ assert_eq!(rows, [1, 2, 3]);
 
 #### CAPTURE
 
-`capture_observations(config, operation)` runs the real production operation under scoped capture; it does not replace production behavior or its error result. `CaptureConfig::new()` / default starts disabled with default memory retention. `selection(selection)` and `retention(config)` replace defaults; `activate_all`, `activate_namespace` / `activate_namespaces`, `activate_tag` / `activate_tags` and `exclude_namespace`, `exclude_namespaces`, `exclude_tag`, `exclude_tags` builders select evidence.
+`capture_observations(config, operation)` runs the real production operation under scoped capture; it does not replace production behavior or its error result. Capture selection replaces global admission and delivery while preserving the enclosing scope name, exclusions, policy, and policy counters. `CaptureConfig::new()` / default starts disabled with default memory retention. `selection(selection)` and `retention(config)` replace defaults; `activate_all`, `activate_namespace` / `activate_namespaces`, `activate_tag` / `activate_tags` and `exclude_namespace`, `exclude_namespaces`, `exclude_tag`, `exclude_tags` builders select evidence.
 
 `CapturedRun::result()` borrows production outcome; `dataset()` returns the immutable snapshot; `status().is_complete()` verifies no retention eviction, emission failure or escaped context/worker/span ownership. Nested captures are exclusive; parallel captures keep independent storage. Join all propagated work and finish spans before declaring the operation complete.
 

@@ -1,6 +1,303 @@
 use super::domain::compilation::coordinate_key;
 use super::*;
 
+#[derive(Clone, Debug, DomainInput)]
+struct RelationConditional {
+    a: i32,
+    b: i32,
+    c: i32,
+}
+
+#[derive(Clone, Debug, DomainInput)]
+struct LengthConditionalRegression {
+    items: Vec<i32>,
+}
+
+#[test]
+fn conditional_preflight_honors_relations_and_every_reachable_length_region() {
+    let domain = domain!(RelationConditional {
+        a.in_range(0..=2), b.in_range(0..=2), a.less_than(b),
+        when(a.equal(1)) { c.fixed_value(5) },
+        when(a.not_equal(1)) { c.fixed_value(6) },
+    })
+    .compile()
+    .unwrap();
+    for input in [
+        RelationConditional { a: 0, b: 1, c: 6 },
+        RelationConditional { a: 1, b: 2, c: 5 },
+    ] {
+        assert!(domain.classify(&input).unwrap().violated.is_empty());
+    }
+    let witnessed = std::cell::RefCell::new(std::collections::BTreeSet::new());
+    let mut runner = certification("reachable relation branches materialize").executor(
+        |input: &RelationConditional| {
+            let valid = (0..=2).contains(&input.a)
+                && (0..=2).contains(&input.b)
+                && input.a < input.b
+                && input.c == if input.a == 1 { 5 } else { 6 };
+            if valid {
+                witnessed.borrow_mut().insert((input.a, input.c));
+                Ok::<_, ()>(())
+            } else {
+                Err(())
+            }
+        },
+    );
+    runner
+        .domain(domain!(RelationConditional {
+            a.in_range(0..=2), b.in_range(0..=2), a.less_than(b),
+            when(a.equal(1)) { c.fixed_value(5) },
+            when(a.not_equal(1)) { c.fixed_value(6) },
+        }))
+        .cases_budget(40);
+    let report = runner.report();
+    assert!(report.is_pass(), "{report}");
+    assert!(witnessed.borrow().contains(&(0, 6)));
+    assert!(witnessed.borrow().contains(&(1, 5)));
+
+    let incomplete = domain!(LengthConditionalRegression {
+        items { length().selected_values([0, 1, 2]) },
+        when(items.length().less_equal(1)) { items { each(fixed_value(0)) } },
+    });
+    assert!(incomplete.compile().is_err());
+    for budget in [1, 20] {
+        let calls = std::cell::Cell::new(0);
+        let mut runner =
+            certification("incomplete branch").executor(|_: &LengthConditionalRegression| {
+                calls.set(calls.get() + 1);
+                Ok::<_, ()>(())
+            });
+        runner
+            .domain(domain!(LengthConditionalRegression {
+                items { length().selected_values([0, 1, 2]) },
+                when(items.length().less_equal(1)) { items { each(fixed_value(0)) } },
+            }))
+            .cases_budget(budget);
+        let report = runner.report();
+        assert!(!report.is_pass());
+        assert!(report.evaluation_error().is_some());
+        assert_eq!(calls.get(), 0);
+    }
+    let complete = domain!(LengthConditionalRegression {
+        items { length().selected_values([0, 1, 2]) },
+        when(items.length().less_equal(1)) { items { each(fixed_value(0)) } },
+        when(items.length().greater_than(1)) { items { each(fixed_value(1)) } },
+    })
+    .compile()
+    .unwrap();
+    assert!(complete
+        .classify(&LengthConditionalRegression { items: vec![1, 1] })
+        .unwrap()
+        .violated
+        .is_empty());
+}
+
+#[derive(Clone, Debug, DomainInput)]
+struct WideLengthConditional {
+    n: usize,
+    items: Vec<i32>,
+}
+
+#[test]
+fn conditional_length_preflight_groups_equivalent_reachable_regions() {
+    let domain = domain!(WideLengthConditional {
+        n.selected_values(0..30),
+        items { length().selected_values(0..200) },
+        when(n.less_equal(29)) {
+            when(items.length().less_equal(1)) { items { each(fixed_value(0)) } },
+            when(items.length().greater_than(1)) { items { each(fixed_value(1)) } },
+        },
+    })
+    .compile()
+    .unwrap();
+    for input in [
+        WideLengthConditional {
+            n: 0,
+            items: vec![],
+        },
+        WideLengthConditional {
+            n: 15,
+            items: vec![0],
+        },
+        WideLengthConditional {
+            n: 29,
+            items: vec![1; 199],
+        },
+    ] {
+        assert!(domain.classify(&input).unwrap().violated.is_empty());
+    }
+}
+
+#[derive(Clone, Debug, DomainInput)]
+struct ReversedLengthConditional {
+    items: Vec<i32>,
+    n: usize,
+}
+
+#[test]
+fn conditional_length_field_comparisons_group_reachable_regions() {
+    let domain = domain!(WideLengthConditional {
+        n.selected_values(0..30),
+        items { length().selected_values(0..200) },
+        when(items.length().less_equal(n)) { items { each(fixed_value(0)) } },
+        when(items.length().greater_than(n)) { items { each(fixed_value(1)) } },
+    })
+    .compile()
+    .unwrap();
+    for input in [
+        WideLengthConditional {
+            n: 15,
+            items: vec![0; 15],
+        },
+        WideLengthConditional {
+            n: 15,
+            items: vec![1; 16],
+        },
+    ] {
+        assert!(domain.classify(&input).unwrap().violated.is_empty());
+    }
+    assert!(domain!(WideLengthConditional {
+        n.selected_values(0..30),
+        items { length().selected_values(0..200) },
+        when(items.length().less_equal(n)) { items { each(fixed_value(0)) } },
+    })
+    .compile()
+    .is_err());
+    let reversed = domain!(ReversedLengthConditional {
+        n.selected_values(0..30),
+        items { length().selected_values(0..200) },
+        when(items.length().less_equal(n)) { items { each(fixed_value(0)) } },
+        when(items.length().greater_than(n)) { items { each(fixed_value(1)) } },
+    })
+    .compile()
+    .unwrap();
+    assert!(reversed
+        .classify(&ReversedLengthConditional {
+            n: 15,
+            items: vec![1; 16]
+        })
+        .unwrap()
+        .violated
+        .is_empty());
+}
+
+#[derive(Clone, Debug, DomainInput)]
+struct FieldConditional {
+    a: i32,
+    b: i32,
+    c: i32,
+}
+#[test]
+fn conditional_field_relations_cover_reachable_equality_regions() {
+    let incomplete = domain!(FieldConditional {
+        a.in_range(0..=100), b.in_range(1..=2),
+        when(a.not_equal(b)) { c.fixed_value(0) },
+    });
+    assert!(incomplete.compile().is_err());
+    let complete = domain!(FieldConditional {
+        a.in_range(0..=100), b.in_range(1..=2),
+        when(a.not_equal(b)) { c.fixed_value(0) },
+        when(a.equal(b)) { c.fixed_value(1) },
+    })
+    .compile()
+    .unwrap();
+    assert!(complete
+        .classify(&FieldConditional { a: 1, b: 1, c: 1 })
+        .unwrap()
+        .violated
+        .is_empty());
+    assert!(complete
+        .classify(&FieldConditional { a: 0, b: 1, c: 0 })
+        .unwrap()
+        .violated
+        .is_empty());
+}
+
+#[derive(Clone, Debug, PartialEq, DomainInput)]
+enum CoverageBit {
+    A,
+    B,
+}
+#[derive(Clone, Debug, DomainInput)]
+struct RelationPair {
+    a: CoverageBit,
+    b: CoverageBit,
+}
+#[derive(Clone, Debug, DomainInput)]
+struct UnreachableEnumBranch {
+    gate: CoverageBit,
+    left: CoverageBit,
+    right: CoverageBit,
+}
+#[test]
+fn relation_unreachable_enum_sources_do_not_create_coverage_obligations() {
+    let mut runner =
+        certification("unreachable enum branch").executor(|v: &UnreachableEnumBranch| {
+            if v.gate == CoverageBit::A {
+                Ok::<_, ()>(())
+            } else {
+                Err(())
+            }
+        });
+    runner.domain(domain!(UnreachableEnumBranch {
+        gate.all_enum_values(), gate.equal(CoverageBit::A),
+        when(gate.equal(CoverageBit::A)) { left.all_enum_values() },
+        when(gate.equal(CoverageBit::B)) { left.all_enum_values() },
+        right.all_enum_values(),
+    }));
+    runner.cases_budget(40).require_pairwise_coverage();
+    let report = runner.report();
+    assert!(report.is_pass(), "{report}");
+    assert_eq!(report.coverage().enum_values, (5, 5));
+    assert_eq!(report.coverage().pairwise_combinations, (8, 8));
+}
+
+#[derive(Clone, Debug, DomainInput)]
+enum ConstrainedVariant {
+    Impossible { n: i32 },
+    Possible,
+}
+#[derive(Clone, Debug, DomainInput)]
+struct VariantRelationPair {
+    gate: ConstrainedVariant,
+    side: CoverageBit,
+}
+#[test]
+fn enum_payload_relations_restrict_parent_variant_pair_feasibility() {
+    let mut runner =
+        certification("payload relation feasibility").executor(|v: &VariantRelationPair| {
+            match v.gate {
+                ConstrainedVariant::Possible => Ok::<_, ()>(()),
+                ConstrainedVariant::Impossible { .. } => Err(()),
+            }
+        });
+    runner.domain(domain!(VariantRelationPair {
+        gate { all_enum_values(), ConstrainedVariant::Impossible { n.fixed_value(0), n.greater_than(0) } },
+        side.all_enum_values(),
+    }));
+    runner.cases_budget(20).require_pairwise_coverage();
+    let report = runner.report();
+    assert!(report.is_pass(), "{report}");
+    assert_eq!(report.coverage().enum_values, (3, 3));
+    assert_eq!(report.coverage().pairwise_combinations, (2, 2));
+}
+
+#[test]
+fn ordinary_relation_limits_required_enum_pairs() {
+    let mut runner = certification("feasible pairs").executor(|v: &RelationPair| {
+        if v.a == v.b {
+            Ok::<_, ()>(())
+        } else {
+            Err(())
+        }
+    });
+    runner.domain(domain!(RelationPair { a.all_enum_values(), b.all_enum_values(), a.equal(b) }));
+    runner.cases_budget(30).require_pairwise_coverage();
+    let report = runner.report();
+    assert!(report.is_pass(), "{report}");
+    assert_eq!(report.coverage().pairwise_combinations, (2, 2));
+}
+
 #[test]
 fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_overflow() {
     use super::domain::{DomainOperand, DomainRelation, DomainValue, RelationKind};

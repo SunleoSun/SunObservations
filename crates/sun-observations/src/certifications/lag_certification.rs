@@ -171,7 +171,12 @@ fn interior_gaps_are_visible_and_expectations_fail_closed() {
     assert_eq!(report.candidates[0].alignment.left_only, 1);
     assert_eq!(report.candidates[0].alignment.pair_count, 99);
     let failure = fact("lag", report).expect(LagExpectation { best_lag: 0 });
-    assert_eq!(failure.violations, [LagViolation::InteriorMissingKeys]);
+    assert_eq!(failure.class(), CheckClass::EvaluationError);
+    assert!(failure
+        .analysis_error()
+        .unwrap()
+        .message
+        .contains("InteriorMissingKeys"));
 }
 #[test]
 fn duplicate_keys_fail_with_original_side_indices_even_outside_candidate_overlap() {
@@ -231,12 +236,13 @@ fn empty_singleton_disjoint_and_constant_inputs_remain_explicitly_undefined() {
             let report = run(&a, &b, config(0, 0, measure));
             assert_eq!(report.candidates[0].relation, Metric::Undefined(reason));
             assert!(report.best.is_none());
-            assert_eq!(
-                fact("lag", report)
-                    .expect(LagExpectation { best_lag: 0 })
-                    .violations,
-                [LagViolation::NoDefinedCandidate]
-            );
+            let failure = fact("lag", report).expect(LagExpectation { best_lag: 0 });
+            assert_eq!(failure.class(), CheckClass::EvaluationError);
+            assert!(failure
+                .analysis_error()
+                .unwrap()
+                .message
+                .contains("NoDefinedCandidate"));
         }
     }
 }

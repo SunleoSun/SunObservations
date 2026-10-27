@@ -4,6 +4,7 @@ use std::fmt::{self, Write};
 pub(crate) struct LimitedWriter {
     text: String,
     remaining: usize,
+    limit: usize,
     truncated: bool,
 }
 impl LimitedWriter {
@@ -11,11 +12,17 @@ impl LimitedWriter {
         Self {
             text: String::new(),
             remaining: limit,
+            limit,
             truncated: false,
         }
     }
     pub(crate) fn finish(mut self) -> String {
-        if self.truncated {
+        if self.truncated && self.limit >= '…'.len_utf8() {
+            let mut end = self.text.len().min(self.limit - '…'.len_utf8());
+            while !self.text.is_char_boundary(end) {
+                end -= 1;
+            }
+            self.text.truncate(end);
             self.text.push('…');
         }
         self.text
@@ -51,16 +58,17 @@ pub(crate) fn bounded_display(value: &impl fmt::Display, limit: usize) -> String
     out.finish()
 }
 /// Diagnostic budgets cap retained/rendered evidence independently of source size.
+/// The byte limit includes truncation markers; zero permits no diagnostic bytes.
 #[derive(Clone, Copy, Debug)]
 pub struct DiagnosticLimits {
     pub failures: usize,
-    pub characters_per_failure: usize,
+    pub bytes_per_failure: usize,
 }
 impl Default for DiagnosticLimits {
     fn default() -> Self {
         Self {
             failures: 64,
-            characters_per_failure: 2048,
+            bytes_per_failure: 2048,
         }
     }
 }
@@ -212,7 +220,7 @@ impl Certification {
         }
         self.report.failed += 1;
         if self.report.failures.len() < self.limits.failures {
-            let mut out = LimitedWriter::new(self.limits.characters_per_failure);
+            let mut out = LimitedWriter::new(self.limits.bytes_per_failure);
             let _ = write!(
                 out,
                 "sources: {}; expected: {}; ",
@@ -224,7 +232,9 @@ impl Certification {
             let _ = write!(
                 out,
                 "analysis error: {:?}; violations: {:?}; observed: {:?}",
-                result.analysis_error, result.violations, result.observed
+                result.analysis_error(),
+                result.violations,
+                result.observed
             );
             self.report.failures.push(CheckFailure {
                 section: bounded_display(&self.path, 512),

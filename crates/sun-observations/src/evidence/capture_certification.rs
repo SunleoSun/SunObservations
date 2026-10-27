@@ -15,6 +15,114 @@ fn execute(run: u64, n: u64) -> Result<u64, ObservationError> {
     }
     Ok(n)
 }
+#[derive(Serialize, Deserialize)]
+struct InvalidManual;
+impl sun_observations::Observation for InvalidManual {
+    const NAMESPACE: &'static str = "Invalid::Name";
+}
+#[derive(Serialize, Deserialize)]
+struct ValidManual;
+impl sun_observations::Observation for ValidManual {
+    const NAMESPACE: &'static str = "manual::valid";
+}
+#[derive(Serialize)]
+struct InvalidTagManual;
+impl sun_observations::Observation for InvalidTagManual {
+    const NAMESPACE: &'static str = "manual::tag";
+    const TAGS: &'static [&'static str] = &["Invalid"];
+}
+
+#[test]
+fn capture_respects_enclosing_scope_identity_exclusions_and_counter_lifecycle() {
+    use sun_observations::Policy;
+    let unscoped = capture_observations(config(), || {
+        assert!(sun_observations::Context::capture().scope_name().is_none());
+        observe!(Event { run: 0, row: 0 }).unwrap()
+    });
+    assert!(*unscoped.result());
+    assert!(unscoped.dataset().records()[0].scope.is_none());
+    {
+        let _scope = start_scope(
+            ScopeConfig::new("job-42")
+                .activate_all()
+                .override_policy::<Event>(Policy::Never),
+        );
+        assert!(!observe!(Event { run: 0, row: 0 }).unwrap());
+        let run = capture_observations(CaptureConfig::new().activate_all(), || {
+            observe!(Event { run: 0, row: 1 })
+        });
+        assert!(!run.result().as_ref().unwrap());
+        assert!(run.dataset().records().is_empty());
+        assert!(run.status().is_complete());
+    }
+    {
+        let _scope = start_scope(
+            ScopeConfig::new("job-42")
+                .activate_all()
+                .override_policy::<Event>(Policy::first_n(2).unwrap()),
+        );
+        assert!(observe!(Event { run: 1, row: 0 }).unwrap());
+        let run = capture_observations(CaptureConfig::new().activate_all(), || {
+            (
+                observe!(Event { run: 1, row: 1 }).unwrap(),
+                observe!(Event { run: 1, row: 2 }).unwrap(),
+            )
+        });
+        assert_eq!(*run.result(), (true, false));
+        assert_eq!(run.dataset().records().len(), 1);
+        assert_eq!(run.dataset().records()[0].scope.as_deref(), Some("job-42"));
+        assert!(run.status().is_complete());
+        assert!(!observe!(Event { run: 1, row: 3 }).unwrap());
+    }
+    {
+        let _scope = start_scope(
+            ScopeConfig::new("excluded")
+                .exclude_namespace("capture")
+                .unwrap(),
+        );
+        let run = capture_observations(config(), || observe!(Event { run: 2, row: 0 }));
+        assert!(!run.result().as_ref().unwrap());
+        assert!(run.dataset().records().is_empty());
+    }
+}
+
+#[test]
+fn manual_metadata_is_validated_before_capture_and_persisted_ingestion() {
+    let bad = capture_observations(CaptureConfig::new().activate_all(), || {
+        observe!(InvalidManual)
+    });
+    assert!(matches!(
+        bad.result(),
+        Err(ObservationError::InvalidNamespace(_))
+    ));
+    assert!(!bad.status().is_complete());
+    assert!(bad.dataset().records().is_empty());
+    let bad_tag = capture_observations(CaptureConfig::new().activate_all(), || {
+        observe!(InvalidTagManual)
+    });
+    assert!(matches!(
+        bad_tag.result(),
+        Err(ObservationError::InvalidTag(_))
+    ));
+    assert!(!bad_tag.status().is_complete());
+    let good = capture_observations(CaptureConfig::new().activate_all(), || {
+        observe!(ValidManual)
+    });
+    assert_eq!(*good.result().as_ref().unwrap(), true);
+    assert!(good.status().is_complete());
+    assert_eq!(good.to_typed::<ValidManual>().unwrap().values().len(), 1);
+    assert!(ObservationDataset::try_from_records(good.dataset().records().to_vec()).is_ok());
+    let mut invalid_record = good.dataset().records()[0].as_ref().clone();
+    invalid_record.namespace = "Invalid::Name".into();
+    assert!(ObservationDataset::try_from_records(vec![Arc::new(invalid_record)]).is_err());
+    let bad_span = capture_observations(CaptureConfig::new().activate_all(), || {
+        observe_span!(InvalidManual).is_err()
+    });
+    assert!(*bad_span.result());
+    assert!(!bad_span.status().is_complete());
+    assert!(bad_span.dataset().records().is_empty());
+}
+
 #[test]
 fn scoped_capture_reuses_runtime_lazy_policy_and_span_lifecycle() {
     let built = std::cell::Cell::new(0u64);

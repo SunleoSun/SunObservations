@@ -149,7 +149,10 @@ impl<T, V> CheckResult<T, V> {
         self.class
     }
     pub fn analysis_error(&self) -> Option<&AnalysisError> {
-        self.analysis_error.as_ref()
+        self.observed
+            .as_ref()
+            .err()
+            .or(self.analysis_error.as_ref())
     }
     pub fn details(&self) -> &str {
         &self.details
@@ -406,7 +409,15 @@ impl Expectation<RelationMetrics> for RelationExpectation {
 impl Expectation<LagReport> for LagExpectation {
     type Violation = LagViolation;
     fn assess(&self, v: &LagReport) -> Result<Vec<LagViolation>, AnalysisError> {
-        Ok(self.violations(v))
+        let violations = self.violations(v);
+        if violations.contains(&LagViolation::NoDefinedCandidate)
+            || violations.contains(&LagViolation::InteriorMissingKeys)
+        {
+            return Err(AnalysisError {
+                message: format!("invalid lag evidence: {violations:?}"),
+            });
+        }
+        Ok(violations)
     }
     fn describe(&self) -> String {
         format!("best lag = {}, no interior gaps", self.best_lag)

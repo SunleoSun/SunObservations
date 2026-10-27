@@ -30,7 +30,7 @@ fn assert_rejected<T: Debug, V: Debug>(
     let mut c = certification(name);
     c.limits(DiagnosticLimits {
         failures: 1,
-        characters_per_failure: 512,
+        bytes_per_failure: 512,
     });
     c.section("acceptance", |c| {
         c.check(name, result);
@@ -49,7 +49,7 @@ fn assert_rejected<T: Debug, V: Debug>(
     assert_eq!(failure.name, name);
     assert!(failure.diagnostic.contains("sources:"));
     assert!(failure.diagnostic.contains("expected:"));
-    assert!(failure.diagnostic.len() <= 512 + '…'.len_utf8());
+    assert!(failure.diagnostic.len() <= 512);
     let rendered = report.to_string();
     assert!(rendered.contains("CERTIFICATION FAILED"));
     assert!(rendered.contains(&format!("[{class:?}]")));
@@ -335,6 +335,51 @@ fn anomaly_jump_and_group_failures_cannot_silently_pass() {
 }
 
 #[test]
+fn eager_diagnostic_limits_include_markers_and_preserve_utf8() {
+    for limit in [0, 1, 2, 3, 4, 9, 32, 128] {
+        let mut c = certification("diagnostic byte bounds");
+        c.limits(DiagnosticLimits {
+            failures: 1,
+            bytes_per_failure: limit,
+        });
+        c.check(
+            "unicode",
+            fact("界🙂", "é".repeat(100)).expect(String::new()),
+        );
+        let report = c.report();
+        let diagnostic = &report.failures()[0].diagnostic;
+        assert!(diagnostic.len() <= limit);
+        assert!(std::str::from_utf8(diagnostic.as_bytes()).is_ok());
+        if limit == 0 {
+            assert!(diagnostic.is_empty());
+        }
+    }
+}
+
+#[test]
+fn evaluation_error_accessor_covers_preparation_and_assessment() {
+    let prep = try_fact("fallible", Err::<usize, _>("boom")).expect(1usize);
+    assert_eq!(prep.class(), CheckClass::EvaluationError);
+    assert!(prep.observed().is_err());
+    assert!(prep.analysis_error().unwrap().message.contains("boom"));
+    let samples = [(0, 1.0), (1, 1.0)];
+    let lag = collection("constant", &samples)
+        .lag_self(
+            |v| *v,
+            LagConfig {
+                range: LagRange::new(0, 0).unwrap(),
+                measure: LagMeasure::Pearson,
+            },
+        )
+        .expect(LagExpectation { best_lag: 0 });
+    assert_eq!(lag.class(), CheckClass::EvaluationError);
+    assert!(lag.analysis_error().is_some());
+    let hard = fact("value", 1).expect(2);
+    assert_eq!(hard.class(), CheckClass::HardViolation);
+    assert!(hard.analysis_error().is_none());
+}
+
+#[test]
 fn every_lag_failure_reason_reaches_final_boundaries() {
     let values = [(0, 0.), (1, 1.), (2, 4.), (3, 9.)];
     let config = LagConfig {
@@ -355,20 +400,24 @@ fn every_lag_failure_reason_reaches_final_boundaries() {
         lag_relation_by(&constant, &constant, |v| *v, |v| *v, config),
     )
     .expect(LagExpectation { best_lag: 0 });
-    assert_eq!(undefined.violations, [LagViolation::NoDefinedCandidate]);
-    assert_rejected("undefined lag", undefined, CheckClass::StatisticalViolation);
+    assert!(undefined
+        .analysis_error()
+        .unwrap()
+        .message
+        .contains("NoDefinedCandidate"));
+    assert_rejected("undefined lag", undefined, CheckClass::EvaluationError);
     let gaps = [values[0], values[2], values[3]];
     let interior = try_fact(
         "lag",
         lag_relation_by(&values, &gaps, |v| *v, |v| *v, config),
     )
     .expect(LagExpectation { best_lag: 0 });
-    assert_eq!(interior.violations, [LagViolation::InteriorMissingKeys]);
-    assert_rejected(
-        "interior lag gaps",
-        interior,
-        CheckClass::StatisticalViolation,
-    );
+    assert!(interior
+        .analysis_error()
+        .unwrap()
+        .message
+        .contains("InteriorMissingKeys"));
+    assert_rejected("interior lag gaps", interior, CheckClass::EvaluationError);
     assert_rejected(
         "lag expectation",
         fact("lag", full).expect(LagExpectation { best_lag: 1 }),

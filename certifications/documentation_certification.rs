@@ -1553,6 +1553,9 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "SpanMeasurement",
                 "CHANNEL_NAME",
                 "CUSTOM_SINK_IMPL",
+                "ConsoleSink::new(writer)",
+                "ConsoleSink::is_started()",
+                "ConsoleSink::last_error()",
                 "not an Arc<dyn Sink>",
                 "MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?",
                 "JSONL_CONFIG means JsonlConfig::new()",
@@ -1606,7 +1609,12 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?",
                 "JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?",
                 "thresholds are Option<f64>",
-                "LagRange::new(START, END)?",
+                "LagRange::new(LAG_START, LAG_END)?",
+                "LAG_START/LAG_END/OFFSET are i64",
+                "SEQUENCE_START/SEQUENCE_END are u64",
+                "rows.contiguous(KEY, SEQUENCE_START, SEQUENCE_END)",
+                ".linear() returns Fact<LinearMetrics>",
+                ".linear_fit() returns Fact<LinearFitMetrics>",
                 "LagMeasure::Pearson | LagMeasure::Spearman",
                 "ComparisonBuilder::on_presorted(left_key,right_key)",
             ],
@@ -1629,6 +1637,7 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
         ),
         "domain-api" => (
             &[
+                "domain!(i32 { in_range(1..=3) })",
                 "equal(operand)",
                 "less_than(operand)",
                 "greater_equal(operand)",
@@ -1700,13 +1709,40 @@ fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_gener
         original.replace("and_pearson_bounds(min,max)", "and_pearson_bounds"),
         original.replace("AbsoluteSpearman", "OmittedMeasure"),
         original.replace(
+            "SEQUENCE_START/SEQUENCE_END are u64",
+            "SEQUENCE_START/SEQUENCE_END are i64",
+        ),
+        original.replace(
+            ".linear_fit() returns Fact<LinearFitMetrics>",
+            ".linear_fit() returns Fact<LinearMetrics>",
+        ),
+        original.replace(
             "correlation().expect(CORRELATION_EXPECTATION)",
             "correlation().expect(EXPECTATION)",
         ),
     ] {
         assert!(!authoring_errors("certifications-api", &altered).is_empty());
     }
+    let domain = skill("domain-api");
+    assert!(!authoring_errors(
+        "domain-api",
+        &domain.replace("domain!(i32 { in_range(1..=3) })", "scalar root")
+    )
+    .is_empty());
     let original = skill("observations-api");
+    for method in [
+        "ConsoleSink::new(writer)",
+        "ConsoleSink::is_started()",
+        "ConsoleSink::last_error()",
+    ] {
+        assert!(!authoring_errors(
+            "observations-api",
+            &original
+                .replace(method, "other sink method")
+                .replace("ConsoleSink::new(WRITER)", "other sink constructor")
+        )
+        .is_empty());
+    }
     let altered = original.replace(
         "EMISSION := observe!(VALUE)",
         "EMISSION := observe!(VALUE) | observe_if_active(|| VALUE)",

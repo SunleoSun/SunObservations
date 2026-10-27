@@ -239,7 +239,7 @@ fn engine_recreation_cannot_reuse_retired_tls_identity() {
 
 mod admission {
     use super::super::*;
-    use crate::{start_scope, test_support::capture, MemorySink};
+    use crate::{start_scope, test_support::capture, MemorySink, ScopeConfig};
     use serde::{Serialize, Serializer};
 
     #[derive(Serialize, crate::Observation)]

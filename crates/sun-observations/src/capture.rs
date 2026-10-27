@@ -1,7 +1,7 @@
 //! Runtime context attachment used by the Observation evidence capture adapter.
 use crate::{
-    context, scope::ScopeState, ContextGuard, MemorySink, MemorySinkConfig, MemoryStats,
-    ObservationRecord, ScopeConfig, Selection, Sink,
+    context, ContextGuard, MemorySink, MemorySinkConfig, MemoryStats, ObservationRecord, Selection,
+    Sink,
 };
 use std::{
     io,
@@ -59,8 +59,11 @@ impl ScopedCapture {
             memory: MemorySink::with_config(config),
             errors: AtomicU64::new(0),
         });
-        let mut scope = ScopeState::new(ScopeConfig::new("capture"));
-        scope.capture = Some(storage.clone());
+        let parent = context::current_scope();
+        let scope = parent
+            .as_deref()
+            .unwrap_or(&crate::global().unscoped)
+            .with_capture(storage.clone());
         Self {
             guard: Some(context::enter_scope(Arc::new(scope))),
             storage,

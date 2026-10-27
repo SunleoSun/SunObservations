@@ -135,8 +135,8 @@ fn planned_sections_preserve_bounded_utf8_paths_and_domain_execution() {
     });
     let report = c.report();
     report.assert_certify();
-    assert!(report.checks[0].section.len() <= 515);
-    assert!(report.checks[0].section.ends_with('…'));
+    assert!(report.checks[0].section.len() <= 512);
+    assert!(report.checks[0].section.contains('…'));
     assert!(report.categories[0] > 0);
     assert!(report.categories[1] > 0);
 }
@@ -325,6 +325,60 @@ fn pair_report(budget: usize, required: bool, real: Vec<Pair>) -> PlannedCertifi
     c.check(fact!(*case.result()).expect(true));
     c.report()
 }
+#[derive(Clone, Debug, DomainInput)]
+enum CoverageBit {
+    A,
+    B,
+}
+#[derive(Clone, Debug, DomainInput)]
+struct NegativeCoverage {
+    a: CoverageBit,
+    b: CoverageBit,
+    n: i32,
+}
+#[test]
+fn rejected_negatives_cannot_credit_positive_pairwise_coverage() {
+    let mut runner = certification("positive coverage excludes rejected negatives").executor(
+        |v: &NegativeCoverage| {
+            if v.n == 1 {
+                Ok::<_, ()>(())
+            } else {
+                Err(())
+            }
+        },
+    );
+    runner.domain(
+        domain!(NegativeCoverage { a.all_enum_values(), b.all_enum_values(), n.fixed_value(1) }),
+    );
+    runner.data_source([
+        NegativeCoverage {
+            a: CoverageBit::A,
+            b: CoverageBit::A,
+            n: 0,
+        },
+        NegativeCoverage {
+            a: CoverageBit::A,
+            b: CoverageBit::B,
+            n: 0,
+        },
+        NegativeCoverage {
+            a: CoverageBit::B,
+            b: CoverageBit::A,
+            n: 0,
+        },
+        NegativeCoverage {
+            a: CoverageBit::B,
+            b: CoverageBit::B,
+            n: 0,
+        },
+    ]);
+    runner.cases_budget(5).require_pairwise_coverage();
+    let report = runner.report();
+    assert!(!report.is_pass());
+    assert_eq!(report.coverage().pairwise_combinations, (1, 4));
+    assert!(report.evaluation_error().is_some());
+}
+
 #[test]
 fn pairwise_requirement_passes_with_sufficient_budget_and_real_prefill() {
     let report = pair_report(
@@ -460,7 +514,7 @@ mod planned_controls {
 
     #[test]
     fn planned_diagnostics_bound_utf8_evidence_with_one_truncation_marker() {
-        for bytes in [0, 1, 17, 64, 257] {
+        for bytes in [0, 1, 2, 3, 17, 64, 257] {
             let mut c = certification("bounded diagnostic")
                 .executor(|_: &Control| Err::<(), _>("Ж🙂".repeat(10000)));
             c.domain(domain());
@@ -469,13 +523,8 @@ mod planned_controls {
             assert!(!report.is_pass());
             assert!(report.stopped);
             for failure in &report.failures {
-                assert!(failure.diagnostic.ends_with('…'));
                 for text in [&failure.diagnostic, &failure.coordinate] {
-                    assert!(
-                        text.len() <= bytes + '…'.len_utf8(),
-                        "{} > {bytes}",
-                        text.len()
-                    );
+                    assert!(text.len() <= bytes, "{} > {bytes}", text.len());
                     assert!(std::str::from_utf8(text.as_bytes()).is_ok());
                 }
             }

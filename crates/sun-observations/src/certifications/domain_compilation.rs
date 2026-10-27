@@ -657,6 +657,12 @@ struct EnumPairShape {
     pairs: BTreeSet<(usize, usize)>,
 }
 impl EnumPairShape {
+    fn contains(&self, left: usize, right: usize) -> bool {
+        self.all
+            || self.rows.contains(&left)
+            || self.columns.contains(&right)
+            || self.pairs.contains(&(left, right))
+    }
     fn count(&self, left_len: usize, right_len: usize) -> usize {
         if self.all {
             return left_len.saturating_mul(right_len);
@@ -823,6 +829,56 @@ fn rule_active(rule: &DomainRule, env: &[(InputPath, DomainValue)]) -> Option<bo
         Some(true)
     }
 }
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum PreflightRegion {
+    Exact(InputPath, DomainValueKey),
+    Length(InputPath, bool, Vec<bool>, Vec<bool>),
+}
+
+// Retain exact lengths while another operand is unknown; otherwise one representative per
+// source-membership, activation and relation region is sufficient for preflight.
+fn preflight_regions(rules: &[DomainRule], context: &Assignment) -> Vec<PreflightRegion> {
+    context
+        .iter()
+        .map(|(path, value)| {
+            if path.last() != Some(&DomainPathStep::Length) {
+                return PreflightRegion::Exact(path.clone(), value.key());
+            }
+            let predicates = rules
+                .iter()
+                .flat_map(|rule| {
+                    let relation = match &rule.kind {
+                        DomainRuleKind::Relation(relation) => Some(relation),
+                        DomainRuleKind::Source(_) => None,
+                    };
+                    rule.gates.iter().chain(relation)
+                })
+                .filter(|relation| relation.paths().contains(path));
+            let outcomes = predicates
+                .map(|relation| relation.evaluate(context))
+                .collect::<Option<Vec<_>>>();
+            let Some(outcomes) = outcomes else {
+                return PreflightRegion::Exact(path.clone(), value.key());
+            };
+            let membership = rules
+                .iter()
+                .filter_map(|rule| match &rule.kind {
+                    DomainRuleKind::Source(source) if source.path == *path => {
+                        Some(source.space.contains(value))
+                    }
+                    _ => None,
+                })
+                .collect();
+            PreflightRegion::Length(
+                path.clone(),
+                matches!(value, DomainValue::Int(0)),
+                membership,
+                outcomes,
+            )
+        })
+        .collect()
+}
+
 fn flatten(
     schema: &DomainSchema,
     path: InputPath,
@@ -1043,7 +1099,11 @@ impl<T: DomainInput> CompiledDomain<T> {
         for _ in 0..result.variables.len().max(1) {
             let old: Vec<_> = result.variables.iter().map(|v| v.extras.clone()).collect();
             for rule in &result.rules {
-                if let DomainRuleKind::Relation(r) = &rule.kind {
+                let relation = match &rule.kind {
+                    DomainRuleKind::Relation(relation) => Some(relation),
+                    DomainRuleKind::Source(_) => None,
+                };
+                for r in rule.gates.iter().chain(relation) {
                     for p in r.paths() {
                         let Some(i) = result.variables.iter().position(|v| v.path == p) else {
                             return Err(domain_error(
@@ -1145,12 +1205,25 @@ impl<T: DomainInput> CompiledDomain<T> {
             }
             deps.sort();
             deps.dedup();
+            let mut structural_lengths = BTreeSet::new();
+            for path in &deps {
+                for (index, step) in path.iter().enumerate() {
+                    if matches!(step, DomainPathStep::Each) {
+                        let mut length = path[..index].to_vec();
+                        length.push(DomainPathStep::Length);
+                        structural_lengths.insert(length);
+                    }
+                }
+            }
             deps.sort_by_key(|p| {
-                result
+                let defer_length =
+                    p.last() == Some(&DomainPathStep::Length) && !structural_lengths.contains(p);
+                let index = result
                     .variables
                     .iter()
                     .position(|v| &v.path == p)
-                    .unwrap_or(usize::MAX)
+                    .unwrap_or(usize::MAX);
+                (defer_length, index)
             });
             let mut group: Vec<Assignment> = vec![vec![]];
             for dep in deps {
@@ -1172,31 +1245,31 @@ impl<T: DomainInput> CompiledDomain<T> {
                 for v in &variable.extras {
                     push_value(&mut choices, v.clone());
                 }
-                if dep.last() == Some(&DomainPathStep::Length) {
-                    choices.sort_by(|a, b| a.cmp_scalar(b).unwrap_or(Ordering::Equal));
-                    let positive = choices
-                        .iter()
-                        .find(|v| matches!(v,DomainValue::Int(n) if *n>0))
-                        .cloned();
-                    choices.retain(|v| matches!(v, DomainValue::Int(0)));
-                    if let Some(v) = positive {
-                        choices.push(v)
-                    }
-                }
+                choices.retain(|value| {
+                    result.rules.iter().any(|rule| {
+                        matches!(&rule.kind, DomainRuleKind::Source(source)
+                            if source.path == dep && source.space.contains(value))
+                    })
+                });
                 let mut next = vec![];
+                let mut regions = BTreeSet::new();
                 for context in group {
                     if path_active(&dep, &context) == Some(false) {
-                        next.push(context);
+                        if regions.insert(preflight_regions(&result.rules, &context)) {
+                            next.push(context);
+                        }
                         continue;
                     }
                     for choice in &choices {
                         let mut c = context.clone();
                         c.push((dep.clone(), choice.clone()));
-                        next.push(c);
-                        if next.len() > CONTEXT_LIMIT {
-                            return Err(domain_error(
-                                "Domain conditional preflight exceeds bounded solver capacity",
-                            ));
+                        if regions.insert(preflight_regions(&result.rules, &c)) {
+                            next.push(c);
+                            if next.len() > CONTEXT_LIMIT {
+                                return Err(domain_error(
+                                    "Domain conditional preflight exceeds bounded solver capacity",
+                                ));
+                            }
                         }
                     }
                 }
@@ -1216,22 +1289,11 @@ impl<T: DomainInput> CompiledDomain<T> {
         for context in contexts {
             if result.solve(&context, &[])?.is_some() {
                 result.contexts.push(context);
-            } else if result.context_is_reachable(&context) {
-                return Err(domain_error("unsatisfiable conditional Domain branch"));
             }
         }
         result.build_targets()?;
         result.catalog = result.make_catalog()?;
         Ok(result)
-    }
-    fn context_is_reachable(&self, c: &Assignment) -> bool {
-        c.iter().all(|(p, v)| {
-            path_active(p, c) != Some(false)
-                && self.rules.iter().any(|r| {
-                    matches!(&r.kind,DomainRuleKind::Source(s) if &s.path==p && s.space.contains(v))
-                        && r.gates.iter().all(|g| g.evaluate(c) != Some(false))
-                })
-        })
     }
     fn candidates(
         &self,
@@ -1604,11 +1666,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                 out.push(filtered);
             }
         }
-        if out.is_empty() {
-            vec![vec![]]
-        } else {
-            out
-        }
+        out
     }
     fn push_unique_target(targets: &mut Vec<DomainTarget>, target: DomainTarget) {
         if !targets.iter().any(|t| {
@@ -1816,6 +1874,31 @@ impl<T: DomainInput> CompiledDomain<T> {
                         }
                     }
                 }
+                if self.relations_affect_enum_pair(left, right) {
+                    let candidate = EnumPairBlock {
+                        left: left_index,
+                        right: right_index,
+                        shape: shape.clone(),
+                        covered_by_anchor: false,
+                    };
+                    let mut feasible = EnumPairShape::default();
+                    for a in 0..left.values.len() {
+                        let mut row = Vec::new();
+                        for b in 0..right.values.len() {
+                            if shape.contains(a, b)
+                                && self.enum_pair_block_forced(&candidate, a, b)?.is_some()
+                            {
+                                row.push(b);
+                            }
+                        }
+                        if row.len() == right.values.len() {
+                            feasible.rows.insert(a);
+                        } else {
+                            feasible.pairs.extend(row.into_iter().map(|b| (a, b)));
+                        }
+                    }
+                    shape = feasible;
+                }
                 if shape.count(left.values.len(), right.values.len()) > 0 {
                     enum_pair_blocks.push(EnumPairBlock {
                         left: left_index,
@@ -1976,16 +2059,67 @@ impl<T: DomainInput> CompiledDomain<T> {
         Some(assignment)
     }
 
+    fn relations_affect_enum_pair(
+        &self,
+        left: &EnumSourceBucket,
+        right: &EnumSourceBucket,
+    ) -> bool {
+        let mut connected: BTreeSet<InputPath> = [left.path.clone(), right.path.clone()]
+            .into_iter()
+            .collect();
+        connected.extend(
+            left.contexts
+                .iter()
+                .chain(&right.contexts)
+                .flat_map(|context| context.iter().map(|(path, _)| path.clone())),
+        );
+        loop {
+            let before = connected.len();
+            for rule in &self.rules {
+                let mut paths = match &rule.kind {
+                    DomainRuleKind::Source(source) => vec![source.path.clone()],
+                    DomainRuleKind::Relation(relation) => relation.paths(),
+                };
+                paths.extend(rule.gates.iter().flat_map(|gate| gate.paths()));
+                for path in paths.clone() {
+                    for (index, step) in path.iter().enumerate() {
+                        match step {
+                            DomainPathStep::Variant(_) => paths.push(path[..index].to_vec()),
+                            DomainPathStep::Each => {
+                                let mut length = path[..index].to_vec();
+                                length.push(DomainPathStep::Length);
+                                paths.push(length);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                if paths.iter().any(|path| connected.contains(path)) {
+                    if matches!(rule.kind, DomainRuleKind::Relation(_)) {
+                        return true;
+                    }
+                    connected.extend(paths);
+                }
+            }
+            if connected.len() == before {
+                return false;
+            }
+        }
+    }
+
     fn enum_pair_block_forced(
         &self,
         block: &EnumPairBlock,
         left_index: usize,
         right_index: usize,
-    ) -> Option<Assignment> {
+    ) -> Result<Option<Assignment>, AnalysisError> {
         let left = &self.enum_source_buckets[block.left];
         let right = &self.enum_source_buckets[block.right];
-        let left_value = left.values.get(left_index)?;
-        let right_value = right.values.get(right_index)?;
+        let (Some(left_value), Some(right_value)) =
+            (left.values.get(left_index), right.values.get(right_index))
+        else {
+            return Ok(None);
+        };
         for left_context in &left.contexts {
             for right_context in &right.contexts {
                 let Some(merged) = Self::merge_assignments(left_context, right_context) else {
@@ -1995,11 +2129,18 @@ impl<T: DomainInput> CompiledDomain<T> {
                     continue;
                 };
                 if let Some(merged) = Self::force_enum_value(merged, &right.path, right_value) {
-                    return Some(merged);
+                    if !self
+                        .rules
+                        .iter()
+                        .any(|r| matches!(r.kind, DomainRuleKind::Relation(_)))
+                        || self.solve(&merged, &[])?.is_some()
+                    {
+                        return Ok(Some(merged));
+                    }
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     fn enum_pair_coverage_count(&self) -> usize {
@@ -2037,7 +2178,10 @@ impl<T: DomainInput> CompiledDomain<T> {
             .fold(0usize, usize::saturating_add)
     }
 
-    pub(crate) fn enum_pair_target(&self, mut index: usize) -> Option<DomainTarget> {
+    pub(crate) fn enum_pair_target(
+        &self,
+        mut index: usize,
+    ) -> Result<Option<DomainTarget>, AnalysisError> {
         for block in self
             .enum_pair_blocks
             .iter()
@@ -2050,20 +2194,22 @@ impl<T: DomainInput> CompiledDomain<T> {
                 index -= count;
                 continue;
             }
-            let (left_index, right_index) =
-                block
-                    .shape
-                    .pair_at(left.values.len(), right.values.len(), index)?;
-            let forced = self.enum_pair_block_forced(block, left_index, right_index)?;
-            return Some(DomainTarget {
+            let (left_index, right_index) = block
+                .shape
+                .pair_at(left.values.len(), right.values.len(), index)
+                .expect("pair shape index");
+            let Some(forced) = self.enum_pair_block_forced(block, left_index, right_index)? else {
+                return Ok(None);
+            };
+            return Ok(Some(DomainTarget {
                 forced,
                 violated: vec![],
                 focus: vec![left.path.clone(), right.path.clone()],
                 composition: None,
                 depth: 1,
-            });
+            }));
         }
-        None
+        Ok(None)
     }
     fn higher_order_enum_requirements(&self) -> Option<Vec<(InputPath, usize)>> {
         if self.enum_groups.len() < 3 {
@@ -2456,7 +2602,27 @@ impl<T: DomainInput> CompiledDomain<T> {
                         };
                         anchors.insert((sector.clone(), slot.clone()));
                         if is_enum {
-                            enums.insert((sector, slot));
+                            let has_relations = self
+                                .rules
+                                .iter()
+                                .any(|r| matches!(r.kind, DomainRuleKind::Relation(_)));
+                            let contexts = self.rule_contexts(rule);
+                            let mut feasible = !has_relations && !contexts.is_empty();
+                            if has_relations {
+                                for context in contexts {
+                                    if let Some(forced) =
+                                        Self::force_enum_value(context, &var.path, &value)
+                                    {
+                                        if self.solve(&forced, &[])?.is_some() {
+                                            feasible = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if feasible {
+                                enums.insert((sector, slot));
+                            }
                         }
                     }
                     for (_value, region, _distance) in source.space.negative(&var.schema) {
@@ -2504,7 +2670,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                     let target = if index < anchors_len {
                         self.positive_anchors[index].clone()
                     } else if index < anchors_len + pairs_len {
-                        let Some(target) = self.enum_pair_target(index - anchors_len) else {
+                        let Some(target) = self.enum_pair_target(index - anchors_len)? else {
                             continue;
                         };
                         target

@@ -370,7 +370,7 @@ fn million_record_failures_and_success_aggregation_keep_bounded_evidence() {
     let mut c = certification("bounded million-row proof");
     c.limits(DiagnosticLimits {
         failures: 4,
-        characters_per_failure: 500,
+        bytes_per_failure: 500,
     });
     for _ in 0..100 {
         c.check("success count", a.count().expect(Equal(values.len())));
@@ -434,7 +434,7 @@ fn aggregation_drops_success_reports_without_rendering_or_cloning_trace() {
     assert!(c.report().failures.is_empty());
     c.limits(DiagnosticLimits {
         failures: 1,
-        characters_per_failure: 256,
+        bytes_per_failure: 256,
     });
     c.check(
         "failure",
@@ -470,7 +470,7 @@ fn bounded_pair_diagnostics_preserve_counts_before_truncating_examples() {
     let mut c = certification("bounded transfer evidence");
     c.limits(DiagnosticLimits {
         failures: 1,
-        characters_per_failure: 512,
+        bytes_per_failure: 512,
     });
     c.check(
         "exact transfer",

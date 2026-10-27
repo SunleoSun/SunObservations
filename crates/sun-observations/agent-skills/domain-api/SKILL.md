@@ -9,10 +9,10 @@ Use sun_observations::certifications::*. Read certifications-methodology for inp
 
 ## DSL
 
-Authoring structure, not literal Rust; the actual macro is domain!(TYPE { ... }). TYPE is a concrete DomainInput type; FIELD/ENUM_FIELD/COLLECTION are typed field paths. VALUE is one compatible value; VALUES/LENGTHS/VARIANTS are explicit compatible collections. RANGE is a supported Rust range and RANGES is a collection of them. OPERAND is a compatible scalar constant or typed field operand.
+Authoring structure, not literal Rust; the actual macro is domain!(TYPE { ... }). TYPE is a concrete DomainInput type; SCALAR_TYPE is a built-in scalar DomainInput such as i32 or usize; FIELD/ENUM_FIELD/COLLECTION are typed field paths. VALUE is one compatible value; VALUES/LENGTHS/VARIANTS are explicit compatible collections. RANGE is a supported Rust range and RANGES is a collection of them. OPERAND is a compatible scalar constant or typed field operand.
 
 ~~~text
-DOMAIN := domain!(TYPE { RULE, ... })
+DOMAIN := domain!(TYPE { RULE, ... }) | domain!(SCALAR_TYPE { CONSTRUCTIVE })
 RULE := FIELD.CONSTRUCTIVE | FIELD { RULE, ... }
       | ENUM_RULE | COLLECTION_RULE | WHEN | RELATION
 CONSTRUCTIVE := fixed_value(VALUE) | selected_values(VALUES)
@@ -34,7 +34,7 @@ RELATION := FIELD.(equal(OPERAND) | not_equal(OPERAND)
 
 ## DOMAIN
 
-Derive DomainInput on concrete named-field structs and enums; derive Clone when production fixtures need it. Built-ins include integers, f32/f64, bool, String, Vec<T>. No generic input derives, unions, or unnamed struct fields. Register the Domain with a planned runner; real data_source cases can prefill generated coverage.
+Scalar roots use the constructive rule directly, for example `domain!(i32 { in_range(1..=3) })` or `domain!(usize { in_range(1..=9) })`; there is no field receiver. Derive DomainInput on concrete named-field structs and enums; derive Clone when production fixtures need it. Built-ins include integers, f32/f64, bool, String, Vec<T>. No generic input derives, unions, or unnamed struct fields. Register the Domain with a planned runner; real data_source cases can prefill generated coverage.
 
 Generation chooses deterministic representatives and meaningful constraint-breaking negative inputs. Declare only states at the validation owner; downstream owners should receive reachable valid inputs. No shrinking, regex/arbitrary-string generation, map/set, uniqueness, or collection-order rule language exists. For family-wide profiling use the same runner.domain(domain) and real captured executor; observations-api owns paired measurements and certifications-api owns analysis/acceptance.
 
@@ -44,6 +44,8 @@ use sun_observations::certifications::*;
 struct Reading { raw: i32 }
 #[test]
 fn reading_family() {
+    let _ = domain!(i32 { in_range(1..=3) });
+    let _ = domain!(usize { in_range(1..=9) });
     let mut runner = certification("magnitude is nonnegative")
         .executor(|r: &Reading| Ok::<_, ()>(i64::from(r.raw).abs()));
     runner.domain(domain!(Reading { raw.in_range(i32::MIN..=i32::MAX) }));

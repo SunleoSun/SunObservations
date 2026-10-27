@@ -1,12 +1,12 @@
 use crate::{
     channel::{dispatch, flush_sinks},
     context,
-    namespace::InvalidNamespace,
+    namespace::{self, InvalidNamespace, InvalidTag},
     plan::{next_identity, ResolvedPlan},
     routing::Routing,
     scope::ScopeState,
     span::SpanGuard,
-    Observation, ObservationLevel, ObservationRecord, Phase, Policy, ScopeConfig, Selection, Sink,
+    Observation, ObservationLevel, ObservationRecord, Phase, Policy, Selection, Sink,
 };
 use chrono::{SecondsFormat, Utc};
 use parking_lot::RwLock;
@@ -27,12 +27,21 @@ use uuid::Uuid;
 pub enum ObservationError {
     Serialize(serde_json::Error),
     Sink(io::Error),
+    InvalidNamespace(InvalidNamespace),
+    InvalidTag(InvalidTag),
+}
+#[derive(Clone)]
+pub(crate) enum MetadataError {
+    Namespace(InvalidNamespace),
+    Tag(InvalidTag),
 }
 impl fmt::Display for ObservationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Serialize(e) => write!(f, "observation serialization: {e}"),
             Self::Sink(e) => write!(f, "observation sink: {e}"),
+            Self::InvalidNamespace(e) => write!(f, "observation namespace: {e}"),
+            Self::InvalidTag(e) => write!(f, "observation tag: {e}"),
         }
     }
 }
@@ -41,6 +50,8 @@ impl Error for ObservationError {
         Some(match self {
             Self::Serialize(e) => e,
             Self::Sink(e) => e,
+            Self::InvalidNamespace(e) => e,
+            Self::InvalidTag(e) => e,
         })
     }
 }
@@ -68,7 +79,7 @@ impl ObservationEngine {
             started: Instant::now(),
             config: RwLock::new(Configuration::default()),
             generation: AtomicU64::new(1),
-            unscoped: ScopeState::new(ScopeConfig::new("")),
+            unscoped: ScopeState::unscoped(),
             sink_errors: AtomicU64::new(0),
         }
     }
@@ -148,7 +159,14 @@ impl ObservationEngine {
             .copied()
             .unwrap_or(Policy::Always);
         let counter = if active && !matches!(policy, Policy::Always | Policy::Never) {
-            Some(cache.counters.entry(TypeId::of::<T>()).or_default().clone())
+            Some(
+                scope
+                    .counters
+                    .lock()
+                    .entry(TypeId::of::<T>())
+                    .or_default()
+                    .clone(),
+            )
         } else {
             None
         };
@@ -171,10 +189,17 @@ impl ObservationEngine {
         let plan = Arc::new(ResolvedPlan {
             generation,
             capture: capture.cloned(),
+            metadata: namespace::validate_namespace(T::NAMESPACE)
+                .map_err(MetadataError::Namespace)
+                .and_then(|()| {
+                    T::TAGS.iter().try_for_each(|tag| {
+                        namespace::validate_tag(tag).map_err(MetadataError::Tag)
+                    })
+                }),
             active: active && policy != Policy::Never,
             policy,
             counter,
-            scope: (scope.id != self.unscoped.id).then(|| scope.config.name.clone()),
+            scope: (!scope.is_unscoped).then(|| scope.config.name.clone()),
             needs_render_text,
             sinks: sinks.into(),
         });
@@ -183,6 +208,20 @@ impl ObservationEngine {
         drop(cache);
         drop(retired);
         plan
+    }
+    fn validate_metadata(plan: &ResolvedPlan) -> Result<(), ObservationError> {
+        match &plan.metadata {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                if let Some(capture) = &plan.capture {
+                    capture.emission_failed();
+                }
+                Err(match error {
+                    MetadataError::Namespace(e) => ObservationError::InvalidNamespace(e.clone()),
+                    MetadataError::Tag(e) => ObservationError::InvalidTag(e.clone()),
+                })
+            }
+        }
     }
     fn serialize<T: Observation>(
         plan: &ResolvedPlan,
@@ -242,6 +281,7 @@ impl ObservationEngine {
         build: F,
     ) -> Result<bool, ObservationError> {
         let plan = context::cached_plan::<T>(self);
+        Self::validate_metadata(&plan)?;
         if !plan.admit() {
             return Ok(false);
         }
@@ -268,6 +308,7 @@ impl ObservationEngine {
         build: F,
     ) -> Result<SpanGuard<'_>, ObservationError> {
         let plan = context::cached_plan::<T>(self);
+        Self::validate_metadata(&plan)?;
         if !plan.admit() {
             return Ok(SpanGuard::inactive(self));
         }

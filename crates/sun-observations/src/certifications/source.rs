@@ -85,6 +85,14 @@ impl<'a, T> PreparedSource<'a, T> {
     pub fn unique<K: Ord + Clone>(&self, key: impl Fn(&T) -> K) -> Fact<IntegrityReport<K>> {
         fact(self.name(), check_unique(self.values, key))
     }
+    /// Sequence endpoints are inclusive unsigned identities.
+    ///
+    /// ```compile_fail
+    /// use sun_observations::certifications::*;
+    /// let rows = [1u64, 2];
+    /// let start: i64 = 1;
+    /// let _ = collection("rows", &rows).contiguous(|v| *v, start, 2);
+    /// ```
     pub fn contiguous(
         &self,
         key: impl Fn(&T) -> u64,
@@ -454,6 +462,15 @@ impl<K: Clone + fmt::Debug> PreparedNumericComparison<'_, K> {
     pub fn difference(&self) -> Fact<DifferenceSummary> {
         self.analyze(|| self.cached_difference())
     }
+    /// Linear association evidence does not expose fit-specific scalar accessors.
+    ///
+    /// ```compile_fail
+    /// use sun_observations::certifications::*;
+    /// let rows = [(1u64, 1.0), (2, 2.0)];
+    /// let source = collection("rows", &rows);
+    /// let paired = source.compare_with(&source).on(|r| r.0, |r| r.0);
+    /// let _ = paired.numeric(|r| r.1, |r| r.1).linear().slope();
+    /// ```
     pub fn linear(&self) -> Fact<LinearMetrics> {
         self.analyze(|| self.cached_linear())
     }

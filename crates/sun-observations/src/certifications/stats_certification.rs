@@ -593,6 +593,71 @@ fn naive_summation_is_detected_by_cancelling_scenarios() {
 mod deterministic {
     use super::*;
     use crate::certifications::test_support::{close, median, shuffle};
+    use crate::certifications::{collection, AtMostAnomalies, OutlierConfig};
+
+    #[test]
+    fn finite_interpolation_preserves_subnormals_endpoints_and_mixed_sign_bounds() {
+        let x = f64::from_bits(1);
+        let values = [x, x];
+        let numeric = collection("subnormal", &values).numeric(|v| *v);
+        for q in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            assert_eq!(numeric.quantile(q).observed.unwrap().to_bits(), x.to_bits());
+        }
+        let robust = numeric.robust_summary().observed.unwrap();
+        assert_eq!(robust.median.to_bits(), x.to_bits());
+        assert_eq!(robust.mad, 0.0);
+        assert!(numeric
+            .outliers(OutlierConfig::default())
+            .expect(AtMostAnomalies(0))
+            .is_pass());
+        let adjacent = NumericSeries::new([x, 2.0 * x].into_iter());
+        assert_eq!(
+            adjacent.quantile(0.5).unwrap().to_bits(),
+            (2.0 * x).to_bits()
+        );
+        let negative_adjacent = NumericSeries::new([-2.0 * x, -x].into_iter());
+        assert_eq!(
+            negative_adjacent.quantile(0.5).unwrap().to_bits(),
+            (-2.0 * x).to_bits()
+        );
+        let next_above_one = f64::from_bits(1.0f64.to_bits() + 1);
+        let near_cancelling = NumericSeries::new([-1.0, next_above_one].into_iter());
+        assert_eq!(near_cancelling.quantile(0.5).unwrap(), f64::EPSILON / 2.0);
+        let large = NumericSeries::new([-f64::MAX, f64::MAX].into_iter());
+        let mut previous = -f64::MAX;
+        for q in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let result = large.quantile(q).unwrap();
+            assert!(result.is_finite() && result >= previous && result <= f64::MAX);
+            previous = result;
+        }
+        assert_eq!(large.quantile(0.5).unwrap(), 0.0);
+        assert_eq!(large.quantile(1.0).unwrap(), f64::MAX);
+        let endpoints = [
+            -f64::MAX,
+            -1.0,
+            -x,
+            -0.0,
+            0.0,
+            x,
+            1.0,
+            next_above_one,
+            f64::MAX,
+        ];
+        for (i, &a) in endpoints.iter().enumerate() {
+            for &b in &endpoints[i..] {
+                let series = NumericSeries::new([a, b].into_iter());
+                let mut previous = a;
+                for step in 0..=256 {
+                    let result = series.quantile(step as f64 / 256.0).unwrap();
+                    assert!(
+                        result.is_finite() && result >= previous && result <= b,
+                        "{a:?} {b:?} {step}: {previous:?} -> {result:?}"
+                    );
+                    previous = result;
+                }
+            }
+        }
+    }
 
     #[test]
     fn known_population_sample_quantile_and_mad_results() {

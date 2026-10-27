@@ -176,7 +176,20 @@ pub(crate) fn quantile_sorted(sorted: &[f64], probability: f64) -> f64 {
     let low = position.floor() as usize;
     let high = position.ceil() as usize;
     let fraction = position - low as f64;
-    sorted[low] * (1.0 - fraction) + sorted[high] * fraction
+    let (a, b) = (sorted[low], sorted[high]);
+    if a == b || fraction == 0.0 {
+        a
+    } else {
+        let difference = b - a;
+        if difference.is_finite() {
+            // Recover subtraction roundoff, which can dominate an interpolated cancellation.
+            let remainder = b - difference;
+            let correction = (b - (difference + remainder)) + (remainder - a);
+            correction.mul_add(fraction, difference.mul_add(fraction, a))
+        } else {
+            a * (1.0 - fraction) + b * fraction
+        }
+    }
 }
 
 /// Shifted online moments avoid accumulating large common offsets into centered deltas.

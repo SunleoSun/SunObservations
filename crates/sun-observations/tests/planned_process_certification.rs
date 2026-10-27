@@ -71,10 +71,10 @@ fn concurrent_hooks() {
                 let report = c.report();
                 assert!(!report.is_pass());
                 assert_eq!(report.cases_executed(), 3);
-                assert_eq!(report.failures.len(), 2);
+                assert_eq!(report.failures().len(), 2);
                 assert_eq!(later.load(Ordering::SeqCst), 2);
-                assert_eq!(report.failures[0].class, CheckClass::HardViolation);
-                assert_eq!(report.failures[1].class, CheckClass::EvaluationError);
+                assert_eq!(report.failures()[0].class, CheckClass::HardViolation);
+                assert_eq!(report.failures()[1].class, CheckClass::EvaluationError);
             })
         })
         .collect();
@@ -102,8 +102,8 @@ fn planned_process_contract() {
             let (_, z) = run_local(778);
             assert!(a.is_pass(), "{a}");
             assert!(b.is_pass(), "{b}");
-            assert_eq!(a.seed, 777);
-            assert_eq!(a.budget, 40);
+            assert_eq!(a.seed(), 777);
+            assert_eq!(a.budget(), 40);
             assert_eq!(a.cases_executed(), 40);
             assert_eq!(x, y);
             assert_ne!(x, z);

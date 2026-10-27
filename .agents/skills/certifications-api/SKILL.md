@@ -9,7 +9,7 @@ Use `sun_observations::certifications::*`. Read certifications-methodology for p
 
 ## DSL
 
-Authoring structure, not literal Rust. PROJECT/LEFT/RIGHT are value projections; KEY and LEFT_KEY/RIGHT_KEY are group/join key projections; PREDICATE is a predicate. EXECUTOR is |&input| -> execution and SEEDED_EXECUTOR is |&input, u64| -> execution. NAME/SOURCE/TEXT are diagnostic strings; VALUE/OBSERVED are typed values, VALUES/INPUTS typed collections, RESULT a Rust Result, OTHER another PreparedSource. EXPRESSION is eager Rust; CASE_EXPRESSION/AGGREGATE_EXPRESSION and CASE_EXPECTATION/AGGREGATE_EXPECTATION are Rust expressions using their symbolic root; EAGER_CHECK_RESULT is an already evaluated check. N/MIN_COUNT/TOP are counts; MIN_MEAN/MAX_MEAN, THRESHOLD, ABSOLUTE_TOLERANCE, DENOMINATOR_FLOOR, ABS and REL are f64; ABSOLUTE_THRESHOLD/RELATIVE_THRESHOLD are Option<f64>. START/END/OFFSET are i64, Q is an f64 quantile in [0,1], BOOL is bool, MIN/MAX/BOUND use the observed ordered type, CLASS is ViolationClass::Hard or ::Statistical. NUMERIC_RULE, GROUP_EXPECTATION, CORRELATION_EXPECTATION, LINEAR_FIT_EXPECTATION, DIFFERENCE_EXPECTATION and RELATION_EXPECTATION are concrete types defined below; DOMAIN belongs to domain-api.
+Authoring structure, not literal Rust. PROJECT/LEFT/RIGHT are value projections; KEY and LEFT_KEY/RIGHT_KEY are group/join key projections; PREDICATE is a predicate. EXECUTOR is |&input| -> execution and SEEDED_EXECUTOR is |&input, u64| -> execution. NAME/SOURCE/TEXT are diagnostic strings; VALUE/OBSERVED are typed values, VALUES/INPUTS typed collections, RESULT a Rust Result, OTHER another PreparedSource. EXPRESSION is eager Rust; CASE_EXPRESSION/AGGREGATE_EXPRESSION and CASE_EXPECTATION/AGGREGATE_EXPECTATION are Rust expressions using their symbolic root; EAGER_CHECK_RESULT is an already evaluated check. N/MIN_COUNT/TOP are counts; MIN_MEAN/MAX_MEAN, THRESHOLD, ABSOLUTE_TOLERANCE, DENOMINATOR_FLOOR, ABS and REL are f64; ABSOLUTE_THRESHOLD/RELATIVE_THRESHOLD are Option<f64>. LAG_START/LAG_END/OFFSET are i64, SEQUENCE_START/SEQUENCE_END are u64, Q is an f64 quantile in [0,1], BOOL is bool, MIN/MAX/BOUND use the observed ordered type, CLASS is ViolationClass::Hard or ::Statistical. NUMERIC_RULE, GROUP_EXPECTATION, CORRELATION_EXPECTATION, LINEAR_FIT_EXPECTATION, DIFFERENCE_EXPECTATION and RELATION_EXPECTATION are concrete types defined below; DOMAIN belongs to domain-api.
 
 ~~~text
 CERTIFICATION :=
@@ -58,7 +58,7 @@ EXPECTATION :=
 PREPARED_SOURCE_CHECK :=
     rows.count().expect(EXPECTATION) | value.single_map(PROJECT).expect(EXPECTATION)
     | rows.matching_count(PREDICATE).expect(EXPECTATION)
-    | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, START, END).expect_valid()
+    | rows.unique(KEY).expect_valid() | rows.contiguous(KEY, SEQUENCE_START, SEQUENCE_END).expect_valid()
 NUMERIC_CHECK :=
     rows.numeric(PROJECT).expect(NUMERIC_RULE)
     | rows.numeric(PROJECT).(summary() | robust_summary() | quantile(Q)).expect(EXPECTATION)
@@ -67,9 +67,9 @@ NUMERIC_CHECK :=
     | ZeroMadPolicy::absolute_tolerance(ABSOLUTE_TOLERANCE)?)?).expect(AtMostAnomalies(N))
     | rows.numeric(PROJECT).jumps(JumpConfig::new(ABSOLUTE_THRESHOLD, RELATIVE_THRESHOLD, DENOMINATOR_FLOOR)?)
         .expect(AtMostAnomalies(N))
-| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(START, END)?,
+| rows.(lag_self(PROJECT, LagConfig { range: LagRange::new(LAG_START, LAG_END)?,
         measure: LagMeasure::Pearson | LagMeasure::Spearman })
-    | lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(START, END)?,
+    | lag_with(&OTHER, LEFT, RIGHT, LagConfig { range: LagRange::new(LAG_START, LAG_END)?,
     measure: LagMeasure::Pearson | LagMeasure::Spearman }))
     .expect(LagExpectation { best_lag: OFFSET })
 GROUP_CHECK :=
@@ -92,7 +92,7 @@ ASSERT_CERTIFY := c.assert_certify() | runner.assert_certify()
 
 Start one proof with certification(NAME). Register prerequisites and prepare borrowed evidence before optionally consuming c with executor(EXECUTOR) or executor_with_seed(SEEDED_EXECUTOR). Do not create two independent proofs for those phases.
 
-Diagnostic controls are c.limits(DiagnosticLimits { failures, characters_per_failure }) and c.report(). CertificationReport exposes name(), checks(), failed(), failures(), is_pass(), and assert_certify().
+Diagnostic controls are c.limits(DiagnosticLimits { failures, bytes_per_failure }) and c.report(). CertificationReport exposes name(), checks(), failed(), failures(), is_pass(), and assert_certify().
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -174,8 +174,8 @@ The executor runs real production: |input| -> Result<Output, Error>, or |input, 
 - failure_budget(n): positive bound on retained representative case failures; stops exploration when full.
 - seed(n): reproducible framework/Domain seed; seeded executors additionally receive a deterministic per-case seed.
 - report_mode(bool): coverage and registered-check summary.
-- require_pairwise_coverage(): require feasible enum values/pairs within the existing budget, not extra generation capacity.
-- diagnostic_bytes(bytes): per-failure diagnostic character budget.
+- require_pairwise_coverage(): require enum values/pairs feasible under Domain relations and active branches within the existing budget, not extra generation capacity. Only positive cases credit positive coverage.
+- diagnostic_bytes(bytes): per-failure diagnostic byte budget.
 
 Positive executor errors, accepted generated-negative cases, and executor panics fail. Expected negative rejection passes and skips positive-only checks. Missing inputs, invalid Domain/configuration, incomplete capture, or undefined required analysis fail closed.
 
@@ -318,7 +318,7 @@ All four families provide CorrelationExpectation::with_bound(measure, min, max)?
 - DifferenceMeasure::{MeanAbsolute, P95Absolute, MaxAbsolute}.
 - RelationMeasure::{Pearson, Spearman, AbsolutePearson, AbsoluteSpearman, Slope, Intercept, RSquared, MeanAbsoluteDifference, P95AbsoluteDifference, MaxAbsoluteDifference, ResidualMeanAbsolute, ResidualMaxAbsolute}.
 
-Bounds must be finite, ordered, and within the measure domain: signed correlations [-1,1], absolute correlations/R-squared [0,1], absolute differences/residuals nonnegative. MetricConstraint::new(measure, min, max)? is the common validated representation; inspect measure(), min(), max(). A required undefined metric is EvaluationError.
+Bounds must be finite, ordered, and within the measure domain: signed correlations [-1,1], absolute correlations/R-squared [0,1], absolute differences/residuals nonnegative. MetricConstraint::new(measure, min, max)? is the common validated representation; inspect measure(), min(), max(). A required undefined metric is EvaluationError. For lag, no defined candidate or interior-incomplete best alignment is EvaluationError; a complete defined alignment at the wrong best lag is StatisticalViolation.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -382,9 +382,10 @@ fn keyed_alignment() {
     let samples = [(0i64, 1.0), (1, 2.0), (2, 1.0), (3, 4.0)];
     let rows = collection("signal", &samples);
     let mut c = certification("same signal aligns at zero");
+    let start: i64 = -1; let end: i64 = 1; let offset: i64 = 0;
     c.check("lag", rows.lag_self(|r| *r, LagConfig {
-        range: LagRange::new(-1, 1).unwrap(), measure: LagMeasure::Pearson,
-    }).expect(LagExpectation { best_lag: 0 }));
+        range: LagRange::new(start, end).unwrap(), measure: LagMeasure::Pearson,
+    }).expect(LagExpectation { best_lag: offset }));
     c.assert_certify();
 }
 ~~~
@@ -431,7 +432,7 @@ fn persistence_preserves_rows() {
 
 ## NUMERIC_COMPARISON_CHECK
 
-Use paired.numeric(left_value,right_value) once. PreparedNumericComparison exposes values(); correlation(), linear_fit(), relation(), difference(), linear(), pearson(), spearman() are parameterless evidence methods, while largest(top) returns bounded diagnostic pairs. A Fact<LinearMetrics> also supports slope(), intercept(), r_squared(); Metric::value() returns Option<f64>. Match correlation() with CorrelationExpectation, linear_fit() with LinearFitExpectation, difference() with DifferenceExpectation, and relation() with RelationExpectation. difference is right minus left, not regression residual; high correlation alone does not prove agreement.
+Use paired.numeric(left_value,right_value) once. PreparedNumericComparison exposes values(); correlation(), linear_fit(), relation(), difference(), linear(), pearson(), spearman() are parameterless evidence methods, while largest(top) returns bounded diagnostic pairs. .linear() returns Fact<LinearMetrics>; .linear_fit() returns Fact<LinearFitMetrics>, whose slope(), intercept(), r_squared() accessors provide metric Facts; Metric::value() returns Option<f64>. Match correlation() with CorrelationExpectation, linear_fit() with LinearFitExpectation, difference() with DifferenceExpectation, and relation() with RelationExpectation. difference is right minus left, not regression residual; high correlation alone does not prove agreement.
 
 Lower-level numeric functions take pair iterators: linear_metrics(pairs), pearson(pairs), spearman(pairs), correlation(pairs), linear_fit(pairs), difference_summary(pairs), numeric_relation(pairs).
 
@@ -446,6 +447,10 @@ fn calibrated_sensor() {
         .on(|r| r.0, |r| r.0);
     c.check("identity", paired.paired_comparison_fact().expect_valid());
     let numeric = paired.numeric(|r| r.1, |r| r.1);
+    let slope = numeric.linear_fit().slope();
+    assert!(slope.observed.is_ok());
+    let start: u64 = 1; let end: u64 = 3;
+    c.check("sequence", collection("reference", &reference).contiguous(|r| r.0, start, end).expect_valid());
     c.check("agreement", numeric.difference().expect(DifferenceExpectation::max_absolute_at_most(0.01).unwrap()));
     c.check("association", numeric.correlation().expect(CorrelationExpectation::pearson_at_least(0.99).unwrap()));
     c.assert_certify();
@@ -454,7 +459,7 @@ fn calibrated_sensor() {
 
 ## ASSERT_CERTIFY
 
-End normal proofs with c.assert_certify() or runner.assert_certify(). It aggregates hard/statistical violations and evaluation errors. No checks is an eager failure; no executed cases is a planned failure. c.report() yields CertificationReport; runner.report() yields PlannedCertificationReport with is_pass(), cases_executed(), and assert_certify(). Reports are for programmatic diagnostics, not a replacement for final assertion in normal tests.
+End normal proofs with c.assert_certify() or runner.assert_certify(). It aggregates hard/statistical violations and evaluation errors. No checks is an eager failure; no executed cases is a planned failure. c.report() yields CertificationReport; runner.report() yields PlannedCertificationReport with is_pass(), cases_executed(), and assert_certify(). Read-only planned report inspection includes name(), seed(), budget(), executed(), categories(), failure_budget(), failures(), aggregate_failures(), evaluation_error(), stopped(), coverage(), and checks(). Reports are for programmatic diagnostics, not a replacement for final assertion in normal tests.
 
 ~~~rust
 use sun_observations::certifications::*;

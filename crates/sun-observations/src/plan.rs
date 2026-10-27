@@ -8,6 +8,7 @@ use std::sync::{
 pub(crate) struct ResolvedPlan {
     pub generation: u64,
     pub capture: Option<Arc<crate::capture::CaptureStorage>>,
+    pub metadata: Result<(), crate::engine::MetadataError>,
     pub active: bool,
     pub policy: Policy,
     pub counter: Option<Arc<AtomicU64>>,

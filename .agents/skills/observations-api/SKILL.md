@@ -29,7 +29,7 @@ ROUTING := engine.add_channel_sink(CHANNEL_NAME, SINK)
     engine.register_namespace_channel(NAMESPACE, CHANNEL_NAME)?
 SINK := Arc::new(MemorySink::new() | MemorySink::with_config(MEMORY_CONFIG)
     | JsonlSink::open_append(PATH)? | JsonlSink::with_config(PATH, JSONL_CONFIG)?
-    | ConsoleSink::stdout() | ConsoleSink::stderr() | CUSTOM_SINK_IMPL)
+    | ConsoleSink::stdout() | ConsoleSink::stderr() | ConsoleSink::new(WRITER) | CUSTOM_SINK_IMPL)
 SPAN := span = observe_span!(START_PAYLOAD)
 OPERATION
 span.finish()?
@@ -64,7 +64,7 @@ fn stable_identity() {
 
 ## EMISSION
 
-Emit with observe!(value) through the global production engine. The macro admits lazily: expensive payload construction stays inside its argument and is skipped on rejection. Ok(false) means rejected before construction/serialization; Ok(true) means admitted/dispatched, not durable persistence. ObservationError exposes serialization or sink failures.
+Emit with observe!(value) through the global production engine. The macro admits lazily: expensive payload construction stays inside its argument and is skipped on rejection. Ok(false) means rejected before construction/serialization; Ok(true) means admitted/dispatched, not durable persistence. ObservationError exposes invalid static namespace/tag metadata, serialization, or sink failures.
 
 Use global() to configure the process engine; engine.set_selection(selection) replaces global admission, while process_id(), sink_error_count(), flush_channels() inspect effects. For isolated runtime/routing proofs only, use ObservationEngine::isolated() and engine.observe_if_active(|| value), not dependency injection into ordinary production functions.
 
@@ -138,11 +138,11 @@ fn route_to_audit() {
 
 ## SINK
 
-MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?; MAX_ITEMS is positive usize and COMPACT_FRACTION is finite in (0,1]. JSONL_CONFIG means JsonlConfig::new() with optional flush_interval_ms(MS)?, max_file_size_bytes(BYTES)? or max_file_size_mb(MIB)?, and trim_fraction(FRACTION)?. CUSTOM_SINK_IMPL is a concrete Sink implementation value, not an Arc<dyn Sink>; Arc::new(...) is supplied by the DSL. Sink requires write(record) and flush(); optional/default hooks are write_shared(record), wants_render_text(), write_delivery(delivery). Async flush must be a real delivery barrier.
+MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?; MAX_ITEMS is positive usize and COMPACT_FRACTION is finite in (0,1]. JSONL_CONFIG means JsonlConfig::new() with optional flush_interval_ms(MS)?, max_file_size_bytes(BYTES)? or max_file_size_mb(MIB)?, and trim_fraction(FRACTION)?. WRITER is an owned `Write + Send + 'static` value. CUSTOM_SINK_IMPL is a concrete Sink implementation value, not an Arc<dyn Sink>; Arc::new(...) is supplied by the DSL. Sink requires write(record) and flush(); optional/default hooks are write_shared(record), wants_render_text(), write_delivery(delivery). Async flush must be a real delivery barrier.
 
 - MemorySink::new() uses 1,000,000 records and 0.10 compaction; MemorySink::with_config(MEMORY_CONFIG) bounds retention. MemorySinkConfig exposes max_items() and compact_fraction(). Inspect sink len(), is_empty(), config(), stats(), records()/shared_records(); drain()/drain_shared() remove retained records. Eviction makes capture incomplete.
 - JsonlSink::open_append(path)? / from_writer(writer) use defaults; with_config(path, JSONL_CONFIG)? / writer_with_config(writer, JSONL_CONFIG)? customize persistence. JsonlConfig defaults to 1000 ms flush, no size bound, 0.10 trim. Inspect stats(), is_started(), last_error(); flush()? is the read barrier.
-- ConsoleSink::stdout() / stderr() select human output. ObservationDelivery exposes record(), shared_record(), render_text(), shared_render_text().
+- ConsoleSink::stdout() / stderr() select human output; ConsoleSink::new(writer) uses an owned writer. Inspect ConsoleSink::is_started() and ConsoleSink::last_error(). ObservationDelivery exposes record(), shared_record(), render_text(), shared_render_text().
 
 ~~~rust
 use sun_observations::*;
@@ -150,6 +150,9 @@ use sun_observations::*;
 fn bounded_memory_sink() {
 let memory = MemorySink::with_config(MemorySinkConfig::new(1000, 0.1).unwrap());
 assert_eq!(memory.config().max_items(), 1000);
+let console = ConsoleSink::new(Vec::<u8>::new());
+assert!(!console.is_started());
+assert!(console.last_error().is_none());
 }
 ~~~
 
@@ -175,7 +178,7 @@ fn measure_sort() {
 ## CAPTURE
 
 capture_observations(config, operation) wraps real production. CaptureConfig::new() starts disabled with default memory retention. Selection builders are activate_all(), activate_namespace(ns)? / activate_namespaces(iter)?, exclude_namespace(ns)? / exclude_namespaces(iter)?, activate_tag(tag)? / activate_tags(iter)?, exclude_tag(tag)? / exclude_tags(iter)?. Use selection(selection) when reusing a prebuilt Selection and retention(MEMORY_CONFIG) for storage bounds.
-Read run.result(), dataset(), status().is_complete(), to_typed::<T>()?. Typed decoding alone does not assert capture health; use run.certification(name), the planned prerequisite, or an explicit completeness check before proof. CapturedRun completeness requires no eviction, emission error, or escaped context/worker/span. Nested captures are exclusive; parallel captures have separate storage. run.certification(name) starts a proof with completeness already registered. A planned executor can return captured Result; case.observations::<T>() then accesses typed evidence and capture completeness is mandatory.
+Read run.result(), dataset(), status().is_complete(), to_typed::<T>()?. Typed decoding alone does not assert capture health; use run.certification(name), the planned prerequisite, or an explicit completeness check before proof. CapturedRun completeness requires no eviction, emission error, or escaped context/worker/span. Capture selection replaces global admission/delivery while the enclosing scope identity, exclusions, policy and counters remain in force. Nested captures are exclusive; parallel captures have separate storage. run.certification(name) starts a proof with completeness already registered. A planned executor can return captured Result; case.observations::<T>() then accesses typed evidence and capture completeness is mandatory.
 
 ~~~rust
 use sun_observations::*;
