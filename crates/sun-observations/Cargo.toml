@@ -3,6 +3,7 @@ name = "sun-observations"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Typed runtime observations, production capture and generic semantic certification"
 readme = "README.md"
 include = ["Cargo.toml", "README.md", "src/**", "agent-skills/**", "examples/**", "benches/**", "tests/**"]

@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/sun-observations", "crates/sun-observations-derive", "certifications"]
 resolver = "2"
+repository = "https://github.com/SunleoSun/SunObservations"
 
 [workspace.package]
 version = "0.1.0"

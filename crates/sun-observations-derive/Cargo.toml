@@ -3,6 +3,7 @@ name = "sun-observations-derive"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Observation metadata derive for sun-observations"
 
 [lib]

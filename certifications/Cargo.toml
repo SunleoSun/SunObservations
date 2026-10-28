@@ -3,6 +3,7 @@ name = "sun-observations-certifications"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 publish = false
 
 [[test]]
