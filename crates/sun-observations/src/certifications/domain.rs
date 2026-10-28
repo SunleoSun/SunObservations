@@ -297,7 +297,9 @@ impl<T: DomainInput> DomainField<T> {
     pub fn selected_values(&self, values: impl IntoIterator<Item = T>) -> DomainSource {
         DomainSource {
             path: self.path.clone(),
-            space: ValueSpace::Selected(values.into_iter().map(|v| v.to_domain_value()).collect()),
+            space: ValueSpace::Selected(ValueSelection::new(
+                values.into_iter().map(|v| v.to_domain_value()),
+            )),
         }
     }
     pub fn all_enum_values(&self) -> DomainSource
@@ -311,7 +313,7 @@ impl<T: DomainInput> DomainField<T> {
         };
         DomainSource {
             path: self.path.clone(),
-            space: ValueSpace::Enum(values),
+            space: ValueSpace::Enum(ValueSelection::new(values)),
         }
     }
     pub fn selected_enum_values(&self, values: impl IntoIterator<Item = T>) -> DomainSource
@@ -320,17 +322,12 @@ impl<T: DomainInput> DomainField<T> {
     {
         DomainSource {
             path: self.path.clone(),
-            space: ValueSpace::Enum(
-                values
-                    .into_iter()
-                    .map(|v| {
-                        let DomainValue::Enum(i, _) = v.to_domain_value() else {
-                            return v.to_domain_value();
-                        };
-                        DomainValue::Enum(i, vec![])
-                    })
-                    .collect(),
-            ),
+            space: ValueSpace::Enum(ValueSelection::new(values.into_iter().map(|v| {
+                let DomainValue::Enum(i, _) = v.to_domain_value() else {
+                    return v.to_domain_value();
+                };
+                DomainValue::Enum(i, vec![])
+            }))),
         }
     }
     pub fn equal(&self, right: impl IntoDomainOperand<T>) -> DomainRelation
@@ -556,10 +553,87 @@ impl DomainRelation {
         })
     }
 }
+/// Exact equality identity, including payloads that the public scalar coverage key omits.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ValueIdentity {
+    Scalar(DomainValueKey),
+    Struct(Vec<Self>),
+    Enum(usize, Vec<Self>),
+    Sequence(Vec<Self>),
+}
+impl ValueIdentity {
+    fn of(value: &DomainValue) -> Self {
+        match value {
+            DomainValue::Struct(v) => Self::Struct(v.iter().map(Self::of).collect()),
+            DomainValue::Enum(tag, v) => Self::Enum(*tag, v.iter().map(Self::of).collect()),
+            DomainValue::Sequence(v) => Self::Sequence(v.iter().map(Self::of).collect()),
+            _ => Self::Scalar(value.key()),
+        }
+    }
+}
+
+/// Insertion-ordered exact values with indexed membership and original source coordinates.
+/// Enum slots compare tags; f32 slots use schema-normalized, deduplicated anchors.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ValueSelection {
+    values: Vec<DomainValue>,
+    positions: std::collections::BTreeMap<ValueIdentity, usize>,
+    source_positions: Vec<usize>,
+    enum_positions: std::collections::BTreeMap<usize, usize>,
+    f32_positions: std::collections::BTreeMap<ValueIdentity, usize>,
+}
+impl ValueSelection {
+    fn new(values: impl IntoIterator<Item = DomainValue>) -> Self {
+        let mut selection = Self::default();
+        for (source_position, value) in values.into_iter().enumerate() {
+            if selection.insert(value) {
+                *selection.source_positions.last_mut().unwrap() = source_position;
+            }
+        }
+        selection
+    }
+    fn insert(&mut self, value: DomainValue) -> bool {
+        let next = self.values.len();
+        match self.positions.entry(ValueIdentity::of(&value)) {
+            std::collections::btree_map::Entry::Occupied(_) => false,
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(next);
+                if let DomainValue::Enum(tag, _) = &value {
+                    self.enum_positions.entry(*tag).or_insert(next);
+                }
+                self.values.push(value);
+                self.source_positions.push(next);
+                true
+            }
+        }
+    }
+    fn position(&self, value: &DomainValue) -> Option<usize> {
+        self.positions
+            .get(&ValueIdentity::of(value))
+            .copied()
+            .filter(|i| self.values[*i] == *value)
+    }
+    fn slot_position(&self, value: &DomainValue) -> Option<usize> {
+        match value {
+            DomainValue::Enum(tag, _) => self.enum_positions.get(tag).copied(),
+            _ => self.position(value),
+        }
+    }
+    fn contains(&self, value: &DomainValue) -> bool {
+        self.position(value).is_some()
+    }
+}
+impl std::ops::Deref for ValueSelection {
+    type Target = [DomainValue];
+    fn deref(&self) -> &Self::Target {
+        &self.values
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum ValueSpace {
-    Selected(Vec<DomainValue>),
-    Enum(Vec<DomainValue>),
+    Selected(ValueSelection),
+    Enum(ValueSelection),
     Ranges(Vec<(DomainValue, DomainValue)>),
 }
 /// One constructive value space for an active input field.

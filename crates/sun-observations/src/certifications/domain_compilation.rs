@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "domain_classification.rs"]
 mod classification;
@@ -22,12 +22,15 @@ impl<'a> SolverCandidates<'a> {
     }
     fn source<'b, T: DomainInput>(
         &'b self,
-        domain: &CompiledDomain<T>,
+        domain: &'b CompiledDomain<T>,
         var: &Variable,
         source: &DomainSource,
         id: usize,
     ) -> std::borrow::Cow<'b, [DomainValue]> {
-        let build = || domain.candidates(var, source, self.violated.contains(&id));
+        if !self.violated.contains(&id) {
+            return std::borrow::Cow::Borrowed(&domain.positive_candidates[id]);
+        }
+        let build = || domain.candidates(var, source, true);
         match self.values.get(id) {
             Some(cell) => std::borrow::Cow::Borrowed(cell.get_or_init(build)),
             None => std::borrow::Cow::Owned(build()),
@@ -123,8 +126,28 @@ fn stratum_permutation(
 }
 #[cfg(test)]
 std::thread_local! {
+    static ANCHOR_VALUES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static CANDIDATE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PREFLIGHT_SIGNATURES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static SOLVE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static ENUM_PAIR_SOLVES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static ENUM_PAIR_CONTEXT_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+/// Canonical compilation work, isolated to the compiling test thread.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct CompilationWork {
+    pub candidates: usize,
+    pub signatures: usize,
+    pub anchor_values: usize,
+}
+#[cfg(test)]
+pub(crate) fn take_compilation_work() -> CompilationWork {
+    CompilationWork {
+        candidates: CANDIDATE_BUILDS.with(|c| c.replace(0)),
+        signatures: PREFLIGHT_SIGNATURES.with(|c| c.replace(0)),
+        anchor_values: ANCHOR_VALUES.with(|c| c.replace(0)),
+    }
 }
 #[cfg(test)]
 pub(crate) fn reset_solve_calls() {
@@ -137,6 +160,11 @@ pub(crate) fn solve_calls() -> usize {
 #[cfg(test)]
 pub(crate) fn reset_enum_pair_context_checks() {
     ENUM_PAIR_CONTEXT_CHECKS.with(|c| c.set(0));
+    ENUM_PAIR_SOLVES.with(|c| c.set(0));
+}
+#[cfg(test)]
+pub(crate) fn enum_pair_solves() -> usize {
+    ENUM_PAIR_SOLVES.with(|c| c.get())
 }
 #[cfg(test)]
 pub(crate) fn enum_pair_context_checks() -> usize {
@@ -280,12 +308,23 @@ fn adjacent(value: &DomainValue, schema: &DomainSchema, increasing: bool) -> Opt
     schema.accepts(&result).then_some(result)
 }
 impl ValueSpace {
+    fn prepare_slots(&mut self, schema: &DomainSchema) {
+        if let Self::Selected(values) = self {
+            if matches!(schema, DomainSchema::Real { max } if *max == f32::MAX as f64) {
+                values.f32_positions = ValueSelection::new(
+                    values.iter().cloned().map(|value| normalize(schema, value)),
+                )
+                .positions;
+            }
+        }
+    }
     fn contains(&self, value: &DomainValue) -> bool {
         match self {
             Self::Selected(v) => v.contains(value),
-            Self::Enum(v) => v
-                .iter()
-                .any(|v| v.cmp_scalar(value) == Some(Ordering::Equal)),
+            Self::Enum(v) => match value {
+                DomainValue::Enum(tag, _) => v.contains(&DomainValue::Enum(*tag, vec![])),
+                _ => false,
+            },
             Self::Ranges(rs) => rs.iter().any(|(a, b)| {
                 value.cmp_scalar(a).is_some_and(|c| c != Ordering::Less)
                     && value.cmp_scalar(b).is_some_and(|c| c != Ordering::Greater)
@@ -293,14 +332,18 @@ impl ValueSpace {
         }
     }
     fn anchors(&self) -> Vec<DomainValue> {
+        #[cfg(test)]
+        ANCHOR_VALUES.with(|c| {
+            c.set(
+                c.get()
+                    + match self {
+                        Self::Selected(v) | Self::Enum(v) => v.len(),
+                        Self::Ranges(ranges) => ranges.len(),
+                    },
+            )
+        });
         match self {
-            Self::Selected(v) | Self::Enum(v) => {
-                let mut out = vec![];
-                for v in v {
-                    push_value(&mut out, v.clone());
-                }
-                out
-            }
+            Self::Selected(v) | Self::Enum(v) => v.values.clone(),
             Self::Ranges(rs) => {
                 let mut out = vec![];
                 if let (Some((a, _)), Some((_, b))) = (rs.first(), rs.last()) {
@@ -411,10 +454,10 @@ impl ValueSpace {
         schema: &DomainSchema,
     ) -> Vec<(DomainValue, DomainRegion, DomainNegativeDistance)> {
         let mut out = vec![];
+        let mut seen = ValueSelection::default();
         let mut add = |v: DomainValue, region: DomainRegion, distance: DomainNegativeDistance| {
             let v = normalize(schema, v);
-            if schema.accepts(&v) && !self.contains(&v) && !out.iter().any(|(old, _, _)| old == &v)
-            {
+            if schema.accepts(&v) && !self.contains(&v) && seen.insert(v.clone()) {
                 out.push((v, region, distance));
             }
         };
@@ -507,7 +550,7 @@ impl ValueSpace {
                 }
             }
             Self::Selected(values) => {
-                for value in values {
+                for value in values.iter() {
                     for increasing in [false, true] {
                         if let Some(v) = adjacent(value, schema, increasing) {
                             add(
@@ -556,9 +599,8 @@ impl ValueSpace {
                 }
             }
             Self::Selected(vs) => vs
-                .iter()
-                .position(|v| v == value)
-                .map(DomainRegion::Discrete)
+                .position(value)
+                .map(|i| DomainRegion::Discrete(vs.source_positions[i]))
                 .unwrap_or(DomainRegion::OutsideSelection),
             Self::Ranges(rs) => {
                 for (branch, (a, b)) in rs.iter().enumerate() {
@@ -624,7 +666,9 @@ struct Variable {
     path: InputPath,
     name: String,
     schema: DomainSchema,
-    extras: Vec<DomainValue>,
+    extras: ValueSelection,
+    source_ids: Vec<usize>,
+    predicates: Vec<DomainRelation>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct DomainTarget {
@@ -634,6 +678,45 @@ pub(crate) struct DomainTarget {
     composition: Option<(InputPath, InputPath, Vec<DomainValue>)>,
     pub(crate) depth: usize,
 }
+/// Target identity excludes exploration priority, preserving the first occurrence's depth.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct DomainTargetKey {
+    forced: Vec<(InputPath, ValueIdentity)>,
+    violated: Vec<usize>,
+    focus: Vec<InputPath>,
+    composition: Option<(InputPath, InputPath, Vec<ValueIdentity>)>,
+}
+
+/// Stable target order with logarithmic exact-identity admission.
+#[derive(Default)]
+struct DomainTargets {
+    values: Vec<DomainTarget>,
+    keys: BTreeSet<DomainTargetKey>,
+}
+impl DomainTargets {
+    fn insert(&mut self, target: DomainTarget) {
+        let key = DomainTargetKey {
+            forced: target
+                .forced
+                .iter()
+                .map(|(p, v)| (p.clone(), ValueIdentity::of(v)))
+                .collect(),
+            violated: target.violated.clone(),
+            focus: target.focus.clone(),
+            composition: target.composition.as_ref().map(|(p, q, values)| {
+                (
+                    p.clone(),
+                    q.clone(),
+                    values.iter().map(ValueIdentity::of).collect(),
+                )
+            }),
+        };
+        if self.keys.insert(key) {
+            self.values.push(target);
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct CollectionCompositionGroup {
     forced: Assignment,
@@ -647,6 +730,13 @@ struct EnumSourceBucket {
     path: InputPath,
     values: Vec<DomainValue>,
     contexts: Vec<Assignment>,
+}
+
+/// Variant coincidence preserved by admissible enum permutations.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum EnumPairIdentity {
+    SharedVariant,
+    DistinctVariants,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -755,6 +845,7 @@ pub(crate) struct DomainCoverageCatalog {
 pub struct CompiledDomain<T> {
     rules: Vec<DomainRule>,
     variables: Vec<Variable>,
+    variable_indices: std::collections::BTreeMap<InputPath, usize>,
     schema: DomainSchema,
     contexts: Vec<Assignment>,
     positive_anchors: Vec<DomainTarget>,
@@ -767,6 +858,9 @@ pub struct CompiledDomain<T> {
     negative_ids: Vec<usize>,
     marker: PhantomData<fn() -> T>,
     catalog: DomainCoverageCatalog,
+    positive_candidates: Vec<Vec<DomainValue>>,
+    enum_classes: BTreeMap<usize, usize>,
+    fixed_operands: Assignment,
 }
 fn get<'a>(
     env: &'a [(InputPath, DomainValue)],
@@ -829,49 +923,92 @@ fn rule_active(rule: &DomainRule, env: &[(InputPath, DomainValue)]) -> Option<bo
         Some(true)
     }
 }
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-enum PreflightRegion {
-    Exact(InputPath, DomainValueKey),
-    Length(InputPath, bool, Vec<bool>, Vec<bool>),
+/// Preflight contexts also drive generation, which needs exact enum identities.
+#[derive(Clone, Copy)]
+enum RegionPurpose {
+    Preflight,
+    Feasibility,
 }
 
-// Retain exact lengths while another operand is unknown; otherwise one representative per
-// source-membership, activation and relation region is sufficient for preflight.
-fn preflight_regions(rules: &[DomainRule], context: &Assignment) -> Vec<PreflightRegion> {
+/// Residual positive constraints; unresolved operands retain exact forced identities.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct PositiveRegion {
+    values: Vec<PreflightRegion>,
+    activity: Vec<Option<bool>>,
+}
+
+/// Known-value distinctions sufficient for the selected compilation proof.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum PreflightRegion {
+    Exact(InputPath, ValueIdentity),
+    Enum(InputPath, usize, usize),
+    Scalar(InputPath, bool, Vec<bool>, Vec<bool>),
+}
+
+// Unknown operands preserve exact identity. Fully evaluated scalar predicates permit one
+// representative per source-membership, structural activity and relation-outcome region.
+fn preflight_regions<T: DomainInput>(
+    domain: &CompiledDomain<T>,
+    context: &Assignment,
+    purpose: RegionPurpose,
+) -> Vec<PreflightRegion> {
+    #[cfg(test)]
+    PREFLIGHT_SIGNATURES.with(|c| c.set(c.get() + 1));
+    let mut known = context.clone();
+    for (path, value) in &domain.fixed_operands {
+        if get(&known, path).is_none() {
+            known.push((path.clone(), value.clone()));
+        }
+    }
+    let mut symbols = BTreeMap::new();
+    let mut class_sizes = BTreeMap::new();
     context
         .iter()
         .map(|(path, value)| {
-            if path.last() != Some(&DomainPathStep::Length) {
-                return PreflightRegion::Exact(path.clone(), value.key());
+            let var = &domain.variables[domain.variable_indices[path]];
+            if let (RegionPurpose::Feasibility, DomainValue::Enum(tag, payload)) = (purpose, value)
+            {
+                if let Some(class) = domain.enum_classes.get(tag).filter(|_| payload.is_empty()) {
+                    let symbol = *symbols.entry(*tag).or_insert_with(|| {
+                        let size = class_sizes.entry(*class).or_insert(0);
+                        let symbol = *size;
+                        *size += 1;
+                        symbol
+                    });
+                    return PreflightRegion::Enum(path.clone(), *class, symbol);
+                }
             }
-            let predicates = rules
+            if matches!(
+                var.schema,
+                DomainSchema::Struct(_) | DomainSchema::Sequence(_)
+            ) || matches!(
+                (&var.schema, purpose),
+                (DomainSchema::Enum(_), RegionPurpose::Preflight)
+            ) {
+                return PreflightRegion::Exact(path.clone(), ValueIdentity::of(value));
+            }
+            let outcomes = var
+                .predicates
                 .iter()
-                .flat_map(|rule| {
-                    let relation = match &rule.kind {
-                        DomainRuleKind::Relation(relation) => Some(relation),
-                        DomainRuleKind::Source(_) => None,
-                    };
-                    rule.gates.iter().chain(relation)
-                })
-                .filter(|relation| relation.paths().contains(path));
-            let outcomes = predicates
-                .map(|relation| relation.evaluate(context))
+                .map(|relation| relation.evaluate(&known))
                 .collect::<Option<Vec<_>>>();
             let Some(outcomes) = outcomes else {
-                return PreflightRegion::Exact(path.clone(), value.key());
+                return PreflightRegion::Exact(path.clone(), ValueIdentity::of(value));
             };
-            let membership = rules
+            let membership = var
+                .source_ids
                 .iter()
-                .filter_map(|rule| match &rule.kind {
-                    DomainRuleKind::Source(source) if source.path == *path => {
-                        Some(source.space.contains(value))
-                    }
-                    _ => None,
+                .map(|id| {
+                    let DomainRuleKind::Source(source) = &domain.rules[*id].kind else {
+                        unreachable!()
+                    };
+                    source.space.contains(value)
                 })
                 .collect();
-            PreflightRegion::Length(
+            PreflightRegion::Scalar(
                 path.clone(),
-                matches!(value, DomainValue::Int(0)),
+                path.last() == Some(&DomainPathStep::Length)
+                    && matches!(value, DomainValue::Int(0)),
                 membership,
                 outcomes,
             )
@@ -910,7 +1047,9 @@ fn flatten(
                 path: path.clone(),
                 name: name.clone(),
                 schema: schema.clone(),
-                extras: vec![],
+                extras: ValueSelection::default(),
+                source_ids: vec![],
+                predicates: vec![],
             });
             for (i, (variant, fields)) in variants.iter().enumerate() {
                 for (j, (field, s)) in fields.iter().enumerate() {
@@ -927,7 +1066,9 @@ fn flatten(
                 path: length,
                 name: format!("{name}.length"),
                 schema: usize::schema(),
-                extras: vec![],
+                extras: ValueSelection::default(),
+                source_ids: vec![],
+                predicates: vec![],
             });
             let mut p = path;
             p.push(DomainPathStep::Each);
@@ -937,12 +1078,14 @@ fn flatten(
             path,
             name,
             schema: schema.clone(),
-            extras: vec![],
+            extras: ValueSelection::default(),
+            source_ids: vec![],
+            predicates: vec![],
         }),
     }
 }
 impl<T: DomainInput> CompiledDomain<T> {
-    pub(crate) fn compile(domain: Domain<T>) -> Result<Self, AnalysisError> {
+    pub(crate) fn compile(mut domain: Domain<T>) -> Result<Self, AnalysisError> {
         let schema = T::schema();
         let mut variables = vec![];
         flatten(
@@ -952,8 +1095,8 @@ impl<T: DomainInput> CompiledDomain<T> {
             &domain.rules,
             &mut variables,
         );
-        for rule in &domain.rules {
-            if let DomainRuleKind::Source(source) = &rule.kind {
+        for rule in &mut domain.rules {
+            if let DomainRuleKind::Source(source) = &mut rule.kind {
                 let var = variables
                     .iter()
                     .find(|v| v.path == source.path)
@@ -1007,6 +1150,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                         }
                     }
                 }
+                source.space.prepare_slots(&var.schema);
                 if source.path.last() == Some(&DomainPathStep::Length)
                             && source.space.anchors().iter().any(|v| {
                                 !matches!(v, DomainValue::Int(n) if (0..=COLLECTION_LIMIT as i128).contains(n))
@@ -1052,6 +1196,11 @@ impl<T: DomainInput> CompiledDomain<T> {
         }
         let mut result = Self {
             rules: domain.rules,
+            variable_indices: ordered
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (v.path.clone(), i))
+                .collect(),
             variables: ordered,
             schema,
             contexts: vec![],
@@ -1065,15 +1214,36 @@ impl<T: DomainInput> CompiledDomain<T> {
             negative_ids: vec![],
             marker: PhantomData,
             catalog: DomainCoverageCatalog::default(),
+            positive_candidates: vec![],
+            enum_classes: BTreeMap::new(),
+            fixed_operands: vec![],
         };
+        for (id, rule) in result.rules.iter().enumerate() {
+            if let DomainRuleKind::Source(source) = &rule.kind {
+                let i = result.variable_indices[&source.path];
+                result.variables[i].source_ids.push(id);
+            }
+            let relation = match &rule.kind {
+                DomainRuleKind::Relation(relation) => Some(relation),
+                DomainRuleKind::Source(_) => None,
+            };
+            for predicate in rule.gates.iter().chain(relation) {
+                for path in predicate.paths() {
+                    let Some(&i) = result.variable_indices.get(&path) else {
+                        return Err(domain_error("relation refers to unavailable scalar field"));
+                    };
+                    result.variables[i].predicates.push(predicate.clone());
+                }
+            }
+        }
         for i in 0..result.variables.len() {
             let p = result.variables[i].path.clone();
-            let mut extras = vec![];
+            let mut extras = ValueSelection::default();
             for r in &result.rules {
                 if let DomainRuleKind::Source(s) = &r.kind {
                     if s.path == p {
                         for v in s.space.anchors() {
-                            push_value(&mut extras, v)
+                            extras.insert(v);
                         }
                     }
                 }
@@ -1081,12 +1251,12 @@ impl<T: DomainInput> CompiledDomain<T> {
                     if g.paths().contains(&p) {
                         for o in [&g.left, &g.right] {
                             if let DomainOperand::Value(v) = o {
-                                push_value(&mut extras, v.clone());
+                                extras.insert(v.clone());
                                 for increasing in [false, true] {
                                     if let Some(v) =
                                         adjacent(v, &result.variables[i].schema, increasing)
                                     {
-                                        push_value(&mut extras, v)
+                                        extras.insert(v);
                                     }
                                 }
                             }
@@ -1105,7 +1275,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                 };
                 for r in rule.gates.iter().chain(relation) {
                     for p in r.paths() {
-                        let Some(i) = result.variables.iter().position(|v| v.path == p) else {
+                        let Some(&i) = result.variable_indices.get(&p) else {
                             return Err(domain_error(
                                 "relation refers to unavailable scalar field",
                             ));
@@ -1114,21 +1284,20 @@ impl<T: DomainInput> CompiledDomain<T> {
                             let candidates = match o {
                                 DomainOperand::Value(v) => vec![v.clone()],
                                 DomainOperand::Field(q) => result
-                                    .variables
-                                    .iter()
-                                    .position(|v| &v.path == q)
-                                    .map(|j| old[j].clone())
+                                    .variable_indices
+                                    .get(q)
+                                    .map(|j| old[*j].values.clone())
                                     .unwrap_or_default(),
                             };
                             for v in candidates {
                                 if result.variables[i].schema.accepts(&v) {
-                                    push_value(&mut result.variables[i].extras, v.clone());
+                                    result.variables[i].extras.insert(v.clone());
                                     for increasing in [false, true] {
                                         if let Some(v) =
                                             adjacent(&v, &result.variables[i].schema, increasing)
                                         {
                                             if result.variables[i].schema.accepts(&v) {
-                                                push_value(&mut result.variables[i].extras, v)
+                                                result.variables[i].extras.insert(v);
                                             }
                                         }
                                     }
@@ -1138,7 +1307,60 @@ impl<T: DomainInput> CompiledDomain<T> {
                     }
                 }
             }
+            if result
+                .variables
+                .iter()
+                .zip(&old)
+                .all(|(var, old)| var.extras.len() == old.len())
+            {
+                break;
+            }
         }
+        result.positive_candidates = result
+            .rules
+            .iter()
+            .map(|rule| {
+                if let DomainRuleKind::Source(source) = &rule.kind {
+                    result.candidates(
+                        &result.variables[result.variable_indices[&source.path]],
+                        source,
+                        false,
+                    )
+                } else {
+                    vec![]
+                }
+            })
+            .collect();
+        result.enum_classes = result.enum_symmetry_classes();
+        result.fixed_operands = result
+            .variables
+            .iter()
+            .filter_map(|var| {
+                let [id] = var.source_ids.as_slice() else {
+                    return None;
+                };
+                let [value] = result.positive_candidates[*id].as_slice() else {
+                    return None;
+                };
+                (result.rules[*id].gates.is_empty()
+                    && !var.path.iter().any(|step| {
+                        matches!(step, DomainPathStep::Each | DomainPathStep::Variant(_))
+                    }))
+                .then(|| (var.path.clone(), value.clone()))
+            })
+            .collect();
+        let preflight_choices: Vec<_> = result
+            .variables
+            .iter()
+            .map(|var| {
+                ValueSelection::new(
+                    var.source_ids
+                        .iter()
+                        .flat_map(|id| result.positive_candidates[*id].iter().cloned()),
+                )
+                .values
+            })
+            .collect();
         result
             .solve(&[], &[])?
             .ok_or_else(|| domain_error("unsatisfiable Domain"))?;
@@ -1219,51 +1441,37 @@ impl<T: DomainInput> CompiledDomain<T> {
                 let defer_length =
                     p.last() == Some(&DomainPathStep::Length) && !structural_lengths.contains(p);
                 let index = result
-                    .variables
-                    .iter()
-                    .position(|v| &v.path == p)
+                    .variable_indices
+                    .get(p)
+                    .copied()
                     .unwrap_or(usize::MAX);
                 (defer_length, index)
             });
             let mut group: Vec<Assignment> = vec![vec![]];
             for dep in deps {
-                let variable = result
-                    .variables
-                    .iter()
-                    .find(|v| v.path == dep)
+                let index = *result
+                    .variable_indices
+                    .get(&dep)
                     .ok_or_else(|| domain_error("unknown conditional field"))?;
-                let mut choices = vec![];
-                for r in &result.rules {
-                    if let DomainRuleKind::Source(s) = &r.kind {
-                        if s.path == dep {
-                            for v in s.space.anchors() {
-                                push_value(&mut choices, v)
-                            }
-                        }
-                    }
-                }
-                for v in &variable.extras {
-                    push_value(&mut choices, v.clone());
-                }
-                choices.retain(|value| {
-                    result.rules.iter().any(|rule| {
-                        matches!(&rule.kind, DomainRuleKind::Source(source)
-                            if source.path == dep && source.space.contains(value))
-                    })
-                });
+                let choices = &preflight_choices[index];
                 let mut next = vec![];
                 let mut regions = BTreeSet::new();
                 for context in group {
                     if path_active(&dep, &context) == Some(false) {
-                        if regions.insert(preflight_regions(&result.rules, &context)) {
+                        if regions.insert(preflight_regions(
+                            &result,
+                            &context,
+                            RegionPurpose::Preflight,
+                        )) {
                             next.push(context);
                         }
                         continue;
                     }
-                    for choice in &choices {
+                    for choice in choices {
                         let mut c = context.clone();
                         c.push((dep.clone(), choice.clone()));
-                        if regions.insert(preflight_regions(&result.rules, &c)) {
+                        if regions.insert(preflight_regions(&result, &c, RegionPurpose::Preflight))
+                        {
                             next.push(c);
                             if next.len() > CONTEXT_LIMIT {
                                 return Err(domain_error(
@@ -1301,26 +1509,28 @@ impl<T: DomainInput> CompiledDomain<T> {
         source: &DomainSource,
         negative: bool,
     ) -> Vec<DomainValue> {
-        let mut values = vec![];
+        #[cfg(test)]
+        CANDIDATE_BUILDS.with(|c| c.set(c.get() + 1));
+        let mut values = ValueSelection::default();
         if negative {
             for (v, _, _) in source.space.negative(&var.schema) {
-                push_value(&mut values, v)
+                values.insert(v);
             }
         } else {
             for v in source.space.anchors() {
                 let v = normalize(&var.schema, v);
                 if var.schema.accepts(&v) && source.space.contains(&v) {
-                    push_value(&mut values, v)
+                    values.insert(v);
                 }
             }
         }
-        for v in &var.extras {
+        for v in var.extras.iter() {
             let v = normalize(&var.schema, v.clone());
             if var.schema.accepts(&v) && source.space.contains(&v) != negative {
-                push_value(&mut values, v)
+                values.insert(v);
             }
         }
-        values
+        values.values
     }
     fn possible_operand<'a>(
         &'a self,
@@ -1337,22 +1547,20 @@ impl<T: DomainInput> CompiledDomain<T> {
         if let Some(v) = get(env, path) {
             return Some(Cow::Borrowed(std::slice::from_ref(v)));
         }
-        let var = self.variables.iter().find(|v| &v.path == path)?;
-        let mut sources = self
-            .rules
+        let var = &self.variables[*self.variable_indices.get(path)?];
+        let mut sources = var
+            .source_ids
             .iter()
-            .enumerate()
-            .filter_map(|(id, rule)| {
-                if let DomainRuleKind::Source(source) = &rule.kind {
-                    (&source.path == path && rule_active(rule, env) != Some(false))
-                        .then_some((id, source))
-                } else {
-                    None
-                }
+            .filter_map(|id| {
+                let rule = &self.rules[*id];
+                let DomainRuleKind::Source(source) = &rule.kind else {
+                    unreachable!()
+                };
+                (rule_active(rule, env) != Some(false)).then_some((*id, source))
             })
             .peekable();
         sources.peek()?;
-        let mut all = Vec::new();
+        let mut all = ValueSelection::default();
         while let Some((id, source)) = sources.next() {
             let values = if let Some(v) = get(forced, path) {
                 if source.space.contains(v) != candidates.violated.contains(&id)
@@ -1369,10 +1577,10 @@ impl<T: DomainInput> CompiledDomain<T> {
                 return Some(values);
             }
             for value in values.iter() {
-                push_value(&mut all, value.clone());
+                all.insert(value.clone());
             }
         }
-        Some(Cow::Owned(all))
+        Some(Cow::Owned(all.values))
     }
     fn solve(
         &self,
@@ -1471,12 +1679,12 @@ impl<T: DomainInput> CompiledDomain<T> {
             if path_active(&var.path, env) == Some(false) {
                 return dfs(d, i + 1, env, known, forced, candidates, steps);
             }
-            let mut active = d.rules.iter().enumerate().filter_map(|(id, r)| {
-                if let DomainRuleKind::Source(s) = &r.kind {
-                    (s.path == var.path && rule_active(r, env) == Some(true)).then_some((id, s))
-                } else {
-                    None
-                }
+            let mut active = var.source_ids.iter().filter_map(|id| {
+                let rule = &d.rules[*id];
+                let DomainRuleKind::Source(source) = &rule.kind else {
+                    unreachable!()
+                };
+                (rule_active(rule, env) == Some(true)).then_some((*id, source))
             });
             let Some((id, source)) = active.next() else {
                 return Err(domain_error(format!(
@@ -1668,19 +1876,10 @@ impl<T: DomainInput> CompiledDomain<T> {
         }
         out
     }
-    fn push_unique_target(targets: &mut Vec<DomainTarget>, target: DomainTarget) {
-        if !targets.iter().any(|t| {
-            t.forced == target.forced
-                && t.violated == target.violated
-                && t.focus == target.focus
-                && t.composition == target.composition
-        }) {
-            targets.push(target);
-        }
-    }
+
     fn build_targets(&mut self) -> Result<(), AnalysisError> {
-        let mut positives = vec![];
-        let mut negatives = vec![];
+        let mut positives = DomainTargets::default();
+        let mut negatives = DomainTargets::default();
         let rules = self.rules.clone();
         for var in self.variables.clone() {
             for (id, rule) in rules.iter().enumerate() {
@@ -1699,20 +1898,17 @@ impl<T: DomainInput> CompiledDomain<T> {
                             if get(&forced, &var.path).is_none() {
                                 forced.push((var.path.clone(), value));
                             }
-                            Self::push_unique_target(
-                                &mut positives,
-                                DomainTarget {
-                                    forced,
-                                    violated: vec![],
-                                    focus: vec![var.path.clone()],
-                                    composition: None,
-                                    depth: if matches!(var.schema, DomainSchema::Enum(_)) {
-                                        0
-                                    } else {
-                                        depth
-                                    },
+                            positives.insert(DomainTarget {
+                                forced,
+                                violated: vec![],
+                                focus: vec![var.path.clone()],
+                                composition: None,
+                                depth: if matches!(var.schema, DomainSchema::Enum(_)) {
+                                    0
+                                } else {
+                                    depth
                                 },
-                            );
+                            });
                         }
                         for (depth, (value, _, _distance)) in
                             source.space.negative(&var.schema).into_iter().enumerate()
@@ -1720,16 +1916,13 @@ impl<T: DomainInput> CompiledDomain<T> {
                             let mut forced = context.clone();
                             forced.retain(|(p, _)| p != &var.path);
                             forced.push((var.path.clone(), value));
-                            Self::push_unique_target(
-                                &mut negatives,
-                                DomainTarget {
-                                    forced,
-                                    violated: vec![id],
-                                    focus: vec![var.path.clone()],
-                                    composition: None,
-                                    depth,
-                                },
-                            );
+                            negatives.insert(DomainTarget {
+                                forced,
+                                violated: vec![id],
+                                focus: vec![var.path.clone()],
+                                composition: None,
+                                depth,
+                            });
                         }
                     }
                 }
@@ -1740,23 +1933,20 @@ impl<T: DomainInput> CompiledDomain<T> {
                 let r_contexts = self.rule_contexts(r);
                 for context in &r_contexts {
                     for target in self.relation_targets(id, relation, context) {
-                        Self::push_unique_target(&mut negatives, target);
+                        negatives.insert(target);
                     }
-                    Self::push_unique_target(
-                        &mut negatives,
-                        DomainTarget {
-                            forced: context.clone(),
-                            violated: vec![id],
-                            focus: vec![],
-                            composition: None,
-                            depth: 0,
-                        },
-                    );
+                    negatives.insert(DomainTarget {
+                        forced: context.clone(),
+                        violated: vec![id],
+                        focus: vec![],
+                        composition: None,
+                        depth: 0,
+                    });
                 }
             }
         }
-        if positives.is_empty() {
-            positives.push(DomainTarget {
+        if positives.values.is_empty() {
+            positives.insert(DomainTarget {
                 forced: vec![],
                 violated: vec![],
                 focus: vec![],
@@ -1764,10 +1954,10 @@ impl<T: DomainInput> CompiledDomain<T> {
                 depth: 0,
             });
         }
-        positives.sort_by_key(|t| t.depth);
-        negatives.sort_by_key(|t| t.depth);
-        self.positive_anchors = positives;
-        self.single_negatives = negatives;
+        positives.values.sort_by_key(|t| t.depth);
+        negatives.values.sort_by_key(|t| t.depth);
+        self.positive_anchors = positives.values;
+        self.single_negatives = negatives.values;
 
         for var in &self.variables {
             if matches!(var.schema, DomainSchema::Enum(_)) {
@@ -1882,12 +2072,46 @@ impl<T: DomainInput> CompiledDomain<T> {
                         covered_by_anchor: false,
                     };
                     let mut feasible = EnumPairShape::default();
+                    let mut feasibility = BTreeMap::new();
+                    let mut pair_classes = BTreeMap::new();
                     for a in 0..left.values.len() {
                         let mut row = Vec::new();
                         for b in 0..right.values.len() {
-                            if shape.contains(a, b)
-                                && self.enum_pair_block_forced(&candidate, a, b)?.is_some()
+                            if !shape.contains(a, b) {
+                                continue;
+                            }
+                            let class = match (&left.values[a], &right.values[b]) {
+                                (DomainValue::Enum(at, _), DomainValue::Enum(bt, _)) => self
+                                    .enum_classes
+                                    .get(at)
+                                    .zip(self.enum_classes.get(bt))
+                                    .map(|(ac, bc)| {
+                                        (
+                                            *ac,
+                                            *bc,
+                                            if at == bt {
+                                                EnumPairIdentity::SharedVariant
+                                            } else {
+                                                EnumPairIdentity::DistinctVariants
+                                            },
+                                        )
+                                    }),
+                                _ => None,
+                            };
+                            let valid = if let Some(valid) =
+                                class.as_ref().and_then(|key| pair_classes.get(key))
                             {
+                                *valid
+                            } else {
+                                let valid = self
+                                    .enum_pair_block_forced(&candidate, a, b, &mut feasibility)?
+                                    .is_some();
+                                if let Some(class) = class {
+                                    pair_classes.insert(class, valid);
+                                }
+                                valid
+                            };
+                            if valid {
                                 row.push(b);
                             }
                         }
@@ -2107,11 +2331,107 @@ impl<T: DomainInput> CompiledDomain<T> {
         }
     }
 
+    // Equality-only variants admit alpha-renaming within identical source/constant classes.
+    // Payload tags remain singleton classes; ordered enum comparisons disable renaming.
+    fn enum_symmetry_classes(&self) -> BTreeMap<usize, usize> {
+        let enums: Vec<_> = self
+            .variables
+            .iter()
+            .filter_map(|var| {
+                if let DomainSchema::Enum(variants) = &var.schema {
+                    Some((var, variants))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if enums.iter().any(|(var, _)| {
+            var.predicates
+                .iter()
+                .any(|r| !matches!(r.kind, RelationKind::Equal | RelationKind::NotEqual))
+        }) {
+            return BTreeMap::new();
+        }
+        let mut constants: BTreeSet<_> = enums
+            .iter()
+            .flat_map(|(var, _)| &var.predicates)
+            .flat_map(|r| [&r.left, &r.right])
+            .filter_map(|operand| match operand {
+                DomainOperand::Value(DomainValue::Enum(tag, _)) => Some(*tag),
+                _ => None,
+            })
+            .collect();
+        constants.extend(enums.iter().flat_map(|(_, variants)| {
+            variants
+                .iter()
+                .enumerate()
+                .filter_map(|(tag, (_, fields))| (!fields.is_empty()).then_some(tag))
+        }));
+        constants.extend(
+            self.variables
+                .iter()
+                .flat_map(|var| &var.path)
+                .filter_map(|step| match step {
+                    DomainPathStep::Variant(tag) => Some(*tag),
+                    _ => None,
+                }),
+        );
+        let mut classes = BTreeMap::new();
+        (0..enums
+            .iter()
+            .map(|(_, variants)| variants.len())
+            .max()
+            .unwrap_or(0))
+            .map(|tag| {
+                let value = DomainValue::Enum(tag, vec![]);
+                let signature: Vec<_> = enums
+                    .iter()
+                    .map(|(_, variants)| tag < variants.len())
+                    .chain(constants.iter().map(|constant| tag == *constant))
+                    .chain(enums.iter().flat_map(|(var, _)| &var.source_ids).map(|id| {
+                        let DomainRuleKind::Source(source) = &self.rules[*id].kind else {
+                            unreachable!()
+                        };
+                        source.space.contains(&value)
+                    }))
+                    .collect();
+                let next = classes.len();
+                let class = *classes.entry(signature).or_insert(next);
+                (tag, class)
+            })
+            .collect()
+    }
+
+    fn positive_feasible(
+        &self,
+        forced: &Assignment,
+        feasibility: &mut BTreeMap<PositiveRegion, bool>,
+    ) -> Result<bool, AnalysisError> {
+        let region = PositiveRegion {
+            values: preflight_regions(self, forced, RegionPurpose::Feasibility),
+            activity: self
+                .variables
+                .iter()
+                .map(|var| path_active(&var.path, forced))
+                .chain(self.rules.iter().map(|rule| rule_active(rule, forced)))
+                .collect(),
+        };
+        if let Some(feasible) = feasibility.get(&region) {
+            return Ok(*feasible);
+        }
+        #[cfg(test)]
+        ENUM_PAIR_SOLVES.with(|c| c.set(c.get() + 1));
+        let feasible = self.solve(forced, &[])?.is_some();
+        feasibility.insert(region, feasible);
+        Ok(feasible)
+    }
+
     fn enum_pair_block_forced(
         &self,
         block: &EnumPairBlock,
         left_index: usize,
         right_index: usize,
+        feasibility: &mut BTreeMap<PositiveRegion, bool>,
     ) -> Result<Option<Assignment>, AnalysisError> {
         let left = &self.enum_source_buckets[block.left];
         let right = &self.enum_source_buckets[block.right];
@@ -2133,7 +2453,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                         .rules
                         .iter()
                         .any(|r| matches!(r.kind, DomainRuleKind::Relation(_)))
-                        || self.solve(&merged, &[])?.is_some()
+                        || self.positive_feasible(&merged, feasibility)?
                     {
                         return Ok(Some(merged));
                     }
@@ -2198,7 +2518,9 @@ impl<T: DomainInput> CompiledDomain<T> {
                 .shape
                 .pair_at(left.values.len(), right.values.len(), index)
                 .expect("pair shape index");
-            let Some(forced) = self.enum_pair_block_forced(block, left_index, right_index)? else {
+            let Some(forced) =
+                self.enum_pair_block_forced(block, left_index, right_index, &mut BTreeMap::new())?
+            else {
                 return Ok(None);
             };
             return Ok(Some(DomainTarget {

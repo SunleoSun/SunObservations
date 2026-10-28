@@ -131,8 +131,24 @@ impl ValueSpace {
                 CaseDomainCoordinateSlot::ExcludedVariant(*tag)
             };
         }
+        let normalizes_anchors =
+            matches!(schema, DomainSchema::Real { max } if *max == f32::MAX as f64);
+        if let Self::Selected(values) = self {
+            let position = if normalizes_anchors {
+                values.f32_positions.get(&ValueIdentity::of(value)).copied()
+            } else {
+                values.slot_position(value)
+            };
+            if let Some(i) = position {
+                return CaseDomainCoordinateSlot::Anchor(i);
+            }
+        }
         let mut anchors = vec![];
-        for v in self.anchors() {
+        for v in if matches!(self, Self::Selected(_)) {
+            vec![]
+        } else {
+            self.anchors()
+        } {
             push_value(&mut anchors, normalize(schema, v))
         }
         if let Some(i) = anchors

@@ -550,6 +550,10 @@ fn installation_is_self_contained_and_cargo_invokes_the_installed_external_subco
     let root = temporary.path();
     let install = root.join("installed");
     let tool = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let isolated_install_target = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .parent()
+        .unwrap()
+        .join("skill-install");
     checked(cargo(
         root,
         &[
@@ -561,7 +565,7 @@ fn installation_is_self_contained_and_cargo_invokes_the_installed_external_subco
             "--offline",
             "--debug",
             "--target-dir",
-            root.join("target").to_str().unwrap(),
+            isolated_install_target.to_str().unwrap(),
         ],
     ));
     let source = owner(

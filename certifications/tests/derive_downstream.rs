@@ -68,7 +68,12 @@ fn main() {
             .arg("--manifest-path")
             .arg(directory.path().join("Cargo.toml"))
             .arg("--target-dir")
-            .arg(directory.path().join("target"))
+            .arg(
+                std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+                    .parent()
+                    .unwrap(),
+            )
+            .arg("--message-format=json")
             .output()
             .unwrap()
     };
@@ -78,7 +83,7 @@ fn main() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    for (metadata, diagnostic) in [
+    let invalid = [
         ("", "missing required observation namespace"),
         ("namespace = \"bad::\"", "namespace must contain"),
         ("namespace = \"Upper\"", "namespace must contain"),
@@ -107,14 +112,44 @@ fn main() {
             "namespace = \"valid\", level = TRACE",
             "level must be INFO, WARN, or ERROR",
         ),
-    ] {
-        fs::write(&source, format!("use serde::Serialize;\n#[derive(Serialize, sdk::Observation)]\n#[observation({metadata})]\nstruct Invalid;\nfn main() {{}}\n")).unwrap();
-        let output = invoke("check");
-        assert!(!output.status.success(), "{metadata}");
+    ];
+    let mut invalid_source = "use serde::Serialize;\n".to_owned();
+    let mut expected = vec![];
+    for (index, (metadata, diagnostic)) in invalid.iter().enumerate() {
+        let first_line = invalid_source.lines().count() + 1;
+        invalid_source.push_str(&format!("#[derive(Serialize, sdk::Observation)]\n#[observation({metadata})]\nstruct Invalid{index};\n"));
+        expected.push((first_line, first_line + 2, diagnostic));
+    }
+    invalid_source.push_str("fn main() {}\n");
+    fs::write(&source, invalid_source).unwrap();
+    let output = invoke("check");
+    assert!(!output.status.success());
+    let messages: Vec<serde_json::Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    for (first, last, diagnostic) in expected {
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains(diagnostic),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
+            messages.iter().any(|event| {
+                let message = &event["message"];
+                message["level"] == "error"
+                    && message["message"]
+                        .as_str()
+                        .is_some_and(|text| text.contains(diagnostic))
+                    && message["spans"].as_array().is_some_and(|spans| {
+                        spans.iter().any(|span| {
+                            span["is_primary"] == true
+                                && span["line_start"]
+                                    .as_u64()
+                                    .is_some_and(|line| line >= first as u64)
+                                && span["line_end"]
+                                    .as_u64()
+                                    .is_some_and(|line| line <= last as u64)
+                        })
+                    })
+            }),
+            "missing rejection at lines {first}..={last}: {diagnostic}; {messages:?}"
         );
     }
 }

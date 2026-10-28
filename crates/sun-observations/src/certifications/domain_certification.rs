@@ -128,6 +128,403 @@ fn conditional_length_preflight_groups_equivalent_reachable_regions() {
     }
 }
 
+#[test]
+fn large_selected_length_compilation_has_bounded_semantic_work() {
+    for size in [41, 4100] {
+        compilation::take_compilation_work();
+        compilation::reset_solve_calls();
+        let domain = domain!(WideLengthConditional {
+            n.selected_values(0..30),
+            items { length().selected_values((0..size).chain(0..size)) },
+            when(n.less_equal(29)) {
+                when(items.length().less_equal(1)) { items { each(fixed_value(0)) } },
+                when(items.length().greater_than(1)) { items { each(fixed_value(1)) } },
+            },
+        })
+        .compile()
+        .unwrap();
+        let work = compilation::take_compilation_work();
+        let solves = compilation::solve_calls();
+        assert!(work.candidates <= 16, "{work:?}");
+        assert!(work.signatures <= size * 3 + 128, "{work:?}");
+        assert!(work.anchor_values <= size * 32 + 1024, "{work:?}");
+        assert!(solves <= 16, "{solves}");
+        eprintln!("selected lengths={size}; {work:?}; solves={solves}");
+        for n in [0, 15, 29] {
+            for length in [0, 1, 2, size - 1] {
+                let input = WideLengthConditional {
+                    n,
+                    items: vec![i32::from(length > 1); length],
+                };
+                assert!(domain.classify(&input).unwrap().violated.is_empty());
+                if length > 0 {
+                    let wrong = WideLengthConditional {
+                        n,
+                        items: vec![i32::from(length <= 1); length],
+                    };
+                    assert!(!domain.classify(&wrong).unwrap().violated.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn fixed_field_operands_partition_large_selected_values_before_context_limits() {
+    compilation::reset_solve_calls();
+    let compiled = domain!(WideLengthConditional {
+        n.selected_values(0..4100),
+        items { length().fixed_value(1) },
+        when(n.equal(items.length())) { items { each(fixed_value(0)) } },
+        when(n.not_equal(items.length())) { items { each(fixed_value(1)) } },
+    })
+    .compile()
+    .unwrap();
+    assert!(compilation::solve_calls() <= 16);
+    for n in [0, 1, 2, 4099] {
+        assert!(compiled
+            .classify(&WideLengthConditional {
+                n,
+                items: vec![i32::from(n != 1)],
+            })
+            .unwrap()
+            .violated
+            .is_empty());
+    }
+    assert!(domain!(WideLengthConditional {
+        n.selected_values(0..4100),
+        items { length().fixed_value(1) },
+        when(n.equal(items.length())) { items { each(fixed_value(0)) } },
+    })
+    .compile()
+    .is_err());
+}
+
+#[test]
+fn unresolved_distinct_field_operands_still_fail_closed_at_the_context_bound() {
+    let error = domain!(WideLengthConditional {
+        n.selected_values(0..4100),
+        items { length().selected_values(0..4100) },
+        when(n.equal(items.length())) { items { each(fixed_value(0)) } },
+        when(n.not_equal(items.length())) { items { each(fixed_value(1)) } },
+    })
+    .compile()
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("conditional preflight exceeds bounded solver capacity"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn indexed_selections_preserve_first_source_coordinates_and_full_structural_identity() {
+    let compiled = domain!(f64 { selected_values([-0.0, 0.0, 2.0, 2.0, 3.0]) })
+        .compile()
+        .unwrap();
+    for (value, region, slot) in [(0.0, 0, 0), (2.0, 2, 1), (3.0, 4, 2)] {
+        let coordinate = compiled.classify(&value).unwrap();
+        assert_eq!(
+            coordinate.entries[0].sector.region,
+            DomainRegion::Discrete(region)
+        );
+        assert_eq!(
+            coordinate.entries[0].slot,
+            CaseDomainCoordinateSlot::Anchor(slot)
+        );
+    }
+    let compiled = domain!(Vec<i32> { selected_values([vec![1], vec![2], vec![1]]) })
+        .compile()
+        .unwrap();
+    assert_eq!(compiled.coverage_catalog().positive_anchors.len(), 2);
+    assert!(compiled.classify(&vec![1]).unwrap().violated.is_empty());
+    assert!(compiled.classify(&vec![2]).unwrap().violated.is_empty());
+    assert!(!compiled.classify(&vec![3]).unwrap().violated.is_empty());
+    let compiled = domain!(ConstrainedVariant { selected_values([
+        ConstrainedVariant::Impossible { n: 1 },
+        ConstrainedVariant::Impossible { n: 2 },
+        ConstrainedVariant::Possible,
+    ]) })
+    .compile()
+    .unwrap();
+    for n in [1, 2, 3] {
+        let coordinate = compiled
+            .classify(&ConstrainedVariant::Impossible { n })
+            .unwrap();
+        assert_eq!(
+            coordinate.entries[0].slot,
+            CaseDomainCoordinateSlot::Anchor(0)
+        );
+        assert_eq!(coordinate.violated.is_empty(), n != 3);
+    }
+}
+
+#[derive(Clone, Debug)]
+struct CatalogChoice(usize);
+impl DomainInput for CatalogChoice {
+    type Fields = DomainField<Self>;
+    fn schema() -> DomainSchema {
+        DomainSchema::Enum((0..128).map(|_| ("choice", vec![])).collect())
+    }
+    fn domain_fields(field: DomainField<Self>) -> Self::Fields {
+        field
+    }
+    fn to_domain_value(&self) -> DomainValue {
+        DomainValue::Enum(self.0, vec![])
+    }
+    fn from_domain_value(value: DomainValue) -> Result<Self, AnalysisError> {
+        match value {
+            DomainValue::Enum(tag, fields) if tag < 128 && fields.is_empty() => Ok(Self(tag)),
+            _ => Err(super::domain::domain_error("invalid catalog choice")),
+        }
+    }
+}
+impl DomainScalar for CatalogChoice {}
+impl DomainEnum for CatalogChoice {}
+impl DomainOrdered for CatalogChoice {}
+#[derive(Clone, Debug, DomainInput)]
+struct SymmetricEnums {
+    a: CatalogChoice,
+    b: CatalogChoice,
+    c: CatalogChoice,
+}
+fn enum_family(size: usize) -> Domain<SymmetricEnums> {
+    domain!(SymmetricEnums {
+        a.selected_enum_values((0..size).map(CatalogChoice)),
+        b.selected_enum_values((0..size).map(CatalogChoice)),
+        c.selected_enum_values((0..size).map(CatalogChoice)),
+    })
+}
+
+#[test]
+fn independent_enum_pairs_require_no_feasibility_solver_validations() {
+    for size in [8, 128] {
+        compilation::reset_enum_pair_context_checks();
+        let compiled = enum_family(size).compile().unwrap();
+        assert_eq!(compiled.coverage_catalog().pairwise_total, 3 * size * size);
+        assert_eq!(compilation::enum_pair_solves(), 0);
+    }
+}
+
+#[test]
+fn direct_enum_equalities_reuse_positive_feasibility_regions() {
+    for size in [8, 128] {
+        let fields = SymmetricEnums::domain_fields(DomainField::root());
+        let mut spec = enum_family(size);
+        spec.add(fields.a.equal(&fields.b), &[]);
+        compilation::reset_enum_pair_context_checks();
+        compilation::take_compilation_work();
+        let compiled = spec.compile().unwrap();
+        let work = compilation::take_compilation_work();
+        assert!(work.signatures <= size * 4 + 128, "{work:?}");
+        eprintln!(
+            "enum values={size}; {work:?}; feasibility solves={}",
+            compilation::enum_pair_solves()
+        );
+        assert_eq!(
+            compiled.coverage_catalog().pairwise_total,
+            size + 2 * size * size
+        );
+        assert!(
+            compilation::enum_pair_solves() <= 16,
+            "{}",
+            compilation::enum_pair_solves()
+        );
+        assert!(!compiled
+            .classify(&SymmetricEnums {
+                a: CatalogChoice(0),
+                b: CatalogChoice(1),
+                c: CatalogChoice(0)
+            })
+            .unwrap()
+            .violated
+            .is_empty());
+    }
+}
+
+#[test]
+fn transitive_enum_equalities_reuse_permutation_invariant_regions() {
+    for size in [8, 128] {
+        let fields = SymmetricEnums::domain_fields(DomainField::root());
+        let mut spec = enum_family(size);
+        spec.add(fields.a.equal(&fields.c), &[]);
+        spec.add(fields.c.equal(&fields.b), &[]);
+        compilation::reset_enum_pair_context_checks();
+        compilation::take_compilation_work();
+        let compiled = spec.compile().unwrap();
+        let work = compilation::take_compilation_work();
+        assert!(work.signatures <= size * 4 + 128, "{work:?}");
+        eprintln!(
+            "enum values={size}; {work:?}; feasibility solves={}",
+            compilation::enum_pair_solves()
+        );
+        assert_eq!(compiled.coverage_catalog().pairwise_total, 3 * size);
+        assert!(
+            compilation::enum_pair_solves() <= 16,
+            "{}",
+            compilation::enum_pair_solves()
+        );
+        for tag in [0, size - 1] {
+            assert!(compiled
+                .classify(&SymmetricEnums {
+                    a: CatalogChoice(tag),
+                    b: CatalogChoice(tag),
+                    c: CatalogChoice(tag)
+                })
+                .unwrap()
+                .violated
+                .is_empty());
+        }
+        assert!(!compiled
+            .classify(&SymmetricEnums {
+                a: CatalogChoice(0),
+                b: CatalogChoice(1),
+                c: CatalogChoice(0)
+            })
+            .unwrap()
+            .violated
+            .is_empty());
+    }
+}
+
+#[test]
+fn conditional_enum_relations_keep_constant_distinctions_during_symmetry_reduction() {
+    for size in [8, 128] {
+        let fields = SymmetricEnums::domain_fields(DomainField::root());
+        let mut spec = enum_family(size);
+        spec.add(
+            fields.b.equal(&fields.c),
+            &[fields.a.equal(CatalogChoice(0))],
+        );
+        compilation::reset_enum_pair_context_checks();
+        compilation::take_compilation_work();
+        let compiled = spec.compile().unwrap();
+        let work = compilation::take_compilation_work();
+        assert!(work.signatures <= size * 4 + 128, "{work:?}");
+        eprintln!(
+            "enum values={size}; {work:?}; feasibility solves={}",
+            compilation::enum_pair_solves()
+        );
+        assert_eq!(compiled.coverage_catalog().pairwise_total, 3 * size * size);
+        assert!(
+            compilation::enum_pair_solves() <= 40,
+            "{}",
+            compilation::enum_pair_solves()
+        );
+        for tag in [0, 1, size - 1] {
+            let coordinate = compiled
+                .classify(&SymmetricEnums {
+                    a: CatalogChoice(tag),
+                    b: CatalogChoice(0),
+                    c: CatalogChoice(1),
+                })
+                .unwrap();
+            assert_eq!(coordinate.violated.is_empty(), tag != 0);
+        }
+    }
+}
+
+#[derive(Clone, Debug, DomainInput)]
+struct MixedEnumComponents {
+    a: CatalogChoice,
+    b: CatalogChoice,
+    c: CatalogChoice,
+    other: ConstrainedVariant,
+}
+
+#[test]
+fn unrelated_payload_structure_does_not_expand_unit_enum_feasibility_work() {
+    let spec = domain!(MixedEnumComponents {
+        a.selected_enum_values((0..32).map(CatalogChoice)),
+        b.selected_enum_values((0..32).map(CatalogChoice)),
+        c.selected_enum_values((0..32).map(CatalogChoice)),
+        other.selected_enum_values([ConstrainedVariant::Possible]),
+        a.equal(c), c.equal(b),
+    });
+    compilation::reset_enum_pair_context_checks();
+    let compiled = spec.compile().unwrap();
+    assert_eq!(compiled.coverage_catalog().pairwise_total, 6 * 32);
+    assert!(
+        compilation::enum_pair_solves() <= 64,
+        "{}",
+        compilation::enum_pair_solves()
+    );
+}
+
+#[test]
+fn ordered_enum_relations_preserve_distinct_order_boundaries() {
+    let fields = SymmetricEnums::domain_fields(DomainField::root());
+    let mut spec = enum_family(8);
+    spec.add(fields.a.less_than(&fields.b), &[]);
+    let compiled = spec.compile().unwrap();
+    assert_eq!(compiled.coverage_catalog().pairwise_total, 28 + 2 * 7 * 8);
+    assert_eq!(compiled.coverage_catalog().enum_values.len(), 22);
+    for (a, b) in [(0, 1), (1, 0), (6, 7), (7, 7)] {
+        assert_eq!(
+            compiled
+                .classify(&SymmetricEnums {
+                    a: CatalogChoice(a),
+                    b: CatalogChoice(b),
+                    c: CatalogChoice(0)
+                })
+                .unwrap()
+                .violated
+                .is_empty(),
+            a < b
+        );
+    }
+}
+
+#[test]
+fn conditional_pair_feasibility_preserves_fixed_source_activation() {
+    for size in [8, 128] {
+        let spec = domain!(SymmetricEnums {
+            a.selected_enum_values([CatalogChoice(0)]),
+            b.selected_enum_values((0..size).map(CatalogChoice)),
+            c.selected_enum_values((0..size).map(CatalogChoice)),
+            when(a.equal(CatalogChoice(0))) { b.equal(c) },
+        });
+        compilation::reset_enum_pair_context_checks();
+        let compiled = spec.compile().unwrap();
+        assert_eq!(compiled.coverage_catalog().pairwise_total, 3 * size);
+        assert_eq!(compiled.coverage_catalog().enum_values.len(), 1 + 2 * size);
+        assert!(compilation::enum_pair_solves() <= 16);
+    }
+}
+
+#[test]
+fn enum_source_membership_partitions_feasibility_symmetries() {
+    let spec = domain!(SymmetricEnums {
+        a.selected_enum_values((0..8).map(CatalogChoice)),
+        b.selected_enum_values((0..4).map(CatalogChoice)),
+        c.selected_enum_values((0..8).map(CatalogChoice)),
+        a.equal(b),
+    });
+    let compiled = spec.compile().unwrap();
+    assert_eq!(compiled.coverage_catalog().pairwise_total, 4 + 2 * 4 * 8);
+    assert_eq!(compiled.coverage_catalog().enum_values.len(), 16);
+}
+
+#[test]
+fn large_f32_selections_prepare_normalized_coordinates_once() {
+    compilation::take_compilation_work();
+    let compiled = domain!(f32 { selected_values((0..4100).map(|n| n as f32)) })
+        .compile()
+        .unwrap();
+    let work = compilation::take_compilation_work();
+    assert!(work.anchor_values <= 4100 * 16, "{work:?}");
+    assert_eq!(compiled.coverage_catalog().positive_anchors.len(), 4100);
+    for value in [0.0f32, 1.0, 4099.0] {
+        let coordinate = compiled.classify(&value).unwrap();
+        assert!(coordinate.violated.is_empty());
+        assert_eq!(
+            coordinate.entries[0].slot,
+            CaseDomainCoordinateSlot::Anchor(value as usize)
+        );
+    }
+}
+
 #[derive(Clone, Debug, DomainInput)]
 struct ReversedLengthConditional {
     items: Vec<i32>,

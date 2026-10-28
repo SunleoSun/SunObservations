@@ -57,29 +57,57 @@ fn stale_mirror_is_a_hard_violation_even_with_valid_skill_metadata() {
         .assert_certify();
 }
 
-fn blocks(text: &str) -> impl Iterator<Item = String> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExampleExecution {
+    Run,
+    CompileOnly,
+}
+
+struct RustExample {
+    body: String,
+    execution: ExampleExecution,
+}
+
+fn rust_examples(text: &str) -> impl Iterator<Item = RustExample> {
     let mut result = Vec::new();
     let mut fence = None;
-    let mut rust = false;
+    let mut execution = None;
     let mut body = String::new();
     for line in text.lines() {
         let trimmed = line.trim();
         if let Some(marker) = fence {
             if trimmed == marker {
-                if rust {
-                    result.push(std::mem::take(&mut body));
+                if let Some(execution) = execution {
+                    result.push(RustExample {
+                        body: std::mem::take(&mut body),
+                        execution,
+                    });
                 }
                 fence = None;
-            } else if rust {
+            } else if execution.is_some() {
                 body.push_str(line);
                 body.push('\n');
             }
         } else if let Some(marker) = ["```", "~~~"].into_iter().find(|m| trimmed.starts_with(m)) {
             fence = Some(marker);
-            rust = trimmed[marker.len()..].split(',').next() == Some("rust");
+            let mut options = trimmed[marker.len()..].split(',');
+            execution = if options.next() == Some("rust") {
+                let mut execution = ExampleExecution::Run;
+                for option in options {
+                    assert_eq!(option, "no_run", "unsupported Rust example mode");
+                    execution = ExampleExecution::CompileOnly;
+                }
+                Some(execution)
+            } else {
+                None
+            };
         }
     }
     result.into_iter()
+}
+
+fn blocks(text: &str) -> impl Iterator<Item = String> {
+    rust_examples(text).map(|example| example.body)
 }
 
 struct Language {
@@ -1760,16 +1788,107 @@ fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_gener
     }
 }
 
+fn readme_example_source(example: RustExample, index: usize) -> (String, usize) {
+    let body = example
+        .body
+        .lines()
+        .map(|line| {
+            let content = line.trim_start();
+            let indent = &line[..line.len() - content.len()];
+            if content == "#" {
+                String::new()
+            } else if let Some(hidden) = content.strip_prefix("# ") {
+                format!("{indent}{hidden}")
+            } else if let Some(escaped) = content.strip_prefix("##") {
+                format!("{indent}#{escaped}")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut tests = vec![];
+    let file = syn::parse_file(&body).ok().filter(|file| {
+        !file
+            .items
+            .iter()
+            .any(|item| matches!(item, syn::Item::Macro(item) if item.ident.is_none()))
+    });
+    let content = if let Some(file) = file {
+        for item in &file.items {
+            if let syn::Item::Fn(function) = item {
+                if function
+                    .attrs
+                    .iter()
+                    .any(|attr| attr.path().is_ident("test"))
+                {
+                    tests.push(function.sig.ident.to_string());
+                }
+            }
+        }
+        assert_eq!(body.matches("#[test]").count(), tests.len());
+        let mut content = body.replace("#[test]", "#[test]\n#[ignore]");
+        if tests.is_empty() {
+            let call = if file
+                .items
+                .iter()
+                .any(|item| matches!(item, syn::Item::Fn(f) if f.sig.ident == "main"))
+            {
+                "super::ExampleOutcome::assert_success(main());"
+            } else {
+                ""
+            };
+            content.push_str(&format!("\n#[test] #[ignore] fn execute() {{ {call} }}"));
+            tests.push("execute".to_owned());
+        }
+        content
+    } else {
+        tests.push("execute".to_owned());
+        format!("#[test] #[ignore] fn execute() {{ super::ExampleOutcome::assert_success((|| {{\n{body}\n}})()); }}")
+    };
+    let mut source = format!("mod readme_{index} {{\n{content}\n");
+    for test in &tests {
+        let action = if example.execution == ExampleExecution::CompileOnly {
+            format!("let _ = {test};")
+        } else {
+            format!("super::isolated_example(\"readme_{index}::{test}\");")
+        };
+        source.push_str(&format!("#[test] fn isolated_{test}() {{ {action} }}\n"));
+    }
+    source.push_str("}\n");
+    (source, tests.len())
+}
+
 #[test]
 fn canonical_skill_and_readme_rust_blocks_compile_and_execute() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
-    let readme = root()
-        .join("README.md")
-        .to_string_lossy()
-        .replace(char::from(92), "/");
-    let mut source =
-        format!("#![doc = include_str!({readme:?})]\n#![allow(dead_code,unused_imports)]\n");
+    let mut source = String::from(
+        r#"#![allow(dead_code,unused_imports)]
+trait ExampleOutcome { fn assert_success(self); }
+impl ExampleOutcome for () { fn assert_success(self) {} }
+impl<E: std::fmt::Debug> ExampleOutcome for Result<(), E> {
+    fn assert_success(self) { self.unwrap(); }
+}
+fn isolated_example(name: &str) {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--ignored", "--test-threads=1"]).output().unwrap();
+    assert!(output.status.success(), "{name}: {}\n{}",
+        String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed; 0 failed"));
+}
+#[test] fn failed_results_fail() {
+    assert!(std::panic::catch_unwind(|| ExampleOutcome::assert_success(Err::<(), _>("negative"))).is_err());
+}
+#[test] #[ignore] fn rejected_child() { panic!("child failure control"); }
+#[test] fn child_failures_fail() {
+    assert!(std::panic::catch_unwind(|| isolated_example("rejected_child")).is_err());
+}
+#[test] fn missing_child_fails() {
+    assert!(std::panic::catch_unwind(|| isolated_example("absent_child")).is_err());
+}
+"#,
+    );
     let mut index = 0usize;
     for name in SKILLS {
         for block in blocks(&skill(name)) {
@@ -1778,6 +1897,22 @@ fn canonical_skill_and_readme_rust_blocks_compile_and_execute() {
             index += 1;
         }
     }
+    assert!(index >= LANGUAGES.iter().map(|language| language.nodes.len()).sum());
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    for (example_index, example) in rust_examples(&readme).enumerate() {
+        let (module, tests) = readme_example_source(example, example_index);
+        source.push_str(&module);
+        index += tests;
+    }
+    let (compile_only, tests) = readme_example_source(
+        RustExample {
+            body: "let fail: fn() = || panic!(\"no_run example executed\"); fail();".to_owned(),
+            execution: ExampleExecution::CompileOnly,
+        },
+        usize::MAX,
+    );
+    source.push_str(&compile_only);
+    index += tests + 3;
     let path = root()
         .join("crates/sun-observations")
         .to_string_lossy()
@@ -1802,10 +1937,12 @@ serde_json="1"
             .args(["test", "--offline", "--manifest-path"])
             .arg(dir.path().join("Cargo.toml"))
             .arg("--target-dir")
-            .arg(dir.path().join("target"));
-        if doc_only {
-            command.arg("--doc");
-        }
+            .arg(
+                std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+                    .parent()
+                    .unwrap(),
+            );
+        command.arg(if doc_only { "--doc" } else { "--lib" });
         command.args(["--", "--test-threads=1"]).output().unwrap()
     };
     let output = run(false);
@@ -1816,14 +1953,8 @@ serde_json="1"
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(index >= LANGUAGES.iter().map(|language| language.nodes.len()).sum());
     assert!(
         stdout.contains(&format!("{index} passed; 0 failed")),
-        "{stdout}"
-    );
-    let readme_blocks = blocks(&fs::read_to_string(root().join("README.md")).unwrap()).count();
-    assert!(
-        stdout.contains(&format!("{readme_blocks} passed; 0 failed")),
         "{stdout}"
     );
     fs::write(
