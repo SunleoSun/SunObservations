@@ -14,6 +14,20 @@ fn root() -> PathBuf {
         .to_owned()
 }
 
+#[test]
+fn published_package_readme_is_the_canonical_handbook() {
+    let canonical = fs::read_to_string(root().join("README.md")).unwrap();
+    let expected = ["img/", "docs/", "crates/"]
+        .into_iter()
+        .fold(canonical, |text, prefix| {
+            text.replace(&format!("]({prefix}"), &format!("](../../{prefix}"))
+        });
+    assert_eq!(
+        fs::read_to_string(root().join("crates/sun-observations/README.md")).unwrap(),
+        expected
+    );
+}
+
 const SKILLS: [&str; 4] = [
     "certifications-methodology",
     "certifications-api",

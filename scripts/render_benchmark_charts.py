@@ -359,7 +359,7 @@ def generative_assets():
             frontier,
             "Domain planning stays frontier-bounded",
             "Four active enum dimensions, case budget 64; potential grows from 256 to 1,048,576",
-            "Compile remains about 0.25-0.31 ms and traversal about 0.96-1.83 ms for these fixtures; difficult constraints can still cost more.",
+            f"Compile is {min(float(compile_rows[p]['milliseconds']) for p in potential_order):.2f}-{max(float(compile_rows[p]['milliseconds']) for p in potential_order):.2f} ms and traversal {min(float(traverse_rows[p]['milliseconds']) for p in potential_order):.2f}-{max(float(traverse_rows[p]['milliseconds']) for p in potential_order):.2f} ms for these fixtures; difficult constraints can still cost more.",
             unit="ms",
         ),
     }

@@ -221,7 +221,7 @@ fn lazy() {
                 || (),
                 |_| {
                     (0..n)
-                        .map(|i| compiled.enum_pair_target(i).unwrap())
+                        .filter_map(|i| compiled.enum_pair_target(i).unwrap())
                         .collect::<Vec<_>>()
                 },
                 |v| Counts {
@@ -230,7 +230,7 @@ fn lazy() {
                 },
             );
             let targets: Vec<_> = (0..n)
-                .map(|i| compiled.enum_pair_target(i).unwrap())
+                .filter_map(|i| compiled.enum_pair_target(i).unwrap())
                 .collect();
             measure(
                 "target_solve",
@@ -895,7 +895,7 @@ fn capture_integration() {
                 assert!(r.is_pass());
                 Counts {
                     executed: r.cases_executed(),
-                    positive: r.categories[0],
+                    positive: r.categories()[0],
                     ..Counts::default()
                 }
             },
@@ -925,7 +925,7 @@ fn capture_integration() {
                 assert!(r.is_pass());
                 Counts {
                     executed: r.cases_executed(),
-                    positive: r.categories[0],
+                    positive: r.categories()[0],
                     ..Counts::default()
                 }
             },

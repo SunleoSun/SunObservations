@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Observation metadata derive for sun-observations"
+readme = "README.md"
 
 [lib]
 proc-macro = true

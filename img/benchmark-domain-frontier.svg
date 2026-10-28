@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="550" viewBox="0 0 960 550" role="img" aria-labelledby="title desc">
 <title id="title">Domain planning stays frontier-bounded</title>
-<desc id="desc">Four active enum dimensions, case budget 64; potential grows from 256 to 1,048,576. 256, Compile: 0.246940 ms; 256, Traverse &lt;=64: 1.512200 ms; 4,096, Compile: 0.245180 ms; 4,096, Traverse &lt;=64: 0.957700 ms; 65,536, Compile: 0.261800 ms; 65,536, Traverse &lt;=64: 1.283860 ms; 1,048,576, Compile: 0.306120 ms; 1,048,576, Traverse &lt;=64: 1.828300 ms. Compile remains about 0.25-0.31 ms and traversal about 0.96-1.83 ms for these fixtures; difficult constraints can still cost more.</desc>
+<desc id="desc">Four active enum dimensions, case budget 64; potential grows from 256 to 1,048,576. 256, Compile: 0.399920 ms; 256, Traverse &lt;=64: 0.837180 ms; 4,096, Compile: 0.377740 ms; 4,096, Traverse &lt;=64: 0.506620 ms; 65,536, Compile: 0.400140 ms; 65,536, Traverse &lt;=64: 0.518000 ms; 1,048,576, Compile: 0.401740 ms; 1,048,576, Traverse &lt;=64: 0.394920 ms. Compile is 0.38-0.40 ms and traversal 0.39-0.84 ms for these fixtures; difficult constraints can still cost more.</desc>
 <rect width="960" height="550" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">Domain planning stays frontier-bounded</text>
@@ -13,34 +13,34 @@
 <path d="M255.00 138V446" stroke="#dce4e9"/>
 <text x="255.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
 <path d="M398.75 138V446" stroke="#dce4e9"/>
-<text x="398.75" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.5</text>
+<text x="398.75" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.2</text>
 <path d="M542.50 138V446" stroke="#dce4e9"/>
-<text x="542.50" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">1.1</text>
+<text x="542.50" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.5</text>
 <path d="M686.25 138V446" stroke="#dce4e9"/>
-<text x="686.25" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">1.6</text>
+<text x="686.25" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">0.7</text>
 <path d="M830.00 138V446" stroke="#dce4e9"/>
-<text x="830.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">2.2</text>
+<text x="830.00" y="466.00" font-size="12" text-anchor="middle" fill="#172b3a">1.0</text>
 <text x="542.50" y="489.00" font-size="13" text-anchor="middle" fill="#172b3a">ms (lower is better)</text>
 <text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">256</text>
-<rect x="255" y="146" width="65.82" height="21" fill="#126b96"/>
-<text x="327.82" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">0.25</text>
-<rect x="255" y="177" width="403.04" height="21" fill="#b55112"/>
-<text x="665.04" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">1.51</text>
+<rect x="255" y="146" width="232.78" height="21" fill="#126b96"/>
+<text x="494.78" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">0.40</text>
+<rect x="255" y="177" width="487.29" height="21" fill="#b55112"/>
+<text x="749.29" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">0.84</text>
 <text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">4,096</text>
-<rect x="255" y="223" width="65.35" height="21" fill="#126b96"/>
-<text x="327.35" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">0.25</text>
-<rect x="255" y="254" width="255.25" height="21" fill="#b55112"/>
-<text x="517.25" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">0.96</text>
+<rect x="255" y="223" width="219.87" height="21" fill="#126b96"/>
+<text x="481.87" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">0.38</text>
+<rect x="255" y="254" width="294.88" height="21" fill="#b55112"/>
+<text x="556.88" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">0.51</text>
 <text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">65,536</text>
-<rect x="255" y="300" width="69.78" height="21" fill="#126b96"/>
-<text x="331.78" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">0.26</text>
-<rect x="255" y="331" width="342.18" height="21" fill="#b55112"/>
-<text x="604.18" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">1.28</text>
+<rect x="255" y="300" width="232.91" height="21" fill="#126b96"/>
+<text x="494.91" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">0.40</text>
+<rect x="255" y="331" width="301.51" height="21" fill="#b55112"/>
+<text x="563.51" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">0.52</text>
 <text x="240.00" y="411.00" font-size="14" text-anchor="end" fill="#172b3a">1,048,576</text>
-<rect x="255" y="377" width="81.59" height="21" fill="#126b96"/>
-<text x="343.59" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">0.31</text>
-<rect x="255" y="408" width="487.29" height="21" fill="#b55112"/>
-<text x="749.29" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">1.83</text>
-<text x="24.00" y="523.00" font-size="13" text-anchor="start" fill="#172b3a">Compile remains about 0.25-0.31 ms and traversal about 0.96-1.83 ms for these fixtures; difficult constraints can still cost more.</text>
+<rect x="255" y="377" width="233.84" height="21" fill="#126b96"/>
+<text x="495.84" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">0.40</text>
+<rect x="255" y="408" width="229.87" height="21" fill="#b55112"/>
+<text x="491.87" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">0.39</text>
+<text x="24.00" y="523.00" font-size="13" text-anchor="start" fill="#172b3a">Compile is 0.38-0.40 ms and traversal 0.39-0.84 ms for these fixtures; difficult constraints can still cost more.</text>
 </g>
 </svg>
