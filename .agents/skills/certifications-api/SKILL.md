@@ -109,15 +109,21 @@ fn export_contract() {
 
 Use source(name, &value) for one value and collection(name, &slice) for many. Names are diagnostics, not join keys. Bindings borrow evidence, not the certification; they survive the transition to planned execution.
 
-Inspect with name(), values(), entry(index), iter(); attach custom provenance with with_provenance(&provider). A custom provider implements SourceProvenance::describe(index, out) and writes bounded diagnostic coordinates only. Cache projections with project(project) or keys(key); PreparedValues exposes values()/source(), and PreparedKeys exposes indices()/compare_with(&other_keys).
+Inspect with name(), values(), entry(index), iter(); attach custom provenance with with_provenance(&provider). A custom SourceProvenance provider implements the formatter contract below; write bounded diagnostic coordinates, propagate std::fmt::Result, and do not return an owned description. Cache projections with project(project) or keys(key); PreparedValues exposes values()/source(), and PreparedKeys exposes indices()/compare_with(&other_keys).
 
 ~~~rust
 use sun_observations::certifications::*;
+struct RowCoordinates;
+impl SourceProvenance for RowCoordinates {
+    fn describe(&self, index: usize, out: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        write!(out, "row={index}")
+    }
+}
 #[test]
 fn prepared_before_execution() {
     let expected = ["alpha", "beta"];
     let c = certification("normalized catalog");
-    let catalog = collection("catalog", &expected);
+    let catalog = collection("catalog", &expected).with_provenance(&RowCoordinates);
     let mut runner = c.executor(|s: &String| Ok::<_, ()>(s.trim().to_lowercase()));
     runner.data_source([" ALPHA ".to_owned()]);
     runner.check(catalog.count().expect(2usize));
@@ -295,7 +301,7 @@ Choose by evidence semantics:
 
 - VALUE: exact PartialEq equality; NotEqual(value): inequality.
 - Criterion::greater_than(bound), Criterion::at_least(bound), Criterion::less_than(bound), Criterion::at_most(bound), Criterion::between(min, max): ordered scalar bounds; constructors validate and return Result.
-- criterion(text, ViolationClass::Hard | ViolationClass::Statistical, predicate): custom typed predicate. Implement Expectation<T> only for reusable policy: define type Violation: Debug, assess(observed), describe(), and optionally class(); return AnalysisError when evaluation is impossible.
+- criterion(text, ViolationClass::Hard | ViolationClass::Statistical, predicate): custom typed predicate. Implement Expectation<T> only for reusable policy: type Violation must implement std::fmt::Debug; T has no additional trait bounds. Required assess(&self, observed: &T) returns Result<Vec<Self::Violation>, AnalysisError> (empty means pass); describe(&self) returns String. Optional class(&self) -> ViolationClass defaults to Hard. Return AnalysisError when evaluation is impossible.
 - close_to(expected)?.absolute_tolerance(abs)?.relative_tolerance(rel)?: validated f64 comparison.
 - CountRule::{Exact(n), Minimum(n), NonEmpty}: structural counts.
 - .expect_valid(): integrity, correspondence, and pair-predicate reports only, not arbitrary object validation.
@@ -329,6 +335,23 @@ fn tolerance_and_identity() {
         .expect(close_to(1.0).unwrap().absolute_tolerance(1e-6).unwrap()));
     c.check("assigned id", fact("id", 42u64).expect(NotEqual(0)));
     c.assert_certify();
+}
+~~~
+
+~~~rust
+use sun_observations::certifications::*;
+struct Nonzero;
+impl Expectation<u32> for Nonzero {
+    type Violation = &'static str;
+    fn assess(&self, observed: &u32) -> Result<Vec<Self::Violation>, AnalysisError> {
+        Ok(if *observed == 0 { vec!["zero"] } else { vec![] })
+    }
+    fn describe(&self) -> String { "nonzero".to_owned() }
+}
+#[test]
+fn reusable_expectation() {
+    assert!(fact("count", 1u32).expect(Nonzero).is_pass());
+    assert!(!fact("count", 0u32).expect(Nonzero).is_pass());
 }
 ~~~
 

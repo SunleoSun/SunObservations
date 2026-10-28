@@ -1153,7 +1153,7 @@ c.assert_certify();
 
 Bind one value with `c.source(name, &value)` or a slice with `c.collection(name, &values)`. Free `source(name, &value)` / `collection(name, &values)` perform the same preparation independently of a proof. Prepared evidence is not registered by name in a runner; names are diagnostic labels, never correspondence keys. Planned runners deliberately have no `source` or `collection` methods.
 
-`PreparedSource` borrows the slice. `name()` and `values()` inspect it; `entry(index)` and `iter()` carry source-local index and optional provenance. `with_provenance(&provider)` attaches `SourceProvenance` for diagnostic coordinates; a custom provider implements `describe(index, out)` and writes the adapter-owned coordinate into the supplied formatter. Generic analysis never interprets that text. `project(project)` computes one owned typed vector (`PreparedValues`); `values()` borrows it and `source()` re-enters the same language without recomputing. `keys(key)` caches sorted typed keys (`PreparedKeys`); `indices()` exposes key/index pairs and `compare_with(&other_keys)` reuses them.
+`PreparedSource` borrows the slice. `name()` and `values()` inspect it; `entry(index)` and `iter()` carry source-local index and optional provenance. `with_provenance(&provider)` attaches `SourceProvenance` for diagnostic coordinates; a custom provider implements describe(&self, index: usize, out: &mut dyn std::fmt::Write) -> std::fmt::Result and writes bounded adapter-owned coordinates into the borrowed formatter, propagating formatting errors. Generic analysis never interprets that text. `project(project)` computes one owned typed vector (`PreparedValues`); `values()` borrows it and `source()` re-enters the same language without recomputing. `keys(key)` caches sorted typed keys (`PreparedKeys`); `indices()` exposes key/index pairs and `compare_with(&other_keys)` reuses them.
 
 ~~~rust
 use sun_observations::certifications::*;
@@ -1400,7 +1400,7 @@ An expectation is scenario-owned policy. Most are passed to `FACT.expect(...)`; 
 | `LagExpectation { best_lag }` | Required keyed lag. |
 | `GroupExpectation::new(min_count,min_mean,max_mean)` | Each present group's cardinality and mean; required groups must be checked separately. |
 
-`Expectation<T>` is the reusable extension trait: define `type Violation: Debug`, implement `assess(observed)` and `describe()`, and optionally override `class()`. Return `AnalysisError` when valid evaluation is impossible. An inline predicate is usually simpler than a new expectation type.
+Expectation<T> is the reusable extension trait: type Violation: std::fmt::Debug; required assess(&self, observed: &T) -> Result<Vec<Self::Violation>, AnalysisError> and describe(&self) -> String. Empty violations pass; AnalysisError means evaluation is impossible. Optional class(&self) -> ViolationClass defaults to Hard; T has no additional bounds. An inline predicate is usually simpler than a new expectation type. See the [executable implementer contract](crates/sun-observations/agent-skills/certifications-api/SKILL.md#expectation).
 
 Use family-specific constructors and and_* combinators when they express the contract; use with_bound(measure, min, max)? and .bound(measure, min, max)? for explicit measures not covered by that sugar. Every constructor/combinator below returns Result. Scalar min/max are f64; generic bounds and correlation and_*_bounds arguments are Option<f64> (None means unbounded; at least one bound is required).
 
@@ -1609,7 +1609,7 @@ let family = domain!(Adjustment {
 
 #### ENUM_RULE
 
-For unit variants, `field.all_enum_values()` or `field.selected_enum_values([Enum::Variant,...])` suffices. For payload enums, open the enum field, select variants in that context, and describe each selected payload under `EnumType::Variant { RULE, ... }`. Payload blocks do not select variants on their own.
+For unit variants, `field.all_enum_values()` or `field.selected_enum_values([Enum::Variant,...])` suffices. For payload enums, open the enum field, select variants in that context, and describe each selected payload under `EnumType::Variant { RULE, ... }`. Payload blocks do not select variants on their own. Unnamed enum payload positions use `_0`, `_1`, ... in declaration order with the same brace-form variant block; for example Item::Number { _0.in_range(1..=3) } for Number(i32). See the [executable tuple-payload example](crates/sun-observations/agent-skills/domain-api/SKILL.md#enum_rule).
 
 The runner tracks enum values and feasible pairs under ordinary relations and conditional activation. Only valid positive cases, including valid real cases, prefill positive coverage; rejected negatives count only toward negative sectors. Require pairwise coverage only when those combinations strengthen the intended proof; it does not increase the budget.
 
@@ -1678,7 +1678,7 @@ let family = domain!(Window {
 
 `#[derive(Serialize, Deserialize, Observation)]` declares typed production evidence. Serialize is required; Deserialize is needed for query/decode. `#[observation(namespace = "owner::event", level = INFO, tags("evidence"))]` assigns required stable schema identity, optional INFO/WARN/ERROR severity (INFO default), and optional non-persisted selection labels. Changing namespace is a schema contract change, not a cosmetic rename.
 
-Manual `Observation` implementations provide `NAMESPACE` and optionally `LEVEL` / `TAGS`, `message()` and `render_text()`. message is persisted semantic text; render_text is transient human output, never evidence analyzed by certifications. Prefer typed fields for facts used in a proof.
+Manual Observation: serde::Serialize + 'static; require const NAMESPACE: &'static str. Defaults are const LEVEL: ObservationLevel = ObservationLevel::INFO and const TAGS: &'static [&'static str] = &[]. Optional message(&self) -> Option<&str> borrows persisted semantic text; render_text(&self) -> Option<String> owns transient human output, never certification evidence; both default to None. Prefer typed fields for proof facts. See the [executable implementer contract](crates/sun-observations/agent-skills/observations-api/SKILL.md#declaration).
 
 FORMAT v1 persists ts, proc, proc_ns, namespace, level, data with optional scope, message, phase, span. Tags, channels, render_text are absent. Point records have no phase/span; start carries data/message and end carries null data without message. proc_ns is monotonic within one process only. [FORMAT v1](docs/FORMAT.md) is the protocol authority.
 
@@ -1769,7 +1769,7 @@ Choose sinks by delivery and retention semantics, not just output format. MEMORY
 | JsonlSink | `open_append(path)`, `with_config(path,config)`, `from_writer(writer)` / `writer_with_config(writer,config)`. JsonlConfig::new/default: 1000ms flush, no size bound, trim fraction 0.10. Validated builders `flush_interval_ms`, `max_file_size_mb` (MiB), `max_file_size_bytes`, `trim_fraction`. Inspect `stats()`, `is_started()`, `last_error()`; flush before reading completed async output. |
 | ConsoleSink | `stdout()` / `stderr()` / `new(writer)` for human output; the writer must be owned, Send, and 'static. Inspect `is_started()` and `last_error()`. |
 
-Custom `Sink` implementations provide `write(record)` and `flush()`; optional `write_shared(record)` avoids cloning, `wants_render_text()` requests transient human rendering, `write_delivery(delivery)` receives both views. `ObservationDelivery` exposes `record()`, `shared_record()`, `render_text()`, `shared_render_text()`. An async custom sink must make flush a real completion barrier; process success is not proof of durable effects.
+Custom Sink: Send + Sync + 'static; require write(&self, record: &ObservationRecord) -> std::io::Result<()> and flush(&self) -> std::io::Result<()>. Optional write_shared(&self, record: std::sync::Arc<ObservationRecord>) -> std::io::Result<()> defaults to write; wants_render_text(&self) -> bool defaults to false; write_delivery(&self, delivery: &ObservationDelivery) -> std::io::Result<()> defaults to write_shared. Serialize concurrent writes and keep wants_render_text immutable while attached (sampled once). See the [executable implementer contract](crates/sun-observations/agent-skills/observations-api/SKILL.md#sink). `ObservationDelivery` exposes `record()`, `shared_record()`, `render_text()`, `shared_render_text()`. An async custom sink must make flush a real completion barrier; process success is not proof of durable effects.
 
 Memory retention eviction is observable and makes capture incomplete. Bounded JSONL retention intentionally discards old whole records; it is not an unlimited audit log. See [routing and retention tutorial](#route-retain-and-persist) and [producer vs persistence throughput](#producer-throughput-is-not-persistence-throughput).
 

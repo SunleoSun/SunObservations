@@ -63,6 +63,23 @@ fn tercile_stratum_boundary(tercile_length: u128, stratum: u128) -> u128 {
     let count = TERCILE_STRATA as u128;
     tercile_length / count * stratum + ((tercile_length % count) * stratum).div_ceil(count)
 }
+fn integer_stratum_bin(offset: u128, length: u128) -> u64 {
+    if let Some(scaled) = offset.checked_mul(TERCILE_STRATA as u128) {
+        return (scaled / length) as u64;
+    }
+    // Invert the generation boundaries: ceil(length * bin / count) <= offset.
+    let mut low = 0;
+    let mut high = TERCILE_STRATA;
+    while low + 1 < high {
+        let middle = low + (high - low) / 2;
+        if tercile_stratum_boundary(length, middle as u128) <= offset {
+            low = middle;
+        } else {
+            high = middle;
+        }
+    }
+    low
+}
 pub(super) fn range_stratum_bin(
     a: &DomainValue,
     b: &DomainValue,
@@ -79,7 +96,7 @@ pub(super) fn range_stratum_bin(
                 0
             } else {
                 let q = (v - a).saturating_sub(t_start).min(t_len - 1);
-                ((q * TERCILE_STRATA as u128) / t_len).min(TERCILE_STRATA as u128 - 1) as u64
+                integer_stratum_bin(q, t_len)
             }
         }
         (DomainValue::Int(a), DomainValue::Int(b), DomainValue::Int(v)) => {
@@ -92,7 +109,7 @@ pub(super) fn range_stratum_bin(
                 let q = (v.saturating_sub(*a) as u128)
                     .saturating_sub(t_start)
                     .min(t_len - 1);
-                ((q * TERCILE_STRATA as u128) / t_len).min(TERCILE_STRATA as u128 - 1) as u64
+                integer_stratum_bin(q, t_len)
             }
         }
         (DomainValue::Real(a), DomainValue::Real(b), DomainValue::Real(v)) => {

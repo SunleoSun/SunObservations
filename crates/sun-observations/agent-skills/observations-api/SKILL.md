@@ -47,7 +47,7 @@ SPAN_EVIDENCE := spans = (run | dataset | QUERY).to_spans::<PAYLOAD>()?; spans.s
 
 ## DECLARATION
 
-Derive Observation on Serialize payloads; add Deserialize for typed decoding. namespace is required stable schema identity; level is INFO (default), WARN, ERROR; tags are optional selection labels. Manual implementations provide NAMESPACE, LEVEL, TAGS and optionally message() (persisted semantic text) and render_text() (transient human output).
+Derive Observation on Serialize payloads; add Deserialize for typed decoding. namespace is required stable schema identity; level is INFO (default), WARN, ERROR; tags are optional selection labels. Manual Observation: serde::Serialize + 'static; require const NAMESPACE: &'static str. Defaults are const LEVEL: ObservationLevel = ObservationLevel::INFO and const TAGS: &'static [&'static str] = &[]. Optional message(&self) -> Option<&str> borrows persisted semantic text; render_text(&self) -> Option<String> owns transient human output; both default to None.
 
 FORMAT v1 persists ts, proc, proc_ns, namespace, level, data plus optional scope, message, phase, span. Tags, channels, render_text are not persisted. Point records have no phase/span; span starts carry data/message and ends have null data without message. proc_ns is monotonic only within one process.
 
@@ -56,6 +56,23 @@ use sun_observations::*;
 #[derive(serde::Serialize, serde::Deserialize, Observation)]
 #[observation(namespace = "orders::accepted", level = INFO, tags("evidence"))]
 struct Accepted { order_id: u64, quantity: u32 }
+#[test]
+fn derived_identity() {
+    assert_eq!(Accepted::NAMESPACE, "orders::accepted");
+}
+~~~
+
+~~~rust
+use sun_observations::*;
+#[derive(serde::Serialize)]
+struct Accepted { order_id: u64, quantity: u32 }
+impl Observation for Accepted {
+    const NAMESPACE: &'static str = "orders::accepted";
+    const LEVEL: ObservationLevel = ObservationLevel::INFO;
+    const TAGS: &'static [&'static str] = &["evidence"];
+    fn message(&self) -> Option<&str> { Some("accepted") }
+    fn render_text(&self) -> Option<String> { Some(format!("order {}", self.order_id)) }
+}
 #[test]
 fn stable_identity() {
     assert_eq!(Accepted::NAMESPACE, "orders::accepted");
@@ -138,7 +155,7 @@ fn route_to_audit() {
 
 ## SINK
 
-MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?; MAX_ITEMS is positive usize and COMPACT_FRACTION is finite in (0,1]. JSONL_CONFIG means JsonlConfig::new() with optional flush_interval_ms(MS)?, max_file_size_bytes(BYTES)? or max_file_size_mb(MIB)?, and trim_fraction(FRACTION)?. WRITER is an owned `Write + Send + 'static` value. CUSTOM_SINK_IMPL is a concrete Sink implementation value, not an Arc<dyn Sink>; Arc::new(...) is supplied by the DSL. Sink requires write(record) and flush(); optional/default hooks are write_shared(record), wants_render_text(), write_delivery(delivery). Async flush must be a real delivery barrier.
+MEMORY_CONFIG means MemorySinkConfig::new(MAX_ITEMS, COMPACT_FRACTION)?; MAX_ITEMS is positive usize and COMPACT_FRACTION is finite in (0,1]. JSONL_CONFIG means JsonlConfig::new() with optional flush_interval_ms(MS)?, max_file_size_bytes(BYTES)? or max_file_size_mb(MIB)?, and trim_fraction(FRACTION)?. WRITER is an owned `Write + Send + 'static` value. CUSTOM_SINK_IMPL is a concrete Sink implementation value, not an Arc<dyn Sink>; Arc::new(...) is supplied by the DSL. Sink: Send + Sync + 'static; only write(&self, record: &ObservationRecord) -> std::io::Result<()> and flush(&self) -> std::io::Result<()> are required. The example also shows all optional hooks: write_shared owns an Arc and defaults to write; wants_render_text defaults to false; write_delivery borrows the delivery and defaults to write_shared. Serialize concurrent writes; keep wants_render_text immutable while attached (sampled once at attachment). Async flush must be a real delivery barrier.
 
 - MemorySink::new() uses 1,000,000 records and 0.10 compaction; MemorySink::with_config(MEMORY_CONFIG) bounds retention. MemorySinkConfig exposes max_items() and compact_fraction(). Inspect sink len(), is_empty(), config(), stats(), records()/shared_records(); drain()/drain_shared() remove retained records. Eviction makes capture incomplete.
 - JsonlSink::open_append(path)? / from_writer(writer) use defaults; with_config(path, JSONL_CONFIG)? / writer_with_config(writer, JSONL_CONFIG)? customize persistence. JsonlConfig defaults to 1000 ms flush, no size bound, 0.10 trim. Inspect stats(), is_started(), last_error(); flush()? is the read barrier.
@@ -153,6 +170,29 @@ assert_eq!(memory.config().max_items(), 1000);
 let console = ConsoleSink::new(Vec::<u8>::new());
 assert!(!console.is_started());
 assert!(console.last_error().is_none());
+}
+~~~
+
+~~~rust
+use std::{io, sync::Arc};
+use sun_observations::*;
+struct AuditSink(MemorySink);
+impl Sink for AuditSink {
+    fn write(&self, record: &ObservationRecord) -> io::Result<()> { self.0.write(record) }
+    fn flush(&self) -> io::Result<()> { self.0.flush() }
+    fn write_shared(&self, record: Arc<ObservationRecord>) -> io::Result<()> {
+        self.0.write_shared(record)
+    }
+    fn wants_render_text(&self) -> bool { true }
+    fn write_delivery(&self, delivery: &ObservationDelivery) -> io::Result<()> {
+        self.write_shared(delivery.shared_record().clone())
+    }
+}
+#[test]
+fn custom_sink_contract() {
+    let sink = AuditSink(MemorySink::new());
+    assert!(sink.wants_render_text());
+    sink.flush().unwrap();
 }
 ~~~
 

@@ -116,6 +116,36 @@ fn payload_variants() {
 }
 ~~~
 
+Unnamed enum payload positions use `_0`, `_1`, ... in declaration order, inside the same brace-form variant block (not tuple parentheses).
+
+~~~rust
+use sun_observations::certifications::*;
+#[derive(Clone, DomainInput)]
+enum Item { Number(i32), Pair(i32, bool) }
+#[derive(Clone, DomainInput)]
+struct Input { item: Item }
+#[test]
+fn tuple_payload_positions() {
+    let family = domain!(Input {
+        item {
+            all_enum_values(),
+            Item::Number { _0.in_range(1..=3) },
+            Item::Pair { _0.in_range(1..=3), _1.fixed_value(true) },
+        },
+    });
+    let mut runner = certification("tuple payload constraints").executor(|input: &Input| {
+        match input.item {
+            Item::Number(n) | Item::Pair(n, true) if (1..=3).contains(&n) => Ok(n),
+            _ => Err(()),
+        }
+    });
+    runner.domain(family);
+    let case = runner.case();
+    runner.check(fact!((1..=3).contains(case.result())).expect(true));
+    runner.assert_certify();
+}
+~~~
+
 ## COLLECTION_RULE
 
 COLLECTION { length().SPACE, each(SPACE) } generates scalar elements. Use each { RULE, ... } for structured elements. length() is usize; choose fixed_value(n), selected_values(lengths), in_range(range), or one_of_ranges(ranges), plus an element source. SPACE is a constructive rule; enum selection is not a collection-length rule.

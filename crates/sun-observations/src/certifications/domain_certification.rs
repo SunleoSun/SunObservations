@@ -1223,6 +1223,155 @@ fn high_cardinality_domain_compiles_lazily_and_bounds_solver_work_by_cases_budge
 struct FloatSingle {
     value: f64,
 }
+fn reference_fractional_stratum(mut offset: u128, length: u128) -> u64 {
+    let mut quotient = 0;
+    for _ in 0..6 {
+        quotient *= 2;
+        if offset >= length - offset {
+            offset -= length - offset;
+            quotient += 1;
+        } else {
+            offset += offset;
+        }
+    }
+    quotient
+}
+
+fn assert_wide_integer_coordinates<T: DomainInput + Clone + std::fmt::Debug>(
+    domain: Domain<T>,
+    length: u128,
+    from_offset: impl Fn(u128) -> T,
+    offset: impl Fn(&T) -> u128,
+) {
+    let compiled = domain.clone().compile().unwrap();
+    let cuts = [0, length / 3, length - length.div_ceil(3), length];
+    let terciles = [DomainTercile::Low, DomainTercile::Mid, DomainTercile::High];
+    let check = |input: &T, coordinate: &CaseDomainCoordinate| {
+        let position = offset(input);
+        let tercile = (0..3).find(|&i| position < cuts[i + 1]).unwrap();
+        let entry = &coordinate.entries[0];
+        assert_eq!(
+            entry.sector.region,
+            DomainRegion::Range {
+                branch: 0,
+                tercile: terciles[tercile],
+            }
+        );
+        if let CaseDomainCoordinateSlot::Stratum(bin) = entry.slot {
+            let expected = reference_fractional_stratum(
+                position - cuts[tercile],
+                cuts[tercile + 1] - cuts[tercile],
+            );
+            assert!(expected < 64);
+            assert_eq!(bin, tercile as u64 * 64 + expected, "{input:?}");
+        } else {
+            assert!(matches!(entry.slot, CaseDomainCoordinateSlot::Anchor(_)));
+        }
+    };
+    for tercile in 0..3 {
+        let width = cuts[tercile + 1] - cuts[tercile];
+        for stratum in 0..=64u128 {
+            let boundary = width / 64 * stratum + (width % 64 * stratum).div_ceil(64);
+            for local in [
+                boundary.saturating_sub(1),
+                boundary,
+                boundary.saturating_add(1),
+            ] {
+                if local < width {
+                    let input = from_offset(cuts[tercile] + local);
+                    check(&input, &compiled.classify(&input).unwrap());
+                }
+            }
+        }
+    }
+    let input = from_offset(1u128 << 125);
+    check(&input, &compiled.classify(&input).unwrap());
+    let mut cursor = 0;
+    let mut occupied = BTreeSet::new();
+    let mut strata = BTreeSet::new();
+    for _ in 0..compiled.coverage_catalog().positive_anchors.len() + 192 {
+        let (input, coordinate) = compiled
+            .next(0, &mut cursor, 71, &occupied)
+            .unwrap()
+            .unwrap();
+        check(&input, &coordinate);
+        assert_eq!(
+            coordinate_key(&coordinate),
+            coordinate_key(&compiled.classify(&input).unwrap())
+        );
+        if let CaseDomainCoordinateSlot::Stratum(bin) = coordinate.entries[0].slot {
+            assert!(strata.insert(bin));
+        }
+        occupied.insert(coordinate_key(&coordinate));
+    }
+    assert_eq!(strata, (0..192).collect());
+    let lower = from_offset(0).to_domain_value();
+    let upper = from_offset(length - 1).to_domain_value();
+    let mut runner =
+        certification("wide integer generated exploration").executor(move |input: &T| {
+            let value = input.to_domain_value();
+            if value.cmp_scalar(&lower).is_some_and(|o| !o.is_lt())
+                && value.cmp_scalar(&upper).is_some_and(|o| !o.is_gt())
+            {
+                Ok(input.clone())
+            } else {
+                Err(())
+            }
+        });
+    runner.domain(domain).cases_budget(256);
+    let case = runner.case();
+    runner.check(
+        fact!(case.result().to_domain_value()).expect(fact!(case.input().to_domain_value())),
+    );
+    let report = runner.report();
+    assert!(report.cases_executed() >= 199);
+    report.assert_certify();
+}
+
+#[test]
+fn wide_unsigned_integer_strata_match_exact_fractional_division() {
+    for (a, b) in [
+        (0, u128::MAX - 1),
+        (1, u128::MAX),
+        (u128::MAX / 2, u128::MAX),
+    ] {
+        assert_wide_integer_coordinates(
+            domain!(u128 { in_range(a..=b) }),
+            b - a + 1,
+            |position| a + position,
+            |value| value - a,
+        );
+    }
+}
+
+#[test]
+fn wide_signed_integer_strata_match_exact_fractional_division() {
+    for (a, b) in [
+        (0, i128::MAX - 1),
+        (i128::MIN, -2),
+        (-i128::MAX / 2, i128::MAX / 2),
+    ] {
+        assert_wide_integer_coordinates(
+            domain!(i128 { in_range(a..=b) }),
+            (b - a + 1) as u128,
+            |position| a + position as i128,
+            |value| (value - a) as u128,
+        );
+    }
+}
+
+#[test]
+fn fractional_stratum_reference_agrees_with_small_exact_products() {
+    for length in 1..=256 {
+        for offset in 0..length {
+            assert_eq!(
+                reference_fractional_stratum(offset, length),
+                (offset * 64 / length) as u64
+            );
+        }
+    }
+}
+
 #[test]
 fn stratified_range_exploration_is_breadth_first_across_sectors_and_seeded_random_in_depth() {
     let d = domain!(Single {

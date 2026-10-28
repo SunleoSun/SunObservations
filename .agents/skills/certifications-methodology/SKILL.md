@@ -65,6 +65,8 @@ A **composition certification** proves a semantic contract across multiple owner
 
 For each semantic contract, include only dimensions that materially strengthen the proof: canonical outcome, what **must happen** and **must never happen**, producer-consumer correspondence, typed identity, causal or temporal alignment, failure/rejection semantics, natural semantic groups, statistical/anomaly behavior, independent oracle, or metamorphic/control scenarios.
 
+**Adversarially validate the proof boundary itself.** When a mechanism decides what evidence or obligations are admissible, reachable, feasible, complete, covered, matched, or evaluable, pair a representative state that must contribute with the closest state that must not. Check the evidence set and proof obligations themselves: invalid inclusion, required omission, or impossible obligations can falsify a proof even when every local check is correct. Prefer positive/negative controls that distinguish plausible false PASS and false FAIL.
+
 ### Failure, identity, and causality
 
 Failure-path proof is stronger than checking only Result::is_err. When semantically promised, prove the rejection owner/category and absence of forbidden downstream events, artifacts, state changes, duplicate actions, or other side effects.

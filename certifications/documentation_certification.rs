@@ -1203,6 +1203,8 @@ fn documented_call_arities(text: &str, name: &str) -> Vec<usize> {
             continue;
         }
         let args = &rest[open_rel + 1..];
+        let has_receiver =
+            args.trim_start().starts_with("&self,") || args.trim_start().starts_with("&self)");
         let mut paren = 1usize;
         let mut bracket = 0usize;
         let mut brace = 0usize;
@@ -1215,7 +1217,8 @@ fn documented_call_arities(text: &str, name: &str) -> Vec<usize> {
                 ')' => {
                     paren -= 1;
                     if paren == 0 {
-                        result.push(if non_ws { commas + 1 } else { 0 });
+                        let count = if non_ws { commas + 1 } else { 0 };
+                        result.push(count - usize::from(has_receiver));
                         break;
                     }
                 }
@@ -1234,6 +1237,29 @@ fn documented_call_arities(text: &str, name: &str) -> Vec<usize> {
         }
     }
     result
+}
+
+#[test]
+fn implementer_receivers_do_not_count_as_client_call_arguments() {
+    assert_eq!(
+        documented_call_arities("fn assess(&self, observed: &T)", "assess"),
+        vec![1]
+    );
+    assert_eq!(
+        documented_call_arities("fn describe(&self)", "describe"),
+        vec![0]
+    );
+    assert_eq!(
+        documented_call_arities(
+            "fn describe(&self, index: usize, out: &mut dyn fmt::Write)",
+            "describe"
+        ),
+        vec![2]
+    );
+    assert_eq!(
+        documented_call_arities("policy.assess(&observed)", "assess"),
+        vec![1]
+    );
 }
 
 #[test]
@@ -1425,6 +1451,9 @@ fn methodology_skill_covers_proof_design_domain_and_migration_without_api_duplic
             "Owner and composition proof",
             "must happen",
             "must never happen",
+            "Adversarially validate the proof boundary itself",
+            "evidence set and proof obligations themselves",
+            "false PASS and false FAIL",
             "domain identity",
             "causality",
             "statistical expectation",
@@ -1568,6 +1597,157 @@ fn numeric_authoring_errors(text: &str) -> Vec<String> {
     errors
 }
 
+const AUTHORING_FIXTURES: &[(&str, &str, &[&str])] = &[
+    (
+        "certifications-api",
+        "impl Expectation<u32> for Nonzero",
+        &[
+            "type Violation = &'static str;",
+            "fn assess(&self, observed: &u32) -> Result<Vec<Self::Violation>, AnalysisError>",
+            "fn describe(&self) -> String",
+        ],
+    ),
+    (
+        "certifications-api",
+        "impl SourceProvenance for RowCoordinates",
+        &["fn describe(&self, index: usize, out: &mut dyn std::fmt::Write) -> std::fmt::Result"],
+    ),
+    (
+        "observations-api",
+        "impl Sink for AuditSink",
+        &[
+            "fn write(&self, record: &ObservationRecord) -> io::Result<()>",
+            "fn flush(&self) -> io::Result<()>",
+            "fn write_shared(&self, record: Arc<ObservationRecord>) -> io::Result<()>",
+            "fn wants_render_text(&self) -> bool",
+            "fn write_delivery(&self, delivery: &ObservationDelivery) -> io::Result<()>",
+        ],
+    ),
+    (
+        "observations-api",
+        "impl Observation for Accepted",
+        &[
+            "const NAMESPACE: &'static str",
+            "const LEVEL: ObservationLevel",
+            "const TAGS: &'static [&'static str]",
+            "fn message(&self) -> Option<&str>",
+            "fn render_text(&self) -> Option<String>",
+        ],
+    ),
+    (
+        "domain-api",
+        "fn tuple_payload_positions()",
+        &[
+            "enum Item { Number(i32), Pair(i32, bool) }",
+            "Item::Number { _0.in_range(1..=3) }",
+            "Item::Pair { _0.in_range(1..=3), _1.fixed_value(true) }",
+        ],
+    ),
+];
+
+fn authoring_fixture_errors(name: &str, text: &str) -> Vec<String> {
+    let mut errors = vec![];
+    for &(_, anchor, signatures) in AUTHORING_FIXTURES
+        .iter()
+        .filter(|(owner, _, _)| *owner == name)
+    {
+        let Some(example) = blocks(text).find(|block| block.contains(anchor)) else {
+            errors.push(format!("missing executable {anchor}"));
+            continue;
+        };
+        let compact: String = example.split_whitespace().collect();
+        for signature in signatures {
+            let expected: String = signature.split_whitespace().collect();
+            if !compact.contains(&expected) {
+                errors.push(format!("{anchor} missing {signature}"));
+            }
+        }
+    }
+    errors
+}
+
+#[test]
+fn portable_implementer_and_tuple_fixtures_reject_missing_or_mistyped_contracts() {
+    for &(name, anchor, signatures) in AUTHORING_FIXTURES {
+        let original = skill(name);
+        assert!(authoring_fixture_errors(name, &original).is_empty());
+        let example = blocks(&original)
+            .find(|block| block.contains(anchor))
+            .unwrap();
+        assert!(!authoring_fixture_errors(name, &original.replace(&example, "")).is_empty());
+        for signature in signatures {
+            let altered = original.replace(signature, "omitted contract");
+            assert_ne!(original, altered);
+            assert!(
+                !authoring_fixture_errors(name, &altered).is_empty(),
+                "{signature}"
+            );
+        }
+    }
+}
+
+fn invalid_extension_examples() -> Vec<String> {
+    [
+        (
+            "certifications-api",
+            "impl Expectation<u32>",
+            "-> Result<Vec<Self::Violation>, AnalysisError>",
+            "-> Vec<Self::Violation>",
+        ),
+        (
+            "certifications-api",
+            "impl SourceProvenance",
+            "out: &mut dyn std::fmt::Write",
+            "out: &mut String",
+        ),
+        (
+            "certifications-api",
+            "impl SourceProvenance",
+            "-> std::fmt::Result",
+            "-> String",
+        ),
+        (
+            "observations-api",
+            "impl Sink",
+            "record: &ObservationRecord",
+            "record: Arc<ObservationRecord>",
+        ),
+        (
+            "observations-api",
+            "impl Sink",
+            "record: Arc<ObservationRecord>",
+            "record: &Arc<ObservationRecord>",
+        ),
+        (
+            "observations-api",
+            "impl Sink",
+            "delivery: &ObservationDelivery",
+            "delivery: ObservationDelivery",
+        ),
+        (
+            "observations-api",
+            "impl Observation for Accepted",
+            "-> Option<&str>",
+            "-> Option<String>",
+        ),
+        (
+            "observations-api",
+            "impl Observation for Accepted",
+            "-> Option<String>",
+            "-> Option<&str>",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, anchor, valid, invalid)| {
+        let example = blocks(&skill(name))
+            .find(|block| block.contains(anchor))
+            .unwrap();
+        assert!(example.contains(valid));
+        example.replace(valid, invalid)
+    })
+    .collect()
+}
+
 fn authoring_errors(name: &str, text: &str) -> Vec<String> {
     let (required, forbidden): (&[&str], &[&str]) = match name {
         "observations-api" => (
@@ -1581,6 +1761,13 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "SpanMeasurement",
                 "CHANNEL_NAME",
                 "CUSTOM_SINK_IMPL",
+                "Sink: Send + Sync + 'static",
+                "only write(&self, record: &ObservationRecord)",
+                "Manual Observation: serde::Serialize + 'static",
+                "require const NAMESPACE: &'static str",
+                "both default to None",
+                "const LEVEL: ObservationLevel = ObservationLevel::INFO",
+                "const TAGS: &'static [&'static str] = &[]",
                 "ConsoleSink::new(writer)",
                 "ConsoleSink::is_started()",
                 "ConsoleSink::last_error()",
@@ -1615,6 +1802,10 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 "source(NAME, &VALUE)",
                 "collection(NAME, &VALUES)",
                 "check_fact_expect",
+                "type Violation must implement std::fmt::Debug",
+                "T has no additional trait bounds",
+                "empty means pass",
+                "Optional class(&self) -> ViolationClass defaults to Hard",
                 "Criterion::greater_than(bound)",
                 "Criterion::at_least(bound)",
                 "Criterion::less_than(bound)",
@@ -1666,6 +1857,7 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
         "domain-api" => (
             &[
                 "domain!(i32 { in_range(1..=3) })",
+                "`_0`, `_1`, ... in declaration order",
                 "equal(operand)",
                 "less_than(operand)",
                 "greater_equal(operand)",
@@ -1685,6 +1877,7 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
                 .map(|marker| format!("ambiguous {marker}")),
         )
         .collect();
+    errors.extend(authoring_fixture_errors(name, text));
     if name == "certifications-api" {
         errors.extend(numeric_authoring_errors(text));
     }
@@ -1913,6 +2106,13 @@ fn isolated_example(name: &str) {
     );
     source.push_str(&compile_only);
     index += tests + 3;
+    let invalid_examples = invalid_extension_examples();
+    for (invalid_index, example) in invalid_examples.iter().enumerate() {
+        let compile_failure = format!("```compile_fail,E0053\n{example}\n```\n");
+        source.push_str(&format!(
+            "#[doc = {compile_failure:?}] pub struct InvalidExtension{invalid_index};\n"
+        ));
+    }
     let path = root()
         .join("crates/sun-observations")
         .to_string_lossy()
@@ -1945,6 +2145,7 @@ serde_json="1"
         command.arg(if doc_only { "--doc" } else { "--lib" });
         command.args(["--", "--test-threads=1"]).output().unwrap()
     };
+    let invalid_count = invalid_examples.len();
     let output = run(false);
     assert!(
         output.status.success(),
@@ -1957,6 +2158,15 @@ serde_json="1"
         stdout.contains(&format!("{index} passed; 0 failed")),
         "{stdout}"
     );
+    let output = run(true);
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout)
+        .contains(&format!("{invalid_count} passed; 0 failed")));
     fs::write(
         dir.path().join("src/lib.rs"),
         r#"#![doc = "
