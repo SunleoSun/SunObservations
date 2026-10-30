@@ -120,7 +120,7 @@ fn capture_allocations(queries: usize) {
         runtime::evidence::CaptureConfig::new().activate_all(),
         || {
             for row in 0..10000 {
-                macro_rules! emit { ($($id:literal),*) => { match row % 8 { $($id => runtime::observe!(CapturedEvent::<$id> { row }).unwrap(),)* _ => unreachable!() } }; }
+                macro_rules! emit { ($($id:literal),*) => { match row % 8 { $($id => runtime::try_observe!(CapturedEvent::<$id> { row }).unwrap(),)* _ => unreachable!() } }; }
                 assert!(emit!(0, 1, 2, 3, 4, 5, 6, 7));
             }
         },

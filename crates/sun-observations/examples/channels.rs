@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .activate_namespace("service")
             .unwrap(),
     );
-    observe!(Completed { count: 10 })?;
+    observe!(Completed { count: 10 });
     assert_eq!(memory.len(), 1);
     engine.flush_channels()?;
     Ok(())

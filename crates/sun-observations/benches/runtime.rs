@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 use sun_observations::{
-    global, observe, start_scope, Context, JsonlConfig, JsonlSink, MemorySink, Observation,
+    global, start_scope, try_observe, Context, JsonlConfig, JsonlSink, MemorySink, Observation,
     ObservationRecord, Policy, ScopeConfig, Selection,
 };
 
@@ -36,7 +36,7 @@ impl Observation for Event {
 
 fn emit(index: u64) {
     black_box(
-        observe!(Event {
+        try_observe!(Event {
             index: black_box(index),
             value: 0.5
         })

@@ -2,7 +2,9 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Barrier};
 use sun_observations::certifications::*;
-use sun_observations::{observe, observe_span, start_scope, ObservationError, ScopeConfig};
+use sun_observations::{
+    observe, observe_span, start_scope, try_observe, ObservationError, ScopeConfig,
+};
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "capture::event", tags("evidence"))]
 struct Event {
@@ -11,7 +13,7 @@ struct Event {
 }
 fn execute(run: u64, n: u64) -> Result<u64, ObservationError> {
     for row in 0..n {
-        observe!(Event { run, row })?;
+        try_observe!(Event { run, row })?;
     }
     Ok(n)
 }
@@ -37,7 +39,7 @@ fn capture_respects_enclosing_scope_identity_exclusions_and_counter_lifecycle() 
     use sun_observations::Policy;
     let unscoped = capture_observations(config(), || {
         assert!(sun_observations::Context::capture().scope_name().is_none());
-        observe!(Event { run: 0, row: 0 }).unwrap()
+        try_observe!(Event { run: 0, row: 0 }).unwrap()
     });
     assert!(*unscoped.result());
     assert!(unscoped.dataset().records()[0].scope.is_none());
@@ -47,9 +49,9 @@ fn capture_respects_enclosing_scope_identity_exclusions_and_counter_lifecycle() 
                 .activate_all()
                 .override_policy::<Event>(Policy::Never),
         );
-        assert!(!observe!(Event { run: 0, row: 0 }).unwrap());
+        assert!(!try_observe!(Event { run: 0, row: 0 }).unwrap());
         let run = capture_observations(CaptureConfig::new().activate_all(), || {
-            observe!(Event { run: 0, row: 1 })
+            try_observe!(Event { run: 0, row: 1 })
         });
         assert!(!run.result().as_ref().unwrap());
         assert!(run.dataset().records().is_empty());
@@ -61,18 +63,18 @@ fn capture_respects_enclosing_scope_identity_exclusions_and_counter_lifecycle() 
                 .activate_all()
                 .override_policy::<Event>(Policy::first_n(2).unwrap()),
         );
-        assert!(observe!(Event { run: 1, row: 0 }).unwrap());
+        assert!(try_observe!(Event { run: 1, row: 0 }).unwrap());
         let run = capture_observations(CaptureConfig::new().activate_all(), || {
             (
-                observe!(Event { run: 1, row: 1 }).unwrap(),
-                observe!(Event { run: 1, row: 2 }).unwrap(),
+                try_observe!(Event { run: 1, row: 1 }).unwrap(),
+                try_observe!(Event { run: 1, row: 2 }).unwrap(),
             )
         });
         assert_eq!(*run.result(), (true, false));
         assert_eq!(run.dataset().records().len(), 1);
         assert_eq!(run.dataset().records()[0].scope.as_deref(), Some("job-42"));
         assert!(run.status().is_complete());
-        assert!(!observe!(Event { run: 1, row: 3 }).unwrap());
+        assert!(!try_observe!(Event { run: 1, row: 3 }).unwrap());
     }
     {
         let _scope = start_scope(
@@ -80,7 +82,7 @@ fn capture_respects_enclosing_scope_identity_exclusions_and_counter_lifecycle() 
                 .exclude_namespace("capture")
                 .unwrap(),
         );
-        let run = capture_observations(config(), || observe!(Event { run: 2, row: 0 }));
+        let run = capture_observations(config(), || try_observe!(Event { run: 2, row: 0 }));
         assert!(!run.result().as_ref().unwrap());
         assert!(run.dataset().records().is_empty());
     }
@@ -89,7 +91,7 @@ fn capture_respects_enclosing_scope_identity_exclusions_and_counter_lifecycle() 
 #[test]
 fn manual_metadata_is_validated_before_capture_and_persisted_ingestion() {
     let bad = capture_observations(CaptureConfig::new().activate_all(), || {
-        observe!(InvalidManual)
+        try_observe!(InvalidManual)
     });
     assert!(matches!(
         bad.result(),
@@ -98,15 +100,35 @@ fn manual_metadata_is_validated_before_capture_and_persisted_ingestion() {
     assert!(!bad.status().is_complete());
     assert!(bad.dataset().records().is_empty());
     let bad_tag = capture_observations(CaptureConfig::new().activate_all(), || {
-        observe!(InvalidTagManual)
+        try_observe!(InvalidTagManual)
     });
     assert!(matches!(
         bad_tag.result(),
         Err(ObservationError::InvalidTag(_))
     ));
     assert!(!bad_tag.status().is_complete());
+    let built = std::cell::Cell::new(false);
+    let ignored = capture_observations(CaptureConfig::new(), || {
+        observe!({
+            built.set(true);
+            InvalidManual
+        });
+        observe!(InvalidTagManual);
+        "continued"
+    });
+    certification("best-effort metadata failure accounting")
+        .check_fact_expect("caller continues", *ignored.result(), "continued")
+        .check_fact_expect("metadata checked before construction", built.get(), false)
+        .check_fact_expect(
+            "both failures counted",
+            ignored.status().emission_errors,
+            2u64,
+        )
+        .check_fact_expect("capture incomplete", ignored.status().is_complete(), false)
+        .check_fact_expect("no records", ignored.dataset().records().len(), 0usize)
+        .assert_certify();
     let good = capture_observations(CaptureConfig::new().activate_all(), || {
-        observe!(ValidManual)
+        try_observe!(ValidManual)
     });
     assert_eq!(*good.result().as_ref().unwrap(), true);
     assert!(good.status().is_complete());
@@ -132,7 +154,7 @@ fn scoped_capture_reuses_runtime_lazy_policy_and_span_lifecycle() {
                 .override_policy::<Event>(sun_observations::Policy::first_n(2).unwrap()),
         );
         for row in 0..10 {
-            observe!(Event {
+            try_observe!(Event {
                 run: {
                     built.set(built.get() + 1);
                     1
@@ -395,7 +417,7 @@ fn serialization_failure_is_charged_to_the_frozen_admission_context() {
     }
     let guard = std::rc::Rc::new(std::cell::RefCell::new(None));
     let run = capture_observations(CaptureConfig::new().activate_all(), || {
-        let _ = observe!(Switch(guard.clone()));
+        observe!(Switch(guard.clone()));
         drop(guard.borrow_mut().take());
     });
     certification("frozen emission health")
@@ -423,10 +445,35 @@ fn ignored_serialization_failure_still_blocks_capture_proof() {
         const NAMESPACE: &'static str = "capture::broken";
     }
     let run = capture_observations(CaptureConfig::new().activate_all(), || {
-        let _ = observe!(Broken);
+        observe!(Broken);
+        "continued"
     });
+    let fallible =
+        capture_observations(CaptureConfig::new().activate_all(), || try_observe!(Broken));
     certification("capture error accounting")
+        .check_fact_expect("caller continues", *run.result(), "continued")
         .check_fact_expect("emission failure", run.status().emission_errors, 1u64)
+        .check_fact_expect("capture incomplete", run.status().is_complete(), false)
+        .check_fact_expect(
+            "failed payload absent",
+            run.dataset().records().len(),
+            0usize,
+        )
+        .check_fact_expect(
+            "fallible serialization category",
+            matches!(fallible.result(), Err(ObservationError::Serialize(_))),
+            true,
+        )
+        .check_fact_expect(
+            "fallible emission failure",
+            fallible.status().emission_errors,
+            1u64,
+        )
+        .check_fact_expect(
+            "fallible capture incomplete",
+            fallible.status().is_complete(),
+            false,
+        )
         .check_fact_expect(
             "cannot prove completeness",
             run.certification("broken").report().failures[0].class,

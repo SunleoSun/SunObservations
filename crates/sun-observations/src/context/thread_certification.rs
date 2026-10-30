@@ -148,7 +148,7 @@ fn simultaneous_parents_transitive_children_unwind_and_plain_threads_are_isolate
 mod propagation {
     use super::super::*;
     use crate::{
-        global, observe, start_scope, test_support::capture, Observation, Policy, ScopeConfig,
+        global, start_scope, test_support::capture, try_observe, Observation, Policy, ScopeConfig,
     };
     use serde::Serialize;
     use std::sync::{Arc, Barrier};
@@ -179,7 +179,7 @@ mod propagation {
                     barrier.wait();
                     spawn(move || {
                         for _ in 0..40 {
-                            observe!(Event {
+                            try_observe!(Event {
                                 parent: name.into()
                             })
                             .unwrap();
@@ -187,7 +187,7 @@ mod propagation {
                     })
                     .join()
                     .unwrap();
-                    observe!(Event {
+                    try_observe!(Event {
                         parent: name.into()
                     })
                     .unwrap();
@@ -235,7 +235,7 @@ mod propagation {
                 .map(|_| {
                     spawn(|| {
                         for _ in 0..20 {
-                            observe!(Limited).unwrap();
+                            try_observe!(Limited).unwrap();
                         }
                     })
                 })

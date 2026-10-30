@@ -1,5 +1,5 @@
 use serde::Serialize;
-use sun_observations::{observe, observe_span, Observation, ObservationLevel};
+use sun_observations::{try_observe, observe_span, Observation, ObservationLevel};
 
 #[derive(Serialize, Observation)]
 #[observation(namespace = "downstream::renamed", tags("detail", "costly"))]
@@ -24,6 +24,6 @@ fn main() {
     assert_eq!(Error::LEVEL, ObservationLevel::ERROR);
     assert_eq!(Info::LEVEL, ObservationLevel::INFO);
     assert_eq!(Renamed::<u32>::TAGS, ["detail", "costly"]);
-    assert!(!observe!(Renamed { value: 7u32 }).unwrap());
+    assert!(!try_observe!(Renamed { value: 7u32 }).unwrap());
     assert!(!observe_span!(Warning).unwrap().is_active());
 }

@@ -133,7 +133,7 @@ fn independent_pools_keep_construction_context_and_exact_nested_parallel_budgets
 mod propagation {
     use super::super::*;
     use crate::{
-        global, observe, start_scope, test_support::capture, Observation, Policy, ScopeConfig,
+        global, start_scope, test_support::capture, try_observe, Observation, Policy, ScopeConfig,
     };
     use ::rayon::prelude::*;
     use serde::Serialize;
@@ -174,7 +174,7 @@ mod propagation {
                         });
                         (0..8).into_par_iter().for_each(|outer| {
                             (0..16).into_par_iter().for_each(|inner| {
-                                observe!(Event {
+                                try_observe!(Event {
                                     parent: name.into(),
                                     item: outer * 16 + inner
                                 })
@@ -236,7 +236,7 @@ mod propagation {
         let _other = start_scope(ScopeConfig::new("caller"));
         pool.install(|| {
             (0..100).into_par_iter().for_each(|_| {
-                observe!(Limited).unwrap();
+                try_observe!(Limited).unwrap();
             })
         });
         let records = sink.records();

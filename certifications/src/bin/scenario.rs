@@ -71,13 +71,13 @@ fn threads() {
                     children.push(context::thread::spawn(move || {
                         context::thread::spawn(move || {
                             for sequence in 0..200 {
-                                observe!(Event {
+                                try_observe!(Event {
                                     parent,
                                     child,
                                     sequence
                                 })
                                 .unwrap();
-                                observe!(Limited {
+                                try_observe!(Limited {
                                     parent,
                                     child,
                                     sequence
@@ -101,7 +101,7 @@ fn threads() {
                 c.check_fact_expect(
                     "ordinary thread isolated",
                     std::thread::spawn(|| {
-                        observe!(Event {
+                        try_observe!(Event {
                             parent: 99,
                             child: 0,
                             sequence: 0
@@ -134,19 +134,19 @@ fn concurrent() {
                 for child in 0..4 {
                     children.push(context::thread::spawn(move || {
                         for sequence in 0..250 {
-                            observe!(Event {
+                            try_observe!(Event {
                                 parent,
                                 child,
                                 sequence
                             })
                             .unwrap();
-                            observe!(Limited {
+                            try_observe!(Limited {
                                 parent,
                                 child,
                                 sequence
                             })
                             .unwrap();
-                            observe!(Sample {
+                            try_observe!(Sample {
                                 parent,
                                 sequence: child * 250 + sequence
                             })
@@ -181,13 +181,13 @@ fn rayon() {
                 pool.install(|| {
                     (0..16).into_par_iter().for_each(|child| {
                         (0..64).into_par_iter().for_each(|sequence| {
-                            observe!(Event {
+                            try_observe!(Event {
                                 parent,
                                 child,
                                 sequence
                             })
                             .unwrap();
-                            observe!(Limited {
+                            try_observe!(Limited {
                                 parent,
                                 child,
                                 sequence
@@ -227,7 +227,7 @@ fn fanout(memory: &Arc<MemorySink>) {
     global().add_channel_sink("second", secondary.clone());
     global().add_channel_sink("sibling", sibling.clone());
     for sequence in 0..100 {
-        observe!(Event {
+        try_observe!(Event {
             parent: 0,
             child: 0,
             sequence
@@ -251,7 +251,7 @@ fn fanout(memory: &Arc<MemorySink>) {
 fn roundtrip() {
     global().set_selection(Selection::new().activate_all());
     for sequence in 0..1000 {
-        observe!(Rich { nested: serde_json::json!({"sequence": sequence, "array": [true, null, 1.25], "object": {"text": "λ 日本語\n\"\\"}, "tags": "payload", "channel": 1, "channels": [1,2]}), message: (sequence % 2 == 0).then(|| "message\nλ".into()) }).unwrap();
+        try_observe!(Rich { nested: serde_json::json!({"sequence": sequence, "array": [true, null, 1.25], "object": {"text": "λ 日本語\n\"\\"}, "tags": "payload", "channel": 1, "channels": [1,2]}), message: (sequence % 2 == 0).then(|| "message\nλ".into()) }).unwrap();
     }
     {
         let _scope = start_scope(ScopeConfig::new("span-run"));
@@ -261,13 +261,13 @@ fn roundtrip() {
         })
         .unwrap();
     }
-    observe!(Limited {
+    try_observe!(Limited {
         parent: 0,
         child: 0,
         sequence: 0
     })
     .unwrap();
-    observe!(Sample {
+    try_observe!(Sample {
         parent: 0,
         sequence: 0
     })
@@ -306,25 +306,25 @@ fn runtime() {
                     .unwrap();
                     let mut rejected = 0usize;
                     for sequence in phase * 60..(phase + 1) * 60 {
-                        observe!(Event {
+                        try_observe!(Event {
                             parent,
                             child,
                             sequence
                         })
                         .unwrap();
-                        observe!(Limited {
+                        try_observe!(Limited {
                             parent,
                             child,
                             sequence
                         })
                         .unwrap();
-                        observe!(Sample {
+                        try_observe!(Sample {
                             parent,
                             sequence: child * 120 + sequence
                         })
                         .unwrap();
                         rejected += usize::from(
-                            !observe!({
+                            !try_observe!({
                                 panic!("excluded payload");
                                 #[allow(unreachable_code)]
                                 Blocked
@@ -360,7 +360,7 @@ fn runtime() {
             .unwrap();
             pool.install(|| {
                 (0..30).into_par_iter().for_each(|sequence| {
-                    observe!(Event {
+                    try_observe!(Event {
                         parent,
                         child: 99,
                         sequence
@@ -427,7 +427,7 @@ fn main() {
         "global-flush" => {
             global().set_selection(Selection::new().activate_all());
             for sequence in 0..40000 {
-                observe!(Event {
+                try_observe!(Event {
                     parent: 0,
                     child: 0,
                     sequence

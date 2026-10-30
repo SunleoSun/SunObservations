@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::sync::Arc;
-use sun_observations::{global, observe, JsonlConfig, JsonlSink, Observation, Selection};
+use sun_observations::{global, try_observe, JsonlConfig, JsonlSink, Observation, Selection};
 
 #[derive(Serialize, Observation)]
 #[observation(namespace = "service::request", tags("production"))]
@@ -23,7 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.register_namespace_channel("service", "operations")?;
     engine.set_selection(Selection::new().activate_namespace("service").unwrap());
 
-    let emission = observe!(Request {
+    let emission = try_observe!(Request {
         path: "/health",
         status: 200,
     });

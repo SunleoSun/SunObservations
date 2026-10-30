@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     observe!(Request {
         path: "/health",
         status: 200
-    })?;
+    });
     engine.flush_channels()?;
     Ok(())
 }

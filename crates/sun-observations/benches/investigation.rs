@@ -18,8 +18,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use sun_observations::{
-    global, observe, start_scope, Context, JsonlSink, MemorySink, Observation, ObservationLevel,
-    ObservationRecord, Phase, ScopeConfig, Selection, Sink,
+    global, start_scope, try_observe, Context, JsonlSink, MemorySink, Observation,
+    ObservationLevel, ObservationRecord, Phase, ScopeConfig, Selection, Sink,
 };
 
 const MICRO: usize = 500_000;
@@ -468,18 +468,18 @@ fn api(sample: usize) {
     global().set_selection(Selection::new());
     let scope = start_scope(ScopeConfig::new(SCOPE));
     bench("api.rejected", sample, || {
-        black_box(observe!(event(123456)).unwrap());
+        black_box(try_observe!(event(123456)).unwrap());
     });
     global().set_selection(Selection::new().activate_namespace("bench").unwrap());
     bench("api.unit_no_sink", sample, || {
-        black_box(observe!(Unit).unwrap());
+        black_box(try_observe!(Unit).unwrap());
     });
     bench("api.event_no_sink", sample, || {
-        black_box(observe!(event(123456)).unwrap());
+        black_box(try_observe!(event(123456)).unwrap());
     });
     bench("api.message_no_sink", sample, || {
         black_box(
-            observe!(MessageEvent {
+            try_observe!(MessageEvent {
                 index: black_box(123456),
                 value: 0.5
             })
@@ -488,13 +488,13 @@ fn api(sample: usize) {
     });
     global().add_channel_sink("investigation", Arc::new(Discard));
     bench("api.discard", sample, || {
-        black_box(observe!(event(123456)).unwrap());
+        black_box(try_observe!(event(123456)).unwrap());
     });
     global().clear_channel_sinks("investigation");
     let memory = Arc::new(MemorySink::new());
     global().add_channel_sink("investigation", memory.clone());
     bench("api.memory", sample, || {
-        black_box(observe!(event(123456)).unwrap());
+        black_box(try_observe!(event(123456)).unwrap());
     });
     assert_eq!(memory.len(), MICRO + 1024);
     global().clear_channel_sinks("investigation");
@@ -512,7 +512,7 @@ fn api(sample: usize) {
     });
     global().add_channel_sink("investigation", Arc::new(QueueDiscard(tx)));
     bench("api.queue_discard", sample, || {
-        black_box(observe!(event(123456)).unwrap());
+        black_box(try_observe!(event(123456)).unwrap());
     });
     global().flush_channels().unwrap();
     // Scope/plan caches own sink Arcs: release scope and bump generation before joining.
@@ -520,7 +520,7 @@ fn api(sample: usize) {
     drop(scope);
     {
         let _s = start_scope(ScopeConfig::new("release"));
-        black_box(observe!(event(0)).unwrap());
+        black_box(try_observe!(event(0)).unwrap());
     }
     consumer.join().unwrap();
     for threads in [1, 4] {
@@ -529,7 +529,7 @@ fn api(sample: usize) {
         let sink = Arc::new(JsonlSink::open_append(&path).unwrap());
         global().add_channel_sink("investigation", sink.clone());
         let scope = start_scope(ScopeConfig::new(SCOPE));
-        black_box(observe!(event(123456)).unwrap());
+        black_box(try_observe!(event(123456)).unwrap());
         sink.flush().unwrap();
         let ctx = Context::capture();
         let barrier = Arc::new(Barrier::new(threads + 1));
@@ -541,10 +541,10 @@ fn api(sample: usize) {
                 handles.push(s.spawn(move || {
                     ctx.run(|| {
                         // Warm this thread's TLS plan before starting the timer.
-                        black_box(observe!(event(123456)).unwrap());
+                        black_box(try_observe!(event(123456)).unwrap());
                         barrier.wait();
                         for i in 0..MICRO / threads {
-                            black_box(observe!(event(i)).unwrap());
+                            black_box(try_observe!(event(i)).unwrap());
                         }
                     })
                 }));

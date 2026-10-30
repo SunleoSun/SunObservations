@@ -18,7 +18,7 @@ struct Run {
 }
 
 fn work() {
-    observe!(Batch { index: 1 }).unwrap();
+    observe!(Batch { index: 1 });
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

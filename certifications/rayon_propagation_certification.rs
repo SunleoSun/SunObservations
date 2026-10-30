@@ -24,7 +24,7 @@ fn scoped_parallel_captures_follow_rayon_context_without_cross_talk() {
                             .unwrap();
                         pool.install(|| {
                             (0..512u64).into_par_iter().for_each(|row| {
-                                sun_observations::observe!(Captured { run: id, row }).unwrap();
+                                sun_observations::try_observe!(Captured { run: id, row }).unwrap();
                             })
                         });
                     },

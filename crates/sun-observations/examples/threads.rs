@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::sync::Arc;
 use sun_observations::{
-    context, global, observe, start_scope, Context, MemorySink, Observation, ObservationError,
+    context, global, start_scope, try_observe, Context, MemorySink, Observation, ObservationError,
     Policy, ScopeConfig,
 };
 
@@ -25,15 +25,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     std::thread::spawn(|| {
         assert_eq!(Context::capture().scope_name(), None);
-        assert!(!observe!(Completed { job: 0 }).unwrap());
+        assert!(!try_observe!(Completed { job: 0 }).unwrap());
     })
     .join()
     .unwrap();
 
     context::thread::spawn(|| -> Result<(), ObservationError> {
         assert_eq!(Context::capture().scope_name(), Some("job-42"));
-        assert!(observe!(Completed { job: 1 })?);
-        context::thread::spawn(|| observe!(Completed { job: 2 }))
+        assert!(try_observe!(Completed { job: 1 })?);
+        context::thread::spawn(|| try_observe!(Completed { job: 2 }))
             .join()
             .unwrap()?;
         Ok(())
@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     drop(scope);
     captured.run(|| {
         assert_eq!(Context::capture().scope_name(), Some("job-42"));
-        assert!(!observe!(Completed { job: 3 }).unwrap());
+        assert!(!try_observe!(Completed { job: 3 }).unwrap());
     });
     assert_eq!(Context::capture().scope_name(), None);
     assert_eq!(memory.len(), 2);

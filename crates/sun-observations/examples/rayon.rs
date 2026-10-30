@@ -32,8 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 assert_eq!(Context::capture().scope_name(), Some("pool-owner"));
                 observe!(Item {
                     index: outer * 10 + inner
-                })
-                .unwrap();
+                });
             });
         });
     });

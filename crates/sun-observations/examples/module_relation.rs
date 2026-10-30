@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sun_observations::certifications::*;
 use sun_observations::evidence::{capture_observations, CaptureConfig};
-use sun_observations::{observe, Observation, ObservationError};
+use sun_observations::{try_observe, Observation, ObservationError};
 
 #[derive(Serialize, Deserialize, Observation)]
 #[observation(namespace = "module::prediction", tags("evidence"))]
@@ -20,7 +20,7 @@ fn execute(request: &Request) -> Result<Vec<Output>, ObservationError> {
     let mut output = Vec::new();
     for row in 0..request.count as u64 {
         let value = row as f64;
-        observe!(Prediction { row, value })?;
+        try_observe!(Prediction { row, value })?;
         output.push(Output {
             row,
             value: 2. * value + 3.,

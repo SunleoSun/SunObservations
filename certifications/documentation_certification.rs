@@ -782,7 +782,7 @@ impl ClientApi {
             ("DECLARATION", &["derive", "observation", "tags"][..]),
             ("DOMAIN", &["domain", "derive"][..]),
             ("WHEN", &["when"][..]),
-            ("EMISSION", &["observe"][..]),
+            ("EMISSION", &["observe", "try_observe"][..]),
             ("SPAN", &["observe_span"][..]),
         ] {
             self.nodes
@@ -1766,7 +1766,10 @@ fn authoring_errors(name: &str, text: &str) -> Vec<String> {
     let (required, forbidden): (&[&str], &[&str]) = match name {
         "observations-api" => (
             &[
-                "EMISSION := observe!(VALUE)",
+                "EMISSION := observe!(VALUE) | try_observe!(VALUE)",
+                "observe!(value) returns ()",
+                "try_observe!(value) returns Result<bool, ObservationError>",
+                "capture emission_errors",
                 "SPAN := span = observe_span!(START_PAYLOAD)",
                 "CaptureConfig::new()",
                 ".activate_namespace(NS)?",
@@ -1979,11 +1982,21 @@ fn portable_authoring_is_canonical_parameter_complete_and_profiles_through_gener
         .is_empty());
     }
     let altered = original.replace(
-        "EMISSION := observe!(VALUE)",
+        "EMISSION := observe!(VALUE) | try_observe!(VALUE)",
         "EMISSION := observe!(VALUE) | observe_if_active(|| VALUE)",
     );
     assert!(!authoring_errors("observations-api", &altered).is_empty());
     for altered in [
+        original.replace("try_observe!", "observe!"),
+        original.replace(
+            "observe!(value) returns ()",
+            "observe!(value) returns Result",
+        ),
+        original.replace(
+            "try_observe!(value) returns Result<bool, ObservationError>",
+            "fallible emission",
+        ),
+        original.replace("capture emission_errors", "ignored health"),
         original.replace("START_PAYLOAD", "PAYLOAD"),
         original.replace("CHANNEL_NAME", "CHANNEL"),
         original.replace("MEMORY_CONFIG", "RETENTION"),

@@ -1,7 +1,7 @@
 use super::*;
 use crate::certifications::*;
 use crate::evidence::*;
-use crate::{observe, observe_span, MemorySinkConfig};
+use crate::{observe_span, try_observe, MemorySinkConfig};
 use std::{cell::Cell, collections::BTreeSet, sync::Arc};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Observation)]
@@ -20,7 +20,7 @@ fn production(size: usize) -> Result<usize, ()> {
         }
         span.finish().map_err(|_| ())?;
     }
-    observe!(Work { size }).map_err(|_| ())?;
+    try_observe!(Work { size }).map_err(|_| ())?;
     Ok(operations)
 }
 

@@ -910,7 +910,8 @@ fn capture_integration() {
                         runtime::evidence::capture_observations(
                             runtime::evidence::CaptureConfig::new().activate_all(),
                             || {
-                                runtime::observe!(Observed { value: *value }).map_err(|_| ())?;
+                                runtime::try_observe!(Observed { value: *value })
+                                    .map_err(|_| ())?;
                                 Ok::<_, ()>(*value)
                             },
                         )
@@ -943,7 +944,7 @@ fn capture_integration() {
             runtime::evidence::capture_observations(
                 runtime::evidence::CaptureConfig::new().activate_all(),
                 || {
-                    runtime::observe!(Observed { value: 7 }).unwrap();
+                    runtime::try_observe!(Observed { value: 7 }).unwrap();
                     Ok::<_, ()>(7)
                 },
             )

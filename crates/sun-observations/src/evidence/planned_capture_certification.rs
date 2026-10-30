@@ -1,6 +1,6 @@
 use super::*;
 use crate::certifications::*;
-use crate::{observe, Observation};
+use crate::{try_observe, Observation};
 use serde::{Deserialize, Serialize};
 #[derive(DomainInput)]
 struct Input {
@@ -16,7 +16,7 @@ fn execute(input: &Input) -> Result<Vec<usize>, &'static str> {
         return Err("count outside contract");
     }
     for index in 0..input.count {
-        observe!(Row { index }).map_err(|_| "emission failure")?;
+        try_observe!(Row { index }).map_err(|_| "emission failure")?;
     }
     Ok((0..input.count).collect())
 }
@@ -46,8 +46,8 @@ fn capture_completeness_cannot_be_bypassed_by_success_or_expected_rejection() {
                     .activate_all()
                     .retention(crate::MemorySinkConfig::new(1, 1.0).unwrap()),
                 || {
-                    observe!(Row { index: 0 }).unwrap();
-                    observe!(Row { index: 1 }).unwrap();
+                    try_observe!(Row { index: 0 }).unwrap();
+                    try_observe!(Row { index: 1 }).unwrap();
                     if rejected {
                         Err("rejected")
                     } else {
@@ -97,8 +97,8 @@ fn seeded_capture_completeness_precedes_even_expected_negative_rejection() {
                         .activate_all()
                         .retention(crate::MemorySinkConfig::new(1, 1.0).unwrap()),
                     || {
-                        observe!(Row { index: 0 }).unwrap();
-                        observe!(Row { index: 1 }).unwrap();
+                        try_observe!(Row { index: 0 }).unwrap();
+                        try_observe!(Row { index: 1 }).unwrap();
                         execute(input)
                     },
                 )
@@ -167,14 +167,14 @@ fn isolated_production(
         })
         .collect();
     for (index, value) in values.iter().enumerate() {
-        observe!(Reading {
+        try_observe!(Reading {
             execution,
             index,
             value: *value
         })
         .map_err(|_| "reading emission")?;
     }
-    observe!(Marker { execution, count }).map_err(|_| "marker emission")?;
+    try_observe!(Marker { execution, count }).map_err(|_| "marker emission")?;
     Ok(IsolationOutput { execution, values })
 }
 fn expected_marker(output: &IsolationOutput) -> Vec<(u64, usize)> {

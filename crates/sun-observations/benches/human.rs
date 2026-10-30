@@ -9,8 +9,8 @@ use std::{
     time::Instant,
 };
 use sun_observations::{
-    global, observe, start_scope, ConsoleSink, Context, JsonlSink, Observation, ObservationRecord,
-    ScopeConfig, Selection,
+    global, start_scope, try_observe, ConsoleSink, Context, JsonlSink, Observation,
+    ObservationRecord, ScopeConfig, Selection,
 };
 
 const N: u64 = 262_144;
@@ -42,7 +42,7 @@ impl<const CUSTOM: bool> Observation for Metrics<CUSTOM> {
 }
 fn emit<const CUSTOM: bool>(epoch: u64) {
     black_box(
-        observe!(Metrics::<CUSTOM> {
+        try_observe!(Metrics::<CUSTOM> {
             epoch: black_box(epoch),
             loss: 0.3812,
             accuracy: 0.6123,

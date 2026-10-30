@@ -16,7 +16,7 @@ DECLARATION :=
     #[derive(Serialize, Deserialize, Observation)]
     #[observation(namespace = NAMESPACE, level = LEVEL, tags(TAG, ...))]
     struct PAYLOAD { FIELDS }
-EMISSION := observe!(VALUE)
+EMISSION := observe!(VALUE) | try_observe!(VALUE)
 SELECTION := Selection::new()
     [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? ]*
     [ .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
@@ -81,7 +81,7 @@ fn stable_identity() {
 
 ## EMISSION
 
-Emit with observe!(value) through the global production engine. The macro admits lazily: expensive payload construction stays inside its argument and is skipped on rejection. Ok(false) means rejected before construction/serialization; Ok(true) means admitted/dispatched, not durable persistence. ObservationError exposes invalid static namespace/tag metadata, serialization, or sink failures.
+For ordinary production side effects, observe!(value) returns () and emits best-effort through the global engine, without coupling application control flow to emission failures. For caller-visible admission/error handling, try_observe!(value) returns Result<bool, ObservationError>: Ok(false) means rejected before construction/serialization; Ok(true) means admitted/dispatched, not durable persistence. ObservationError exposes invalid static namespace/tag metadata, serialization, or sink failures. Both macros use the same canonical runtime path and admit lazily: expensive payload construction stays inside the argument and is skipped on rejection. Discarding the result at the observe! caller boundary preserves capture emission_errors, incomplete capture status, and runtime sink_error_count() accounting.
 
 Use global() to configure the process engine; engine.set_selection(selection) replaces global admission, while process_id(), sink_error_count(), flush_channels() inspect effects. For isolated runtime/routing proofs only, use ObservationEngine::isolated() and engine.observe_if_active(|| value), not dependency injection into ordinary production functions.
 
@@ -90,13 +90,17 @@ use sun_observations::*;
 #[derive(serde::Serialize, Observation)]
 #[observation(namespace = "orders::validated")]
 struct Validated { order_id: u64 }
-fn validate(order_id: u64) -> Result<bool, ObservationError> {
-    if order_id == 0 { return Ok(false); }
-    observe!(Validated { order_id })?;
-    Ok(true)
+fn validate(order_id: u64) -> bool {
+    if order_id == 0 { return false; }
+    observe!(Validated { order_id });
+    true
 }
 #[test]
-fn production_validation() { assert!(validate(42).unwrap()); }
+fn production_validation() {
+    assert!(validate(42));
+    let _scope = start_scope(ScopeConfig::new("explicit admission").activate_all());
+    assert!(try_observe!(Validated { order_id: 42 }).unwrap());
+}
 ~~~
 
 ## SELECTION
@@ -226,16 +230,16 @@ use sun_observations::evidence::*;
 #[derive(serde::Serialize, serde::Deserialize, Observation)]
 #[observation(namespace = "capture::normalized", tags("evidence"))]
 struct Normalized { original_bytes: usize, output_bytes: usize }
-fn normalize(raw: &str) -> Result<String, ObservationError> {
+fn normalize(raw: &str) -> String {
     let output = raw.trim().to_lowercase();
-    observe!(Normalized { original_bytes: raw.len(), output_bytes: output.len() })?;
-    Ok(output)
+    observe!(Normalized { original_bytes: raw.len(), output_bytes: output.len() });
+    output
 }
 #[test]
 fn capture_normalization() {
  let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"]).unwrap(),
  || normalize(" ALPHA "));
-    assert_eq!(run.result().as_ref().unwrap(), "alpha");
+    assert_eq!(run.result(), "alpha");
     assert!(run.status().is_complete());
     assert_eq!(run.to_typed::<Normalized>().unwrap().values().len(), 1);
 }

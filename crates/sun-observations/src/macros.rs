@@ -1,7 +1,19 @@
-/// Lazily construct a typed observation only after selection and policy admission.
-/// Returns Result<bool, ObservationError>; false means rejected, true means admitted.
+/// Best-effort emission returning `()`; rejection skips payload construction.
+/// Failures remain visible to capture/runtime health accounting. Use `try_observe!`
+/// when admission or emission errors must affect caller control flow.
 #[macro_export]
 macro_rules! observe {
+    ($payload:expr $(,)?) => {{
+        let _ = $crate::try_observe!($payload);
+    }};
+}
+
+/// Lazily emit through the canonical runtime path.
+/// Returns `Result<bool, ObservationError>`: `Ok(false)` rejects before construction,
+/// `Ok(true)` admits/dispatches (not durable persistence), and `Err` reports metadata,
+/// serialization, or sink failure.
+#[macro_export]
+macro_rules! try_observe {
     ($payload:expr $(,)?) => {
         $crate::observe_if_active(|| $payload)
     };

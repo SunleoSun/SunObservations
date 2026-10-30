@@ -31,14 +31,14 @@ fn capture(n: u64, slope: f64) -> CapturedRun<()> {
         CaptureConfig::new().activate_namespace("pipeline").unwrap(),
         || {
             for row in 0..n {
-                sun_observations::observe!(Input {
+                sun_observations::try_observe!(Input {
                     row,
                     value: row as f64
                 })
                 .unwrap();
             }
             for row in (0..n).rev() {
-                sun_observations::observe!(Output {
+                sun_observations::try_observe!(Output {
                     row,
                     value: slope * row as f64 + 3.
                 })
@@ -105,14 +105,14 @@ fn runtime_missing_and_duplicate_evidence_is_a_hard_failure_not_suspicion() {
         CaptureConfig::new().activate_namespace("pipeline").unwrap(),
         || {
             for row in [1, 2, 2, 4] {
-                sun_observations::observe!(Input {
+                sun_observations::try_observe!(Input {
                     row,
                     value: row as f64
                 })
                 .unwrap();
             }
             for row in [2, 3, 4] {
-                sun_observations::observe!(Output {
+                sun_observations::try_observe!(Output {
                     row,
                     value: row as f64
                 })

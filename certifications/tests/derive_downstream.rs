@@ -11,6 +11,7 @@ fn single_renamed_dependency_exposes_runtime_evidence_certifications_and_rayon_a
     let manifest = format!("[package]\nname = \"renamed-consumer\"\nversion = \"0.0.0\"\nedition = \"2021\"\n[workspace]\n[dependencies]\nsdk = {{ package = \"sun-observations\", path = {:?} }}\nserde = {{ version = \"1\", features = [\"derive\"] }}\n", runtime.to_string_lossy().replace('\\', "/"));
     fs::write(directory.path().join("Cargo.toml"), manifest).unwrap();
     let pass = r#"
+#![deny(unused_must_use)]
 use sdk::{Observation, Selection, MemorySink};
 use serde::{Deserialize, Serialize};
 use sdk::certifications::*;
@@ -29,8 +30,9 @@ fn main() {
     sdk::global().set_selection(Selection::new().activate_all());
     sdk::global().register_namespace_channel("downstream", "memory").unwrap();
     sdk::global().add_channel_sink("memory", memory.clone());
-    assert!(sdk::observe!(Renamed { value: vec![1u32,2] }).unwrap());
-    sdk::observe!(Warning).unwrap(); sdk::observe!(Error).unwrap();
+    assert!(sdk::try_observe!(Renamed { value: vec![1u32,2] }).unwrap());
+    sdk::observe!(Warning);
+    let () = sdk::observe!(Error,);
     sdk::global().flush_channels().unwrap();
     assert_eq!(memory.len(), 3);
     assert_eq!(memory.records()[0].namespace, "downstream::stable");
@@ -41,8 +43,8 @@ fn main() {
     let run = capture_observations(CaptureConfig::new().activate_namespace("downstream").unwrap(), || {
         let pool = sdk::context::rayon::ContextThreadPool::with_threads(std::num::NonZeroUsize::new(2).unwrap()).unwrap();
         pool.install(|| {
-            sdk::observe!(Renamed { value: 1u32 }).unwrap();
-            sdk::observe!(Renamed { value: 2u32 }).unwrap();
+            sdk::observe!(Renamed { value: 1u32 });
+            sdk::try_observe!(Renamed { value: 2u32 }).unwrap();
         });
         [2u32, 1]
     });

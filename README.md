@@ -98,7 +98,7 @@ Capture requires no engine injection, channel, route, file, or global reconfigur
 ```rust
 use serde::{Deserialize, Serialize};
 use sun_observations::certifications::try_fact;
-use sun_observations::{observe, Observation, ObservationError};
+use sun_observations::{observe, Observation};
 use sun_observations::evidence::{capture_observations, CaptureConfig};
 
 #[derive(Serialize, Deserialize, Observation)]
@@ -107,11 +107,11 @@ struct RateSelected { order: u64, rate: u64 }
 struct Order { id: u64, net: u64 }
 struct Receipt { order: u64, total: u64 }
 
-fn charge(orders: &[Order]) -> Result<Vec<Receipt>, ObservationError> {
+fn charge(orders: &[Order]) -> Vec<Receipt> {
     orders.iter().map(|order| {
         let rate = if order.net >= 100 { 90 } else { 100 };
-        observe!(RateSelected { order: order.id, rate })?;
-        Ok(Receipt { order: order.id, total: order.net * rate / 100 })
+        observe!(RateSelected { order: order.id, rate });
+        Receipt { order: order.id, total: order.net * rate / 100 }
     }).collect()
 }
 
@@ -122,9 +122,9 @@ let run = capture_observations(
 );
 let decisions = run.to_typed::<RateSelected>();
 let mut proof = run.certification("billing production contract");
-proof.check("call succeeded", try_fact("charge", run.result().as_ref().map(|_| true)).expect(true));
 proof.check("decodable evidence", try_fact("rates", decisions.as_ref().map(|_| true)).expect(true));
-if let (Ok(receipts), Ok(decisions)) = (run.result(), &decisions) {
+if let Ok(decisions) = &decisions {
+    let receipts = run.result();
     let input = proof.collection("orders", &orders);
     let output = proof.collection("receipts", receipts);
     let transfer = input.compare_with(&output).on(|v| v.id, |v| v.order);
@@ -153,7 +153,7 @@ For an edition-2021 application, the complete framework uses one package:
 
 ```toml
 [dependencies]
-sun-observations = "0.1"
+sun-observations = "0.2"
 # Only needed for your serializable Observation payloads:
 serde = { version = "1", features = ["derive"] }
 ```
@@ -643,15 +643,20 @@ use sun_observations::{observe, start_scope, Observation, ScopeConfig};
 #[observation(namespace = "encoder::train::epoch", level = INFO, tags("diagnostic"))]
 struct Epoch { epoch: usize, loss: f64 }
 let _scope = start_scope(ScopeConfig::new("training-42").activate_namespace("encoder::train").unwrap());
-observe!(Epoch { epoch: 1, loss: 0.125 })?;
-# Ok::<(), sun_observations::ObservationError>(())
+observe!(Epoch { epoch: 1, loss: 0.125 });
 ```
 
 Payloads require `Serialize + 'static`; add `Deserialize` to decode captured evidence.
 Level defaults to INFO; WARN/ERROR are severity, never selection bypasses. Put expensive
-construction **inside** `observe!` (or `observe_if_active(|| payload)`) so rejection skips
+construction **inside** `observe!` or `try_observe!` so rejection skips
 construction, serialization, message and rendering. Admitted sinkless calls still
 serialize and call `message()`: no destination is not disabled instrumentation.
+
+`observe!(value)` returns `()` for ordinary best-effort production side effects; no
+`let _ =`, `?`, or result handling is needed. Use `try_observe!(value)` when admission
+or emission errors must be caller-visible: it returns `Result<bool, ObservationError>`.
+Both macros share the canonical runtime path. Ignored errors still affect capture
+completeness and runtime health accounting; best-effort does not mean guaranteed delivery.
 
 ### Select what is active
 
@@ -692,9 +697,8 @@ let _scope = start_scope(ScopeConfig::new("training-42")
     .activate_namespace("encoder::train").unwrap()
     .override_policy::<Batch>(Policy::every_n(100).unwrap()));
 for index in 1..=200 {
-    observe!(Batch { index, norm: compute_norm() })?;
+    observe!(Batch { index, norm: compute_norm() });
 }
-# Ok::<(), sun_observations::ObservationError>(())
 ```
 
 Only occurrences 100 and 200 construct the payload here. Default `Always` admits
@@ -757,7 +761,7 @@ engine.add_channel_sink("operations", file.clone());
 engine.add_channel_sink("operations", Arc::new(ConsoleSink::stderr()));
 engine.register_namespace_channel("service", "operations")?;
 engine.set_selection(Selection::new().activate_namespace("service").unwrap());
-let emission = observe!(Request { path: "/health", status: 200 });
+let emission = try_observe!(Request { path: "/health", status: 200 });
 let persistence = engine.flush_channels();
 emission?;
 persistence?;
@@ -780,7 +784,7 @@ Overlapping namespace routes fan out. Routes to the same channel deduplicate; th
 same sink on different matching channels intentionally receives duplicate deliveries.
 All targets are attempted on failure; there is no cross-sink rollback or total order.
 
-`Ok(true)` from `observe!` means admitted/dispatched (possibly sinkless); for async
+`Ok(true)` from `try_observe!` means admitted/dispatched (possibly sinkless); for async
 sinks it means **enqueue**, not persistence. Flush is a queue-prefix error barrier,
 **not fsync**. Evaluate the barrier even after emission failure, as above; report
 both errors if both fail. JSONL/Console queues are unbounded and failures sticky,
@@ -1100,7 +1104,7 @@ DECLARATION :=
     #[derive(Serialize, Deserialize, Observation)]
     #[observation(namespace = NAMESPACE, level = LEVEL, tags(TAG, ...))]
     struct PAYLOAD { FIELDS }
-EMISSION := observe!(VALUE)
+EMISSION := observe!(VALUE) | try_observe!(VALUE)
 SELECTION := Selection::new()
     [ .activate_all() | .activate_namespace(NS)? | .activate_tags(TAGS)? ]*
     [ .exclude_namespace(NS)? | .exclude_tags(TAGS)? ]*
@@ -1692,7 +1696,7 @@ assert_eq!(Accepted::NAMESPACE, "orders::accepted");
 
 #### EMISSION
 
-Production uses `observe!(value)` or `observe_if_active(|| value)` through the global engine. Construct expensive evidence inside the lazy closure, so rejected types avoid construction and serialization. Ok(false) means rejected; Ok(true) means admitted/dispatched, not guaranteed durable storage. `ObservationError` carries serialization or sink errors.
+Production uses `observe!(value)` for a best-effort side effect returning `()`, without making emission part of application control flow. Use `try_observe!(value)` for explicit `Result<bool, ObservationError>` handling: `Ok(false)` rejects before payload construction/serialization, `Ok(true)` means admitted/dispatched (possibly sinkless), not durable storage, and `Err(ObservationError)` reports invalid static namespace/tag metadata, serialization, or sink failure. Both macros use the same canonical lazy runtime path. Keep expensive construction inside the macro argument. The result discarded by `observe!` remains accounted for: capture `emission_errors` still blocks completeness and runtime `sink_error_count()` still records sink failures. The low-level `observe_if_active(|| value)` API remains fallible.
 
 `global()` accesses process configuration; `set_selection(selection)` replaces engine selection. `process_id()`, `sink_error_count()` and `flush_channels()` inspect identity, checked delivery failures, and delivery barriers. `ObservationEngine::isolated()` with `engine.observe_if_active` is useful for explicit independent runtime/routing proofs; do not inject it into ordinary production merely to make evidence testable. Capture follows the normal global path.
 
@@ -1701,12 +1705,14 @@ use sun_observations::*;
 #[derive(serde::Serialize, Observation)]
 #[observation(namespace = "orders::validated")]
 struct Validated { order_id: u64 }
-fn validate(order_id: u64) -> Result<bool, ObservationError> {
-    if order_id == 0 { return Ok(false); }
-    observe!(Validated { order_id })?;
-    Ok(true)
+fn validate(order_id: u64) -> bool {
+    if order_id == 0 { return false; }
+    observe!(Validated { order_id });
+    true
 }
-assert!(validate(42)?);
+assert!(validate(42));
+let _scope = start_scope(ScopeConfig::new("explicit admission").activate_all());
+assert!(try_observe!(Validated { order_id: 42 })?);
 # Ok::<(), ObservationError>(())
 ~~~
 
@@ -1819,14 +1825,14 @@ use sun_observations::evidence::*;
 #[derive(serde::Serialize, serde::Deserialize, Observation)]
 #[observation(namespace = "capture::normalized", tags("evidence"))]
 struct Normalized { original_bytes: usize, output_bytes: usize }
-fn normalize(raw: &str) -> Result<String, ObservationError> {
+fn normalize(raw: &str) -> String {
     let output = raw.trim().to_lowercase();
-    observe!(Normalized { original_bytes: raw.len(), output_bytes: output.len() })?;
-    Ok(output)
+    observe!(Normalized { original_bytes: raw.len(), output_bytes: output.len() });
+    output
 }
 let run = capture_observations(CaptureConfig::new().activate_tags(["evidence"])? ,
     || normalize(" ALPHA "));
-assert_eq!(run.result().as_ref().unwrap(), "alpha");
+assert_eq!(run.result(), "alpha");
 assert!(run.status().is_complete());
 assert_eq!(run.to_typed::<Normalized>()?.values().len(), 1);
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1870,7 +1876,8 @@ use sun_observations::certifications::fact;
 struct Accepted { id: u64 }
 let run = capture_observations(CaptureConfig::new().activate_all(),
 || observe!(Accepted { id: 42 }));
-run.result().as_ref().unwrap();
+let () = *run.result();
+assert!(run.status().is_complete());
 let typed = run.to_typed::<Accepted>()?;
 let mut proof = run.certification("accepted identities are unique");
 proof.check("ids", typed.source("accepted orders").unique(|r| r.id).expect_valid());
@@ -2050,16 +2057,17 @@ enum Tariff { Express, Standard, Free }
 struct ShippingDecision { order_id: u64, tariff: Tariff }
 struct Order { id: u64, subtotal: u64, express: bool }
 struct ShippingCase { order: Order, expected_total: u64, expected_tariff: Tariff }
-fn charge(order: &Order) -> Result<u64, ObservationError> {
+fn charge(order: &Order) -> u64 {
     let (tariff, fee) = if order.express { (Tariff::Express, 25) }
         else if order.subtotal >= 100 { (Tariff::Free, 0) }
         else { (Tariff::Standard, 10) };
-    observe!(ShippingDecision { order_id: order.id, tariff })?;
-    Ok(order.subtotal + fee)
+    observe!(ShippingDecision { order_id: order.id, tariff });
+    order.subtotal + fee
 }
 let config = CaptureConfig::new().activate_namespace("shipping")?;
 let mut runner = certification("shipping charges and tariff selection agree with policy")
-    .executor(|input: &ShippingCase| capture_observations(config.clone(), || charge(&input.order)));
+    .executor(|input: &ShippingCase| capture_observations(config.clone(),
+        || Ok::<_, std::convert::Infallible>(charge(&input.order))));
 runner.data_source([
     ShippingCase { order: Order { id: 1, subtotal: 100, express: false },
         expected_total: 100, expected_tariff: Tariff::Free },

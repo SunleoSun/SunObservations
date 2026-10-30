@@ -42,7 +42,7 @@ impl From<ObservationError> for RunError {
 }
 fn execute(request: &Request) -> Result<Vec<Output>, RunError> {
     if request.count == 0 {
-        observe!(Rejected {
+        try_observe!(Rejected {
             reason: "empty request".into()
         })?;
         return Err(RunError::EmptyRequest);
@@ -51,7 +51,7 @@ fn execute(request: &Request) -> Result<Vec<Output>, RunError> {
     for row in 0..request.count as i64 {
         let signal = ((row * 17 + row * row * 13) % 101) as f64;
         let strength = signal.abs();
-        observe!(Prediction {
+        try_observe!(Prediction {
             fold: (row % 4) as u8,
             target: 0,
             row,

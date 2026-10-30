@@ -10,7 +10,7 @@ use std::{
 use sun_observations::certifications::*;
 use sun_observations::evidence::*;
 use sun_observations::{
-    observe, start_scope, MemorySink, MemorySinkConfig, Observation, ObservationEngine,
+    start_scope, try_observe, MemorySink, MemorySinkConfig, Observation, ObservationEngine,
     ObservationRecord, ScopeConfig, Selection, Sink,
 };
 #[derive(Serialize, Deserialize, Observation)]
@@ -32,7 +32,7 @@ fn measure<T>(name: &str, n: usize, sample: usize, op: impl FnOnce() -> T) -> T 
 }
 fn emit(n: usize) {
     for row in 0..n {
-        observe!(Event {
+        try_observe!(Event {
             row,
             value: row as f64
         })

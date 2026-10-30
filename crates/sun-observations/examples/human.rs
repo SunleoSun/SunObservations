@@ -50,18 +50,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.register_namespace_channel("example::table", "table")?;
     engine.add_channel_sink("status", Arc::new(ConsoleSink::stderr()));
     engine.add_channel_sink("table", Arc::new(ConsoleSink::stdout()));
-    observe!(Status { state: "training" })?;
+    observe!(Status { state: "training" });
     observe!(TableStart {
         columns: ["epoch", "loss", "accuracy"],
-    })?;
+    });
     for epoch in 1..=2 {
         observe!(Epoch {
             epoch,
             loss: 0.38 / epoch as f64,
             accuracy: 0.61 + epoch as f64 * 0.02,
-        })?;
+        });
     }
-    observe!(TableEnd { epochs: 2 })?;
+    observe!(TableEnd { epochs: 2 });
     engine.flush_channels()?;
     Ok(())
 }

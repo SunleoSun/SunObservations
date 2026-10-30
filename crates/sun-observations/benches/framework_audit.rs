@@ -46,7 +46,7 @@ impl<const TYPE: usize> Observation for Event<TYPE> {
     const NAMESPACE: &'static str = NAMES[TYPE];
 }
 fn emit(row: usize, types: usize) -> bool {
-    macro_rules! dispatch { ($($id:literal),*) => { match row % types { $($id => observe!(Event::<$id> { row }).unwrap(),)* _ => unreachable!() } }; }
+    macro_rules! dispatch { ($($id:literal),*) => { match row % types { $($id => try_observe!(Event::<$id> { row }).unwrap(),)* _ => unreachable!() } }; }
     dispatch!(
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
         25, 26, 27, 28, 29, 30, 31
@@ -258,7 +258,7 @@ fn combined() {
                                     .wrapping_add(1);
                             }
                             for row in 0..observations {
-                                observe!(Event::<0> { row }).unwrap();
+                                try_observe!(Event::<0> { row }).unwrap();
                             }
                             black_box(state);
                             Ok(i.value)
