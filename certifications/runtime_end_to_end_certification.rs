@@ -10,6 +10,34 @@ fn release_gate_combines_admission_scopes_threads_routing_spans_jsonl_and_mutati
         "total delivery",
         fact("persisted artifact", records.len()).expect(4 * (points + 73 + 160 + 16)),
     );
+    let process = records[0]["proc"].as_str().unwrap();
+    let (pid, suffix) = process.split_once('_').unwrap();
+    c.check(
+        "runtime PID prefix",
+        fact("persisted process", pid.parse::<u32>().is_ok()).expect(true),
+    );
+    c.check(
+        "runtime compact suffix",
+        fact("persisted process", suffix.len()).expect(5usize),
+    );
+    c.check(
+        "runtime lowercase ASCII base36",
+        fact(
+            "persisted process",
+            suffix
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()),
+        )
+        .expect(true),
+    );
+    c.check(
+        "stable singleton identity across points and spans",
+        fact(
+            "persisted processes",
+            records.iter().all(|r| r["proc"] == process),
+        )
+        .expect(true),
+    );
     certify_spans::<Work>(&records, 32);
     let mut unique = BTreeSet::new();
     let mut duplicate_count = 0;

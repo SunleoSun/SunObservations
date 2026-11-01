@@ -694,6 +694,26 @@ mod persistence {
         }
         for line in text.lines() {
             let value: serde_json::Value = serde_json::from_str(line).unwrap();
+            let process = value["proc"].as_str().unwrap();
+            let (pid, suffix) = process.split_once('_').unwrap();
+            certification.check_fact_expect(
+                "persisted engine identity",
+                process,
+                engine.process_id(),
+            );
+            certification.check_fact_expect(
+                "persisted PID",
+                pid,
+                std::process::id().to_string().as_str(),
+            );
+            certification.check_fact_expect("persisted compact suffix", suffix.len(), 5);
+            certification.check_fact_expect(
+                "persisted lowercase ASCII base36",
+                suffix
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()),
+                true,
+            );
             for absent in ["tags", "channel", "channels", "message"] {
                 certification.check_fact_expect(
                     "value.get(absent).is_none()",

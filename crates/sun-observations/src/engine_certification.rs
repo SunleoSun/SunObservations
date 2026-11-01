@@ -1,7 +1,8 @@
+use super::{ProcessIdentityAllocator, PROCESS_IDENTITY_CAPACITY};
 use crate::*;
 use serde::{Serialize, Serializer};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU32, AtomicUsize, Ordering},
     Arc,
 };
 
@@ -218,6 +219,17 @@ fn engine_recreation_cannot_reuse_retired_tls_identity() {
     let mut identities = std::collections::HashSet::new();
     for i in 0..100 {
         let engine = ObservationEngine::isolated();
+        let identity = engine.process_id().to_owned();
+        let (pid, suffix) = identity.split_once('_').unwrap();
+        certification.check_fact_expect("PID prefix", pid, std::process::id().to_string().as_str());
+        certification.check_fact_expect("compact suffix width", suffix.len(), 5);
+        certification.check_fact_expect(
+            "lowercase ASCII base36 suffix",
+            suffix
+                .bytes()
+                .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()),
+            true,
+        );
         certification.check_fact_expect(
             "identities.insert(engine.process_id().to_owned())",
             identities.insert(engine.process_id().to_owned()),
@@ -233,8 +245,100 @@ fn engine_recreation_cannot_reuse_retired_tls_identity() {
             &(engine.observe_if_active(|| Event).unwrap()),
             &(i % 2 == 0),
         );
+        certification.check_fact_expect(
+            "stable engine identity",
+            engine.process_id(),
+            identity.as_str(),
+        );
     }
     certification.assert_certify();
+}
+
+#[test]
+fn concurrent_engines_and_singleton_have_distinct_process_identities() {
+    use crate::certifications::{certification, collection};
+    let workers: Vec<_> = (0..8)
+        .map(|_| {
+            std::thread::spawn(|| {
+                let engines: Vec<_> = (0..128).map(|_| ObservationEngine::isolated()).collect();
+                engines
+                    .iter()
+                    .map(|engine| engine.process_id().to_owned())
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    let mut identities = vec![global().process_id().to_owned()];
+    for worker in workers {
+        identities.extend(worker.join().unwrap());
+    }
+    let mut c = certification("concurrent engines and singleton retain distinct identities");
+    let rows = collection("engine identities", &identities);
+    c.check("all engines created", rows.count().expect(1025usize));
+    c.check(
+        "no process identity reused",
+        rows.unique(|id| id.clone()).expect_valid(),
+    );
+    c.assert_certify();
+}
+
+#[test]
+fn compact_process_identity_encoding_wraps_without_reuse_and_exhaustion_fails_closed() {
+    let mut c = crate::certifications::certification("compact identity boundaries and exhaustion");
+    for (offset, expected) in [
+        (0, "00000"),
+        (9, "00009"),
+        (10, "0000a"),
+        (35, "0000z"),
+        (36, "00010"),
+        (PROCESS_IDENTITY_CAPACITY - 1, "zzzzz"),
+    ] {
+        let allocator = ProcessIdentityAllocator {
+            offset,
+            allocated: AtomicU32::new(0),
+        };
+        c.check_fact_expect(
+            "fixed-width base36",
+            allocator.allocate(),
+            Some(format!("{}_{expected}", std::process::id())),
+        );
+    }
+    let wrapping = ProcessIdentityAllocator {
+        offset: PROCESS_IDENTITY_CAPACITY - 1,
+        allocated: AtomicU32::new(0),
+    };
+    c.check_fact_expect(
+        "last suffix",
+        wrapping.allocate(),
+        Some(format!("{}_zzzzz", std::process::id())),
+    );
+    c.check_fact_expect(
+        "randomized sequence wraps through zero",
+        wrapping.allocate(),
+        Some(format!("{}_00000", std::process::id())),
+    );
+    for (offset, last) in [
+        (0, "zzzzz"),
+        (1, "00000"),
+        (PROCESS_IDENTITY_CAPACITY - 1, "zzzzy"),
+    ] {
+        let exhausted = ProcessIdentityAllocator {
+            offset,
+            allocated: AtomicU32::new(PROCESS_IDENTITY_CAPACITY - 1),
+        };
+        c.check_fact_expect(
+            "last available identity",
+            exhausted.allocate(),
+            Some(format!("{}_{last}", std::process::id())),
+        );
+        c.check_fact_expect(
+            "exhaustion never reuses an identity",
+            exhausted.allocate(),
+            None,
+        );
+        c.check_fact_expect("exhaustion remains terminal", exhausted.allocate(), None);
+    }
+    c.assert_certify();
 }
 
 mod admission {

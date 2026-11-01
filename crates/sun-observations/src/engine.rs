@@ -16,7 +16,7 @@ use std::{
     error::Error,
     fmt, io,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, AtomicU64, Ordering},
         Arc, OnceLock,
     },
     time::Instant,
@@ -61,6 +61,39 @@ struct Configuration {
     routing: Routing,
 }
 
+const PROCESS_SUFFIX_WIDTH: usize = 5;
+const PROCESS_SUFFIX_ALPHABET: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+const PROCESS_IDENTITY_CAPACITY: u32 = 36_u32.pow(PROCESS_SUFFIX_WIDTH as u32);
+
+/// Allocates each compact suffix at most once, including identities of dropped engines.
+struct ProcessIdentityAllocator {
+    offset: u32,
+    allocated: AtomicU32,
+}
+
+impl ProcessIdentityAllocator {
+    fn allocate(&self) -> Option<String> {
+        let ordinal = self
+            .allocated
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |allocated| {
+                (allocated < PROCESS_IDENTITY_CAPACITY).then_some(allocated + 1)
+            })
+            .ok()?;
+        let mut value = (self.offset + ordinal) % PROCESS_IDENTITY_CAPACITY;
+        let mut suffix = [b'0'; PROCESS_SUFFIX_WIDTH];
+        for digit in suffix.iter_mut().rev() {
+            *digit = PROCESS_SUFFIX_ALPHABET[(value % 36) as usize];
+            value /= 36;
+        }
+        Some(format!(
+            "{}_{}",
+            std::process::id(),
+            std::str::from_utf8(&suffix).expect("base36 suffix is ASCII")
+        ))
+    }
+}
+
+/// Independent runtime configuration, routing, clocks and opaque persisted identity.
 pub struct ObservationEngine {
     pub(crate) id: u64,
     process: String,
@@ -72,10 +105,22 @@ pub struct ObservationEngine {
 }
 pub(crate) type Admission = Arc<ResolvedPlan>;
 impl ObservationEngine {
+    /// Creates an engine with an identity never reused by this process.
+    ///
+    /// # Panics
+    /// Panics after all 36^5 compact identities have been allocated in this process.
     pub fn isolated() -> Self {
+        static IDENTITIES: OnceLock<ProcessIdentityAllocator> = OnceLock::new();
+        let identities = IDENTITIES.get_or_init(|| ProcessIdentityAllocator {
+            // Randomize the starting point so a reused OS PID does not restart at a fixed identity.
+            offset: (Uuid::new_v4().as_u128() % u128::from(PROCESS_IDENTITY_CAPACITY)) as u32,
+            allocated: AtomicU32::new(0),
+        });
         Self {
             id: next_identity(),
-            process: format!("{}_{}", std::process::id(), Uuid::new_v4().simple()),
+            process: identities
+                .allocate()
+                .expect("compact process identity space exhausted"),
             started: Instant::now(),
             config: RwLock::new(Configuration::default()),
             generation: AtomicU64::new(1),

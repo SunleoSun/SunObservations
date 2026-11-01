@@ -44,16 +44,25 @@ Tags are selection metadata only. **No envelope tags, channel or channels fields
 emitted.** Fields with these names may legitimately occur *inside data*, like any user
 payload; consumers must not mistake payload content for envelope metadata.
 
+The current runtime spells `proc` as `<PID>_<suffix>`, with exactly five lowercase
+ASCII base36 characters in the suffix (for example, `47872_85563`). This is a producer
+representation, not a parsing requirement: readers must also accept older opaque spellings.
+A process-wide allocator starts at a random position and never reuses a suffix, even after
+an engine is dropped. Creating more than 36^5 (60,466,176) engines in one process panics
+rather than reusing an identity. Randomized starts reduce collisions across separate runs
+with a reused PID; the compact space does not guarantee global uniqueness across such runs.
+Use distinct scope names when persisted runs must be unambiguously separated.
+
 Example point record (one physical line):
 
 ```json
-{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2","proc_ns":1842000000,"scope":"run-c3d4","namespace":"compute::train::epoch","level":"INFO","data":{"epoch":7,"loss":0.0132}}
+{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2c","proc_ns":1842000000,"scope":"run-c3d4","namespace":"compute::train::epoch","level":"INFO","data":{"epoch":7,"loss":0.0132}}
 ```
 
 Example point outside any scope:
 
 ```json
-{"ts":"2026-10-20T00:00:00.001Z","proc":"1234_a1b2","proc_ns":1843000000,"namespace":"service::ready","level":"INFO","data":{}}
+{"ts":"2026-10-20T00:00:00.001Z","proc":"1234_a1b2c","proc_ns":1843000000,"namespace":"service::ready","level":"INFO","data":{}}
 ```
 
 ## Lifecycle and timing
@@ -64,8 +73,8 @@ the typed data and optional message; end has data: null and no message. Span ids
 opaque; no distributed trace identity, parent id or nesting relation is implied.
 
 ```json
-{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2","proc_ns":1842000000,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":{"samples":128},"phase":"start","span":"opaque-span-a"}
-{"ts":"2026-10-20T00:00:00.125Z","proc":"1234_a1b2","proc_ns":1967000000,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":null,"phase":"end","span":"opaque-span-a"}
+{"ts":"2026-10-20T00:00:00.000Z","proc":"1234_a1b2c","proc_ns":1842000000,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":{"samples":128},"phase":"start","span":"opaque-span-a"}
+{"ts":"2026-10-20T00:00:00.125Z","proc":"1234_a1b2c","proc_ns":1967000000,"scope":"run-c3d4","namespace":"compute::fit","level":"INFO","data":null,"phase":"end","span":"opaque-span-a"}
 ```
 
 Pair by (proc, scope-or-absence, namespace, span), not by adjacency. Concurrent spans
