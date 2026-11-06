@@ -130,7 +130,7 @@ fn manual_metadata_is_validated_before_capture_and_persisted_ingestion() {
     let good = capture_observations(CaptureConfig::new().activate_all(), || {
         try_observe!(ValidManual)
     });
-    assert_eq!(*good.result().as_ref().unwrap(), true);
+    assert!(*good.result().as_ref().unwrap());
     assert!(good.status().is_complete());
     assert_eq!(good.to_typed::<ValidManual>().unwrap().values().len(), 1);
     assert!(ObservationDataset::try_from_records(good.dataset().records().to_vec()).is_ok());

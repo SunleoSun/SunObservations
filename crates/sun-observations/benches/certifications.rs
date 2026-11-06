@@ -77,7 +77,7 @@ fn main() {
             .iter()
             .map(|v| {
                 Arc::new(ObservationRecord {
-                    ts: String::new(),
+                    ts: "2026-01-01T00:00:00.000Z".into(),
                     proc: "bench".into(),
                     proc_ns: 0,
                     scope: None,

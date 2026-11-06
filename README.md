@@ -167,25 +167,27 @@ certification and Rayon capabilities are available without feature flags.
 
 Performance is a framework feature, but these charts are **recorded benchmark evidence, not SLAs**. The principal runs were collected on an AMD Ryzen 9 5950X with 64 GiB RAM on Windows 11 using MSVC Rust 1.96.0, without CPU pinning or host isolation. File benchmarks use ordinary buffered OS writes; flush is not fsync. Different payloads, storage, allocators, and machines can change the results.
 
-Tracked metrics live under `scripts/*.csv`. `scripts/render_benchmark_charts.py` validates the retained evidence and deterministically renders the SVG assets.
+Tracked metrics live under `scripts/*.csv`. `scripts/render_benchmark_charts.py` validates the retained evidence and deterministically renders the SVG assets. The [0.2.2 benchmark refresh](docs/BENCHMARKS_0.2.2.md) records current runtime, capture, decode, and Domain measurements; the writer-batch, human-structured, and console comparisons remain historical.
+
+Version 0.2.2 also reduces repeated generic solver and runtime-planning compilation. The [controlled compilation measurements](docs/COMPILATION_PERFORMANCE.md) show 2.01x faster default lib-test compilation and 3.50x with opt-level 2/debug 0 on the measured fixture. These are build-time results, not runtime speedup claims; typed APIs and case budgets are unchanged.
 
 ### Disabled Observation cost
 
 ![Warm observation hot path](img/benchmark-hot-path.svg)
 
-The recorded warm rejected path is about 7.3 ns/call. `EveryN(100)` mostly exercises rejection. An admitted sinkless Observation still serializes its payload, so “no sink” is not the same as disabled instrumentation.
+The refreshed warm rejected paths are about 8.3–8.5 ns/call. `EveryN(100)` mostly exercises rejection. An admitted sinkless Observation still serializes its payload, so “no sink” is not the same as disabled instrumentation.
 
 ### Scoped capture follows normal emission cost
 
 ![Scoped capture emission](img/benchmark-capture-emission.svg)
 
-For the small two-field payload in the current capture dataset, scoped capture emission tracks an independently configured in-memory engine closely from 1k to 1M records. Capture finalization is measured separately; this is not a universal payload-size bound.
+For the small two-field payload in the current capture dataset, scoped capture emission tracks an independently configured in-memory engine closely from 1k to 1M records. Full capture execution is recorded separately; this is not a universal payload-size bound.
 
 ### Prepared evidence avoids repeated work
 
 ![Prepared evidence reuse](img/benchmark-prepared-reuse.svg)
 
-At 1M rows, six requests over one prepared correspondence took a 121.2639 ms median versus 357.8696 ms when keys, correspondence, and projections were rebuilt for every request. Prepared semantic views avoid repeating decode, alignment, and projection work.
+At 1M rows, six requests over one prepared correspondence took a 113.5945 ms median versus 347.7923 ms when keys, correspondence, and projections were rebuilt for every request. Prepared semantic views avoid repeating decode, alignment, and projection work.
 ### Typed decode performance
 
 ![Typed decode scaling](img/benchmark-observation-decode.svg)
@@ -1266,7 +1268,6 @@ For captured executors, cases.observations::<T>()? and cases.spans::<T>()? retur
 
 ~~~rust
 use sun_observations::certifications::*;
-#[test]
 fn distinct_executions() {
     let mut runner = certification("repeated inputs are distinct executions")
         .executor(|n: &usize| Ok::<_, ()>(n * 2));
@@ -1279,6 +1280,7 @@ fn distinct_executions() {
     runner.check_aggregate(fact!(cases.cases().unwrap().len()).expect(3usize));
     runner.assert_certify();
 }
+distinct_executions();
 ~~~
 
 #### AGGREGATE_CHECK
@@ -1292,7 +1294,6 @@ use sun_observations::{certifications::*, evidence::*, *};
 #[derive(serde::Serialize, serde::Deserialize, Observation)]
 #[observation(namespace = "aggregate::sort")]
 struct Sort { size: usize }
-#[test]
 fn aggregate_captured_work() {
     let mut runner = certification("sort family evidence").executor(|size: &usize| {
         capture_observations(CaptureConfig::new().activate_all(), || {
@@ -1318,6 +1319,7 @@ fn aggregate_captured_work() {
     }).expect(3usize));
     runner.assert_certify();
 }
+aggregate_captured_work();
 ~~~
 
 A family-wide resource relation is different from a per-case success check. Here production counts real loop work; the independent acceptance policy promises two work units per input item, without asserting noisy wall-clock scaling. The self-comparison joins on CaseId, not equal input values.

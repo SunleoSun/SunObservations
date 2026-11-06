@@ -1245,7 +1245,7 @@ fn documented_call_arities(text: &str, name: &str) -> Vec<usize> {
                 ',' if paren == 1 && bracket == 0 && brace == 0 && angle == 0 => commas += 1,
                 _ => {}
             }
-            if !ch.is_whitespace() && !(ch == ')' && paren == 0) {
+            if !(ch.is_whitespace() || ch == ')' && paren == 0) {
                 non_ws = true;
             }
         }
@@ -2252,9 +2252,10 @@ fn csv_data_rows(path: &str) -> usize {
 fn tracked_benchmark_datasets_are_retained() {
     let expected = [
         ("scripts/benchmark_metrics.csv", 62usize),
+        ("scripts/runtime_metrics.csv", 159),
         ("scripts/capture_metrics.csv", 156),
         ("scripts/generative_certification_metrics.csv", 70),
-        ("scripts/certification_metrics.csv", 348),
+        ("scripts/certification_metrics.csv", 336),
         ("scripts/analysis_metrics.csv", 240),
         ("scripts/analysis_extension_metrics.csv", 336),
         ("scripts/human_output.csv", 80),

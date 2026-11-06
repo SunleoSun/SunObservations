@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="627" viewBox="0 0 960 627" role="img" aria-labelledby="title desc">
 <title id="title">JSONL producer vs end-to-end throughput</title>
-<desc id="desc">One shared sink; 1M calls total; median of 3 samples; throughput = 1000 / aggregate ns/call. 1 producer, Producer: 665.07 ns/call; 1 producer, End-to-end: 665.11 ns/call; 2 producers, Producer: 334.70 ns/call; 2 producers, End-to-end: 720.27 ns/call; 4 producers, Producer: 188.47 ns/call; 4 producers, End-to-end: 862.99 ns/call; 8 producers, Producer: 153.03 ns/call; 8 producers, End-to-end: 819.79 ns/call; 16 producers, Producer: 136.78 ns/call; 16 producers, End-to-end: 888.42 ns/call. End-to-end includes flush_channels(), not fsync. Source: scripts/benchmark_metrics.csv</desc>
+<desc id="desc">One shared sink; 1M calls total; median of 3 samples; throughput = 1000 / aggregate ns/call. 1 producer, Producer: 692.390 ns/call; 1 producer, End-to-end: 692.448 ns/call; 2 producers, Producer: 422.050 ns/call; 2 producers, End-to-end: 882.387 ns/call; 4 producers, Producer: 245.859 ns/call; 4 producers, End-to-end: 810.485 ns/call; 8 producers, Producer: 176.181 ns/call; 8 producers, End-to-end: 802.493 ns/call; 16 producers, Producer: 142.915 ns/call; 16 producers, End-to-end: 917.419 ns/call. End-to-end includes flush_channels(), not fsync. Source: scripts/benchmark_metrics.csv</desc>
 <rect width="960" height="627" fill="#ffffff"/>
 <g font-family="sans-serif">
 <text x="24.00" y="34.00" font-size="23" text-anchor="start" fill="#172b3a">JSONL producer vs end-to-end throughput</text>
@@ -13,39 +13,39 @@
 <path d="M255.00 138V523" stroke="#dce4e9"/>
 <text x="255.00" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">0.0</text>
 <path d="M398.75 138V523" stroke="#dce4e9"/>
-<text x="398.75" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">2.2</text>
+<text x="398.75" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">2.1</text>
 <path d="M542.50 138V523" stroke="#dce4e9"/>
-<text x="542.50" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">4.3</text>
+<text x="542.50" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">4.1</text>
 <path d="M686.25 138V523" stroke="#dce4e9"/>
-<text x="686.25" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">6.5</text>
+<text x="686.25" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">6.2</text>
 <path d="M830.00 138V523" stroke="#dce4e9"/>
-<text x="830.00" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">8.6</text>
+<text x="830.00" y="543.00" font-size="12" text-anchor="middle" fill="#172b3a">8.3</text>
 <text x="542.50" y="566.00" font-size="13" text-anchor="middle" fill="#172b3a">Million calls/s (higher is better)</text>
 <text x="240.00" y="180.00" font-size="14" text-anchor="end" fill="#172b3a">1 producer</text>
-<rect x="255" y="146" width="100.22" height="21" fill="#126b96"/>
-<text x="362.22" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">1.50</text>
-<rect x="255" y="177" width="100.21" height="21" fill="#b55112"/>
-<text x="362.21" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">1.50</text>
+<rect x="255" y="146" width="100.58" height="21" fill="#126b96"/>
+<text x="362.58" y="162.00" font-size="13" text-anchor="start" fill="#172b3a">1.44</text>
+<rect x="255" y="177" width="100.57" height="21" fill="#b55112"/>
+<text x="362.57" y="193.00" font-size="13" text-anchor="start" fill="#172b3a">1.44</text>
 <text x="240.00" y="257.00" font-size="14" text-anchor="end" fill="#172b3a">2 producers</text>
-<rect x="255" y="223" width="199.14" height="21" fill="#126b96"/>
-<text x="461.14" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">2.99</text>
-<rect x="255" y="254" width="92.54" height="21" fill="#b55112"/>
-<text x="354.54" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">1.39</text>
+<rect x="255" y="223" width="165.01" height="21" fill="#126b96"/>
+<text x="427.01" y="239.00" font-size="13" text-anchor="start" fill="#172b3a">2.37</text>
+<rect x="255" y="254" width="78.92" height="21" fill="#b55112"/>
+<text x="340.92" y="270.00" font-size="13" text-anchor="start" fill="#172b3a">1.13</text>
 <text x="240.00" y="334.00" font-size="14" text-anchor="end" fill="#172b3a">4 producers</text>
-<rect x="255" y="300" width="353.64" height="21" fill="#126b96"/>
-<text x="615.64" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">5.31</text>
-<rect x="255" y="331" width="77.23" height="21" fill="#b55112"/>
-<text x="339.23" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">1.16</text>
+<rect x="255" y="300" width="283.25" height="21" fill="#126b96"/>
+<text x="545.25" y="316.00" font-size="13" text-anchor="start" fill="#172b3a">4.07</text>
+<rect x="255" y="331" width="85.92" height="21" fill="#b55112"/>
+<text x="347.92" y="347.00" font-size="13" text-anchor="start" fill="#172b3a">1.23</text>
 <text x="240.00" y="411.00" font-size="14" text-anchor="end" fill="#172b3a">8 producers</text>
-<rect x="255" y="377" width="435.54" height="21" fill="#126b96"/>
-<text x="697.54" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">6.53</text>
-<rect x="255" y="408" width="81.30" height="21" fill="#b55112"/>
-<text x="343.30" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">1.22</text>
+<rect x="255" y="377" width="395.28" height="21" fill="#126b96"/>
+<text x="657.28" y="393.00" font-size="13" text-anchor="start" fill="#172b3a">5.68</text>
+<rect x="255" y="408" width="86.78" height="21" fill="#b55112"/>
+<text x="348.78" y="424.00" font-size="13" text-anchor="start" fill="#172b3a">1.25</text>
 <text x="240.00" y="488.00" font-size="14" text-anchor="end" fill="#172b3a">16 producers</text>
 <rect x="255" y="454" width="487.29" height="21" fill="#126b96"/>
-<text x="749.29" y="470.00" font-size="13" text-anchor="start" fill="#172b3a">7.31</text>
-<rect x="255" y="485" width="75.02" height="21" fill="#b55112"/>
-<text x="337.02" y="501.00" font-size="13" text-anchor="start" fill="#172b3a">1.13</text>
+<text x="749.29" y="470.00" font-size="13" text-anchor="start" fill="#172b3a">7.00</text>
+<rect x="255" y="485" width="75.91" height="21" fill="#b55112"/>
+<text x="337.91" y="501.00" font-size="13" text-anchor="start" fill="#172b3a">1.09</text>
 <text x="24.00" y="600.00" font-size="13" text-anchor="start" fill="#172b3a">End-to-end includes flush_channels(), not fsync. Source: scripts/benchmark_metrics.csv</text>
 </g>
 </svg>

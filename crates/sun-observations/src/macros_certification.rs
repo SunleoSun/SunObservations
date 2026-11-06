@@ -160,10 +160,11 @@ fn both_macros_preserve_sink_errors_in_runtime_health_without_forcing_caller_fai
     let before = engine.sink_error_count();
     let result: Result<bool, crate::ObservationError> = try_observe!(Event,);
     let after_try = engine.sink_error_count();
-    let caller_result = (|| {
+    let caller = || {
         observe!(Event);
         Ok::<_, &'static str>("continued")
-    })();
+    };
+    let caller_result = caller();
     let after_observe = engine.sink_error_count();
     engine.clear_channel_sinks("macro_sink_failure");
     let mut c = crate::certifications::certification("macro sink failure contracts");

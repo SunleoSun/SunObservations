@@ -1,46 +1,46 @@
 chart,case,series,value_ns,source,section,row_key,column
-"hot-path","Inactive","ns/call","7.37","docs/BENCHMARKS.md","Warm hot path","inactive","ns/call"
-"hot-path","Excluded","ns/call","7.28","docs/BENCHMARKS.md","Warm hot path","excluded","ns/call"
-"hot-path","Never","ns/call","7.36","docs/BENCHMARKS.md","Warm hot path","never","ns/call"
-"hot-path","EveryN(100)","ns/call","9.55","docs/BENCHMARKS.md","Warm hot path","every100","ns/call"
-"hot-path","Always / no sink","ns/call","154.45","docs/BENCHMARKS.md","Warm hot path","always","ns/call"
-"selector-scale","0","Rejected","7.33","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","0","Warm rejected ns"
-"selector-scale","0","Admitted / no sink","154.42","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","0","Warm admitted/no sink ns"
-"selector-scale","10","Rejected","7.30","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","10","Warm rejected ns"
-"selector-scale","10","Admitted / no sink","155.24","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","10","Warm admitted/no sink ns"
-"selector-scale","100","Rejected","7.33","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","100","Warm rejected ns"
-"selector-scale","100","Admitted / no sink","156.20","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","100","Warm admitted/no sink ns"
-"selector-scale","1000","Rejected","7.32","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","1000","Warm rejected ns"
-"selector-scale","1000","Admitted / no sink","155.82","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","1000","Warm admitted/no sink ns"
-"selector-scale","10000","Rejected","7.35","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","10000","Warm rejected ns"
-"selector-scale","10000","Admitted / no sink","152.82","docs/BENCHMARKS.md","Selector scale: no linear warm degradation","10000","Warm admitted/no sink ns"
-"jsonl-scaling","1 producer","Producer","665.07","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","1","JSONL producer"
-"jsonl-scaling","1 producer","End-to-end","665.11","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","1","JSONL end-to-end"
-"jsonl-scaling","2 producers","Producer","334.70","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","2","JSONL producer"
-"jsonl-scaling","2 producers","End-to-end","720.27","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","2","JSONL end-to-end"
-"jsonl-scaling","4 producers","Producer","188.47","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","4","JSONL producer"
-"jsonl-scaling","4 producers","End-to-end","862.99","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","4","JSONL end-to-end"
-"jsonl-scaling","8 producers","Producer","153.03","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","8","JSONL producer"
-"jsonl-scaling","8 producers","End-to-end","819.79","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","8","JSONL end-to-end"
-"jsonl-scaling","16 producers","Producer","136.78","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","16","JSONL producer"
-"jsonl-scaling","16 producers","End-to-end","888.42","docs/BENCHMARKS.md","Thread scaling (1M total, shared parent scope)","16","JSONL end-to-end"
-"sink-comparison","No sink (control)","End-to-end","157.95","docs/BENCHMARKS.md","Sink comparison (one producer)","no_sink","End-to-end ns/call"
-"sink-comparison","MemorySink","End-to-end","630.22","docs/BENCHMARKS.md","Sink comparison (one producer)","memory","End-to-end ns/call"
-"sink-comparison","JsonlSink","End-to-end","678.93","docs/BENCHMARKS.md","Sink comparison (one producer)","jsonl","End-to-end ns/call"
-"sink-comparison","Memory + JSONL","End-to-end","783.08","docs/BENCHMARKS.md","Sink comparison (one producer)","memory_jsonl","End-to-end ns/call"
-"sink-comparison","4 MemorySinks / 2 Channels","End-to-end","674.88","docs/BENCHMARKS.md","Sink comparison (one producer)","fanout_2channels_4sinks","End-to-end ns/call"
-"writer-batch","1p Event","Before (unbounded chunk)","700.02","docs/BATCH_BENCHMARKS.md","Actual sink results","1;Event","Before e2e ns"
-"writer-batch","1p Event","8192-message chunk","707.68","docs/BATCH_BENCHMARKS.md","Actual sink results","1;Event","After e2e ns"
-"writer-batch","1p Rich","Before (unbounded chunk)","1022.26","docs/BATCH_BENCHMARKS.md","Actual sink results","1;Rich","Before e2e ns"
-"writer-batch","1p Rich","8192-message chunk","1116.84","docs/BATCH_BENCHMARKS.md","Actual sink results","1;Rich","After e2e ns"
-"writer-batch","4p Event","Before (unbounded chunk)","699.01","docs/BATCH_BENCHMARKS.md","Actual sink results","4;Event","Before e2e ns"
-"writer-batch","4p Event","8192-message chunk","654.09","docs/BATCH_BENCHMARKS.md","Actual sink results","4;Event","After e2e ns"
-"writer-batch","4p Rich","Before (unbounded chunk)","1645.20","docs/BATCH_BENCHMARKS.md","Actual sink results","4;Rich","Before e2e ns"
-"writer-batch","4p Rich","8192-message chunk","1501.97","docs/BATCH_BENCHMARKS.md","Actual sink results","4;Rich","After e2e ns"
-"writer-batch","16p Event","Before (unbounded chunk)","786.07","docs/BATCH_BENCHMARKS.md","Actual sink results","16;Event","Before e2e ns"
-"writer-batch","16p Event","8192-message chunk","724.79","docs/BATCH_BENCHMARKS.md","Actual sink results","16;Event","After e2e ns"
-"writer-batch","16p Rich","Before (unbounded chunk)","1827.66","docs/BATCH_BENCHMARKS.md","Actual sink results","16;Rich","Before e2e ns"
-"writer-batch","16p Rich","8192-message chunk","1600.99","docs/BATCH_BENCHMARKS.md","Actual sink results","16;Rich","After e2e ns"
+hot-path,Inactive,ns/call,8.328,docs/BENCHMARKS_0.2.2.md,Release runtime medians,inactive,ns/call
+hot-path,Excluded,ns/call,8.372,docs/BENCHMARKS_0.2.2.md,Release runtime medians,excluded,ns/call
+hot-path,Never,ns/call,8.453,docs/BENCHMARKS_0.2.2.md,Release runtime medians,never,ns/call
+hot-path,EveryN(100),ns/call,10.878,docs/BENCHMARKS_0.2.2.md,Release runtime medians,every100,ns/call
+hot-path,Always / no sink,ns/call,165.679,docs/BENCHMARKS_0.2.2.md,Release runtime medians,always,ns/call
+selector-scale,0,Rejected,8.448,docs/BENCHMARKS_0.2.2.md,Release runtime medians,0,Warm rejected ns
+selector-scale,0,Admitted / no sink,165.947,docs/BENCHMARKS_0.2.2.md,Release runtime medians,0,Warm admitted/no sink ns
+selector-scale,10,Rejected,8.385,docs/BENCHMARKS_0.2.2.md,Release runtime medians,10,Warm rejected ns
+selector-scale,10,Admitted / no sink,165.878,docs/BENCHMARKS_0.2.2.md,Release runtime medians,10,Warm admitted/no sink ns
+selector-scale,100,Rejected,8.382,docs/BENCHMARKS_0.2.2.md,Release runtime medians,100,Warm rejected ns
+selector-scale,100,Admitted / no sink,164.205,docs/BENCHMARKS_0.2.2.md,Release runtime medians,100,Warm admitted/no sink ns
+selector-scale,1000,Rejected,8.459,docs/BENCHMARKS_0.2.2.md,Release runtime medians,1000,Warm rejected ns
+selector-scale,1000,Admitted / no sink,162.767,docs/BENCHMARKS_0.2.2.md,Release runtime medians,1000,Warm admitted/no sink ns
+selector-scale,10000,Rejected,8.387,docs/BENCHMARKS_0.2.2.md,Release runtime medians,10000,Warm rejected ns
+selector-scale,10000,Admitted / no sink,161.734,docs/BENCHMARKS_0.2.2.md,Release runtime medians,10000,Warm admitted/no sink ns
+jsonl-scaling,1 producer,Producer,692.390,docs/BENCHMARKS_0.2.2.md,Release runtime medians,1,JSONL producer
+jsonl-scaling,1 producer,End-to-end,692.448,docs/BENCHMARKS_0.2.2.md,Release runtime medians,1,JSONL end-to-end
+jsonl-scaling,2 producers,Producer,422.050,docs/BENCHMARKS_0.2.2.md,Release runtime medians,2,JSONL producer
+jsonl-scaling,2 producers,End-to-end,882.387,docs/BENCHMARKS_0.2.2.md,Release runtime medians,2,JSONL end-to-end
+jsonl-scaling,4 producers,Producer,245.859,docs/BENCHMARKS_0.2.2.md,Release runtime medians,4,JSONL producer
+jsonl-scaling,4 producers,End-to-end,810.485,docs/BENCHMARKS_0.2.2.md,Release runtime medians,4,JSONL end-to-end
+jsonl-scaling,8 producers,Producer,176.181,docs/BENCHMARKS_0.2.2.md,Release runtime medians,8,JSONL producer
+jsonl-scaling,8 producers,End-to-end,802.493,docs/BENCHMARKS_0.2.2.md,Release runtime medians,8,JSONL end-to-end
+jsonl-scaling,16 producers,Producer,142.915,docs/BENCHMARKS_0.2.2.md,Release runtime medians,16,JSONL producer
+jsonl-scaling,16 producers,End-to-end,917.419,docs/BENCHMARKS_0.2.2.md,Release runtime medians,16,JSONL end-to-end
+sink-comparison,No sink (control),End-to-end,163.353,docs/BENCHMARKS_0.2.2.md,Release runtime medians,no_sink,End-to-end ns/call
+sink-comparison,MemorySink,End-to-end,693.457,docs/BENCHMARKS_0.2.2.md,Release runtime medians,memory,End-to-end ns/call
+sink-comparison,JsonlSink,End-to-end,698.579,docs/BENCHMARKS_0.2.2.md,Release runtime medians,jsonl,End-to-end ns/call
+sink-comparison,Memory + JSONL,End-to-end,1005.974,docs/BENCHMARKS_0.2.2.md,Release runtime medians,memory_jsonl,End-to-end ns/call
+sink-comparison,4 MemorySinks / 2 Channels,End-to-end,725.003,docs/BENCHMARKS_0.2.2.md,Release runtime medians,fanout_2channels_4sinks,End-to-end ns/call
+writer-batch,1p Event,Before (unbounded chunk),700.02,docs/BATCH_BENCHMARKS.md,Actual sink results,1;Event,Before e2e ns
+writer-batch,1p Event,8192-message chunk,707.68,docs/BATCH_BENCHMARKS.md,Actual sink results,1;Event,After e2e ns
+writer-batch,1p Rich,Before (unbounded chunk),1022.26,docs/BATCH_BENCHMARKS.md,Actual sink results,1;Rich,Before e2e ns
+writer-batch,1p Rich,8192-message chunk,1116.84,docs/BATCH_BENCHMARKS.md,Actual sink results,1;Rich,After e2e ns
+writer-batch,4p Event,Before (unbounded chunk),699.01,docs/BATCH_BENCHMARKS.md,Actual sink results,4;Event,Before e2e ns
+writer-batch,4p Event,8192-message chunk,654.09,docs/BATCH_BENCHMARKS.md,Actual sink results,4;Event,After e2e ns
+writer-batch,4p Rich,Before (unbounded chunk),1645.20,docs/BATCH_BENCHMARKS.md,Actual sink results,4;Rich,Before e2e ns
+writer-batch,4p Rich,8192-message chunk,1501.97,docs/BATCH_BENCHMARKS.md,Actual sink results,4;Rich,After e2e ns
+writer-batch,16p Event,Before (unbounded chunk),786.07,docs/BATCH_BENCHMARKS.md,Actual sink results,16;Event,Before e2e ns
+writer-batch,16p Event,8192-message chunk,724.79,docs/BATCH_BENCHMARKS.md,Actual sink results,16;Event,After e2e ns
+writer-batch,16p Rich,Before (unbounded chunk),1827.66,docs/BATCH_BENCHMARKS.md,Actual sink results,16;Rich,Before e2e ns
+writer-batch,16p Rich,8192-message chunk,1600.99,docs/BATCH_BENCHMARKS.md,Actual sink results,16;Rich,After e2e ns
 human-structured,No sink,Before,156.54,docs/BENCHMARKS.md,Human structured control,no_sink,Before e2e ns
 human-structured,No sink,After,152.22,docs/BENCHMARKS.md,Human structured control,no_sink,After e2e ns
 human-structured,Memory,Before,737.08,docs/BENCHMARKS.md,Human structured control,memory,Before e2e ns

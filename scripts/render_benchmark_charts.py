@@ -260,15 +260,15 @@ def capture_assets():
         "benchmark-capture-emission.svg": chart(
             emission,
             "Scoped capture follows direct emission cost",
-            "Median of 3 release samples; identical small typed payload and bounded in-memory retention",
-            "Capture finalization is measured separately; this is not a universal payload-size bound.",
+            "Median of 3 release samples; identical small typed payload and in-memory retention",
+            "Full capture execution is recorded separately; this is not a universal payload-size bound.",
             unit="ms",
         ),
         "benchmark-prepared-reuse.svg": chart(
             reuse,
             "Prepared evidence avoids repeated work",
             "Six numeric requests over the same correspondence; median of 3 release samples",
-            "At 1M rows: 121.26 ms prepare-once versus 357.87 ms repeated preparation.",
+            f"At 1M rows: {medians[('prepare_once_six_checks', 1000000)]:.2f} ms prepare-once versus {medians[('reprepare_six_checks', 1000000)]:.2f} ms repeated preparation.",
             unit="ms",
         ),
     }

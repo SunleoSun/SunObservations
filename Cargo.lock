@@ -464,7 +464,7 @@ checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
 name = "sun-observations"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "crossbeam-channel",
@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "sun-observations-certifications"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "rayon",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "sun-observations-derive"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
