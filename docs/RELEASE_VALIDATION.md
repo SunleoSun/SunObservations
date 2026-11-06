@@ -18,7 +18,7 @@ The only publishable framework packages are `sun-observations-derive` and
 `sun-observations`, in that release order. The `sun-observations-certifications`
 package is internal (`publish = false`). Do not publish as part of validation.
 
-The main artifact includes its package-local README/rustdoc, both canonical skills,
+The main artifact includes its package-local README/rustdoc, all four canonical skills,
 all executable examples, and all active benchmark harnesses. No compile-time include
 may reach outside its package directory. Before the derive version exists in the
 registry, verify the main artifact locally with a patch to the packaged derive;
