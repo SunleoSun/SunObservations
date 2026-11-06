@@ -1,9 +1,11 @@
 ---
-description: Domain compilation ownership, indexed selection coordinates, semantic preflight, and enum feasibility symmetry invariants.
+description: Domain compilation ownership, type-independent solver boundary, indexed selection coordinates, semantic preflight, and enum feasibility invariants.
 ---
 # Domain compilation
 
 The canonical owner is crates/sun-observations/src/certifications/domain_compilation.rs; domain.rs owns typed sources and exact selection identity, and domain_classification.rs owns coverage coordinates. Compilation prepares immutable source candidates and per-variable source/predicate indexes before solving. Candidate preparation and membership must not be rebuilt for every solve or selected coordinate.
+
+CompiledDomain<T> embeds a crate-private CompiledDomainCore. Schema solving, preflight, target traversal, value construction and coordinate classification operate on DomainSchema/DomainValue in that non-generic core; keep T at schema acquisition, input conversion and typed materialization boundaries to avoid duplicating the solver for every client input type. The read-only solver() accessor also serves crate-private stage benchmarks, not the portable client API. Typed materialization errors propagate after the traversal cursor has advanced, without crediting occupied coverage or calling the executor.
 
 Integer range compilation accepts inclusive widths representable in the scalar arithmetic. Classification must preserve that accepted set: wide proportional strata invert the same overflow-safe ceil boundaries used by generation when offset-times-strata cannot fit. Signed and unsigned paths share this arithmetic owner; never use wrapping/saturating products or floating-point approximations for integer coordinates.
 

@@ -8,6 +8,64 @@ struct RelationConditional {
     c: i32,
 }
 
+#[test]
+fn typed_materialization_errors_preserve_traversal_progress_for_every_category() {
+    #[derive(Debug)]
+    struct Rejected;
+    impl DomainInput for Rejected {
+        type Fields = RelationConditionalDomainFields;
+        fn schema() -> DomainSchema {
+            RelationConditional::schema()
+        }
+        fn domain_fields(field: DomainField<Self>) -> Self::Fields {
+            RelationConditionalDomainFields {
+                a: field.child(DomainPathStep::Field(0)),
+                b: field.child(DomainPathStep::Field(1)),
+                c: field.child(DomainPathStep::Field(2)),
+            }
+        }
+        fn to_domain_value(&self) -> DomainValue {
+            RelationConditional { a: 1, b: 1, c: 1 }.to_domain_value()
+        }
+        fn from_domain_value(_: DomainValue) -> Result<Self, AnalysisError> {
+            Err(domain_error("typed materialization rejected"))
+        }
+    }
+    let valid = domain!(RelationConditional {
+        a.in_range(1..=3), b.in_range(1..=3), c.in_range(1..=3),
+    })
+    .compile()
+    .unwrap();
+    let rejected = domain!(Rejected {
+        a.in_range(1..=3), b.in_range(1..=3), c.in_range(1..=3),
+    })
+    .compile()
+    .unwrap();
+    for seed in [1, 719, 184729361] {
+        for category in 0..3 {
+            let occupied = BTreeSet::new();
+            let mut valid_cursor = 0;
+            let mut rejected_cursor = 0;
+            for _ in 0..2 {
+                let previous_cursor = rejected_cursor;
+                let (input, coordinate) = valid
+                    .next(category, &mut valid_cursor, seed, &occupied)
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(valid.classify(&input).unwrap(), coordinate);
+                assert_eq!(coordinate.violated.len(), category);
+                let error = rejected
+                    .next(category, &mut rejected_cursor, seed, &occupied)
+                    .unwrap_err();
+                assert_eq!(error.message, "typed materialization rejected");
+                assert!(rejected_cursor > previous_cursor);
+                assert_eq!(rejected_cursor, valid_cursor);
+                assert!(occupied.is_empty());
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, DomainInput)]
 struct LengthConditionalRegression {
     items: Vec<i32>,

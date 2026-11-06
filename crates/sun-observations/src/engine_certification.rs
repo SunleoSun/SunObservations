@@ -7,6 +7,27 @@ use std::sync::{
 };
 
 #[test]
+fn shared_namespace_types_keep_distinct_tags_and_policy_after_reconfiguration() {
+    #[derive(Serialize, Observation)]
+    #[observation(namespace = "shared::identity", tags("alpha"))]
+    struct Alpha;
+    #[derive(Serialize, Observation)]
+    #[observation(namespace = "shared::identity", tags("beta"))]
+    struct Beta;
+    let engine = ObservationEngine::isolated();
+    engine.set_selection(Selection::new().activate_tags(["alpha"]).unwrap());
+    let _scope = start_scope(
+        ScopeConfig::new("typed policy").override_policy::<Alpha>(Policy::first_n(1).unwrap()),
+    );
+    assert!(engine.observe_if_active(|| Alpha).unwrap());
+    assert!(!engine.observe_if_active(|| Beta).unwrap());
+    engine.set_selection(Selection::new().activate_all());
+    assert!(!engine.observe_if_active(|| Alpha).unwrap());
+    assert!(engine.observe_if_active(|| Beta).unwrap());
+    assert!(engine.observe_if_active(|| Beta).unwrap());
+}
+
+#[test]
 fn admitted_sink_failure_consumes_budget_and_serialization_failure_reaches_no_sink() {
     let mut certification = sun_observations::certifications::certification(
         "admitted sink failure consumes budget and serialization failure reaches no sink",

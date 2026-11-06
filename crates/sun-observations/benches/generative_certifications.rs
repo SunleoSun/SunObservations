@@ -213,7 +213,7 @@ fn lazy() {
                     *c
                 },
             );
-            let n = budget.min(compiled.enum_pair_target_count());
+            let n = budget.min(compiled.solver().enum_pair_target_count());
             measure(
                 "planner_pair_target_selection",
                 "enum_product",
@@ -221,7 +221,7 @@ fn lazy() {
                 || (),
                 |_| {
                     (0..n)
-                        .filter_map(|i| compiled.enum_pair_target(i).unwrap())
+                        .filter_map(|i| compiled.solver().enum_pair_target(i).unwrap())
                         .collect::<Vec<_>>()
                 },
                 |v| Counts {
@@ -230,7 +230,7 @@ fn lazy() {
                 },
             );
             let targets: Vec<_> = (0..n)
-                .filter_map(|i| compiled.enum_pair_target(i).unwrap())
+                .filter_map(|i| compiled.solver().enum_pair_target(i).unwrap())
                 .collect();
             measure(
                 "target_solve",
@@ -240,7 +240,7 @@ fn lazy() {
                 |targets| {
                     targets
                         .iter()
-                        .map(|t| compiled.solve_target(t).unwrap().unwrap())
+                        .map(|t| compiled.solver().solve_target(t).unwrap().unwrap())
                         .collect::<Vec<_>>()
                 },
                 |v| Counts {
@@ -255,7 +255,7 @@ fn lazy() {
                 || (),
                 |_| {
                     (0..budget)
-                        .filter_map(|i| compiled.higher_order_enum_target(i))
+                        .filter_map(|i| compiled.solver().higher_order_enum_target(i))
                         .collect::<Vec<_>>()
                 },
                 |v| Counts {
@@ -265,7 +265,7 @@ fn lazy() {
             );
             let solved: Vec<_> = targets
                 .iter()
-                .map(|t| compiled.solve_target(t).unwrap().unwrap())
+                .map(|t| compiled.solver().solve_target(t).unwrap().unwrap())
                 .collect();
             measure(
                 "input_materialize",
@@ -278,7 +278,7 @@ fn lazy() {
                         .zip(&solved)
                         .map(|(t, env)| {
                             Wide::from_domain_value(
-                                compiled.materialize_value(env, t, SEED).unwrap(),
+                                compiled.solver().materialize_value(env, t, SEED).unwrap(),
                             )
                             .unwrap()
                         })
@@ -375,7 +375,7 @@ fn ranges_and_execution() {
                 || (),
                 |_| {
                     (0..budget)
-                        .map(|i| compiled.free_target(i, SEED).unwrap())
+                        .map(|i| compiled.solver().free_target(i, SEED).unwrap())
                         .collect::<Vec<_>>()
                 },
                 |v| Counts {
@@ -646,8 +646,8 @@ fn domains_and_negatives() {
                     |c| *c,
                 );
             }
-            let pair_count = compiled.collection_composition_pair_count();
-            let spread_count = compiled.collection_composition_spread_count();
+            let pair_count = compiled.solver().collection_composition_pair_count();
+            let spread_count = compiled.solver().collection_composition_spread_count();
             for (name, start, count) in [
                 ("pairwise_mixed", 0, pair_count.min(64)),
                 ("spread", pair_count, spread_count),
@@ -656,7 +656,7 @@ fn domains_and_negatives() {
                     continue;
                 }
                 let targets: Vec<_> = (start..start + count)
-                    .map(|i| compiled.collection_composition_target(i).unwrap())
+                    .map(|i| compiled.solver().collection_composition_target(i).unwrap())
                     .collect();
                 measure(
                     "collection_target_solve",
@@ -669,7 +669,7 @@ fn domains_and_negatives() {
                     |targets| {
                         targets
                             .iter()
-                            .map(|t| compiled.solve_target(t).unwrap())
+                            .map(|t| compiled.solver().solve_target(t).unwrap())
                             .collect::<Vec<_>>()
                     },
                     |v| Counts {
@@ -679,7 +679,13 @@ fn domains_and_negatives() {
                 );
                 let solved: Vec<_> = targets
                     .into_iter()
-                    .filter_map(|t| compiled.solve_target(&t).unwrap().map(|env| (t, env)))
+                    .filter_map(|t| {
+                        compiled
+                            .solver()
+                            .solve_target(&t)
+                            .unwrap()
+                            .map(|env| (t, env))
+                    })
                     .collect();
                 if solved.is_empty() {
                     continue;
@@ -697,7 +703,7 @@ fn domains_and_negatives() {
                             .iter()
                             .map(|(t, env)| {
                                 Collection::from_domain_value(
-                                    compiled.materialize_value(env, t, SEED).unwrap(),
+                                    compiled.solver().materialize_value(env, t, SEED).unwrap(),
                                 )
                                 .unwrap()
                             })

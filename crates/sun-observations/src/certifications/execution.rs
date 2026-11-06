@@ -786,34 +786,41 @@ fn execute_case<I, X: CertificationExecution, F: FnMut(&I) -> X, S: FnMut(&I, u6
     failure
 }
 thread_local! {static CASE_PANIC_DEPTH:std::cell::Cell<usize>=const{std::cell::Cell::new(0)};}
-fn case_unwind<T>(operation: impl FnOnce() -> T) -> Result<T, String> {
-    static HOOK: std::sync::Once = std::sync::Once::new();
-    // Suppression is thread-local; unrelated panics retain the previously installed hook.
-    HOOK.call_once(|| {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            if !CASE_PANIC_DEPTH.with(|d| d.get() > 0) {
-                previous(info)
-            }
-        }));
-    });
-    struct Guard;
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            CASE_PANIC_DEPTH.with(|d| d.set(d.get() - 1));
-        }
+/// Thread-local panic-hook suppression restored when a case boundary unwinds.
+struct CasePanicGuard;
+impl CasePanicGuard {
+    fn enter() -> Self {
+        static HOOK: std::sync::Once = std::sync::Once::new();
+        // Suppression is thread-local; unrelated panics retain the previously installed hook.
+        HOOK.call_once(|| {
+            let previous = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                if !CASE_PANIC_DEPTH.with(|d| d.get() > 0) {
+                    previous(info)
+                }
+            }));
+        });
+        CASE_PANIC_DEPTH.with(|d| d.set(d.get() + 1));
+        Self
     }
-    CASE_PANIC_DEPTH.with(|d| d.set(d.get() + 1));
-    let _guard = Guard;
-    catch_unwind(AssertUnwindSafe(operation)).map_err(|p| {
-        if let Some(s) = p.downcast_ref::<String>() {
-            bounded_display(s, 1024)
-        } else if let Some(s) = p.downcast_ref::<&str>() {
-            bounded_display(s, 1024)
-        } else {
-            "non-string panic".into()
-        }
-    })
+}
+impl Drop for CasePanicGuard {
+    fn drop(&mut self) {
+        CASE_PANIC_DEPTH.with(|d| d.set(d.get() - 1));
+    }
+}
+fn case_panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = panic.downcast_ref::<String>() {
+        bounded_display(s, 1024)
+    } else if let Some(s) = panic.downcast_ref::<&str>() {
+        bounded_display(s, 1024)
+    } else {
+        "non-string panic".into()
+    }
+}
+fn case_unwind<T>(operation: impl FnOnce() -> T) -> Result<T, String> {
+    let _guard = CasePanicGuard::enter();
+    catch_unwind(AssertUnwindSafe(operation)).map_err(case_panic_message)
 }
 /// Per-certification input coverage, shared by real-input classification and generated exploration.
 struct CaseCoveragePlanner<'a, I> {

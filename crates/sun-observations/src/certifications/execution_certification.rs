@@ -2,6 +2,35 @@ use super::*;
 use std::collections::BTreeMap;
 
 #[test]
+fn nested_case_panics_restore_suppression_and_isolate_other_threads() {
+    assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 0);
+    let outer: Result<(), String> = case_unwind(|| {
+        assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 1);
+        let worker = std::thread::spawn(|| {
+            assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 0);
+            let result = case_unwind(|| {
+                assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 1);
+                41
+            });
+            assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 0);
+            result
+        });
+        assert_eq!(worker.join().unwrap().unwrap(), 41);
+        let borrowed: Result<(), String> = case_unwind(|| panic!("inner"));
+        assert_eq!(borrowed.unwrap_err(), "inner");
+        assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 1);
+        let opaque: Result<(), String> = case_unwind(|| std::panic::panic_any(17u8));
+        assert_eq!(opaque.unwrap_err(), "non-string panic");
+        assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 1);
+        std::panic::panic_any("outer".to_owned());
+    });
+    assert_eq!(outer.unwrap_err(), "outer");
+    assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 0);
+    assert_eq!(case_unwind(|| 42).unwrap(), 42);
+    assert_eq!(CASE_PANIC_DEPTH.with(|depth| depth.get()), 0);
+}
+
+#[test]
 fn planned_sections_preserve_each_nested_failure_separately_from_description() {
     let mut c = certification("pipeline sections").executor(|n: &u64| Ok::<_, ()>(n * n));
     c.data_source([3]).diagnostic_bytes(32).report_mode(true);

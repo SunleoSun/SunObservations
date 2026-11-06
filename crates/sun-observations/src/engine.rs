@@ -174,10 +174,19 @@ impl ObservationEngine {
         self.check_sink_result(flush_sinks(&sinks))
     }
     pub(crate) fn resolve<T: Observation>(&self, scope: &ScopeState) -> Arc<ResolvedPlan> {
+        self.resolve_metadata(scope, TypeId::of::<T>(), T::NAMESPACE, T::TAGS)
+    }
+    fn resolve_metadata(
+        &self,
+        scope: &ScopeState,
+        observation_type: TypeId,
+        observation_namespace: &'static str,
+        tags: &'static [&'static str],
+    ) -> Arc<ResolvedPlan> {
         let mut cache = scope.plans.lock();
         let config = self.config.read();
         let generation = self.generation();
-        let key = (self.id, TypeId::of::<T>());
+        let key = (self.id, observation_type);
         if let Some(plan) = cache.plans.get(&key) {
             if plan.generation == generation {
                 return plan.clone();
@@ -190,17 +199,18 @@ impl ObservationEngine {
             .as_ref()
             .filter(|capture| capture.engine == self.id);
         let active = if let Some(capture) = capture {
-            capture.selection.admits(T::NAMESPACE, T::TAGS)
-                && !local.excludes(T::NAMESPACE, T::TAGS)
+            capture.selection.admits(observation_namespace, tags)
+                && !local.excludes(observation_namespace, tags)
         } else {
-            (global.activates(T::NAMESPACE, T::TAGS) || local.activates(T::NAMESPACE, T::TAGS))
-                && !global.excludes(T::NAMESPACE, T::TAGS)
-                && !local.excludes(T::NAMESPACE, T::TAGS)
+            (global.activates(observation_namespace, tags)
+                || local.activates(observation_namespace, tags))
+                && !global.excludes(observation_namespace, tags)
+                && !local.excludes(observation_namespace, tags)
         };
         let policy = scope
             .config
             .policies
-            .get(&TypeId::of::<T>())
+            .get(&observation_type)
             .copied()
             .unwrap_or(Policy::Always);
         let counter = if active && !matches!(policy, Policy::Always | Policy::Never) {
@@ -208,7 +218,7 @@ impl ObservationEngine {
                 scope
                     .counters
                     .lock()
-                    .entry(TypeId::of::<T>())
+                    .entry(observation_type)
                     .or_default()
                     .clone(),
             )
@@ -221,7 +231,7 @@ impl ObservationEngine {
         } else if active {
             config
                 .routing
-                .matching(T::NAMESPACE)
+                .matching(observation_namespace)
                 .iter()
                 .flat_map(|c| {
                     needs_render_text |= c.needs_render_text;
@@ -234,10 +244,10 @@ impl ObservationEngine {
         let plan = Arc::new(ResolvedPlan {
             generation,
             capture: capture.cloned(),
-            metadata: namespace::validate_namespace(T::NAMESPACE)
+            metadata: namespace::validate_namespace(observation_namespace)
                 .map_err(MetadataError::Namespace)
                 .and_then(|()| {
-                    T::TAGS.iter().try_for_each(|tag| {
+                    tags.iter().try_for_each(|tag| {
                         namespace::validate_tag(tag).map_err(MetadataError::Tag)
                     })
                 }),

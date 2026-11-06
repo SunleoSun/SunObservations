@@ -20,9 +20,9 @@ impl<'a> SolverCandidates<'a> {
             values: (0..rules).map(|_| std::cell::OnceCell::new()).collect(),
         }
     }
-    fn source<'b, T: DomainInput>(
+    fn source<'b>(
         &'b self,
-        domain: &'b CompiledDomain<T>,
+        domain: &'b CompiledDomainCore,
         var: &Variable,
         source: &DomainSource,
         id: usize,
@@ -857,9 +857,9 @@ pub(crate) struct DomainCoverageCatalog {
     pub pairwise_total: usize,
     pub negative_sectors: BTreeSet<CaseDomainCoordinateSector>,
 }
-/// Validated input schema and constraint-owned exploration spaces. No executor or evidence is stored here.
-#[derive(Clone, Debug)]
-pub struct CompiledDomain<T> {
+/// Type-independent schema solver; keeping T at the boundary avoids duplicating solver code.
+#[derive(Clone)]
+pub(crate) struct CompiledDomainCore {
     rules: Vec<DomainRule>,
     variables: Vec<Variable>,
     variable_indices: std::collections::BTreeMap<InputPath, usize>,
@@ -873,11 +873,76 @@ pub struct CompiledDomain<T> {
     range_sectors: Vec<(usize, usize, DomainTercile)>,
     single_negatives: Vec<DomainTarget>,
     negative_ids: Vec<usize>,
-    marker: PhantomData<fn() -> T>,
     catalog: DomainCoverageCatalog,
     positive_candidates: Vec<Vec<DomainValue>>,
     enum_classes: BTreeMap<usize, usize>,
     fixed_operands: Assignment,
+}
+/// Validated input schema with typed classification and materialization.
+#[derive(Clone)]
+pub struct CompiledDomain<T> {
+    core: CompiledDomainCore,
+    marker: PhantomData<fn() -> T>,
+}
+impl<T: std::fmt::Debug> std::fmt::Debug for CompiledDomain<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("CompiledDomain");
+        debug.field("rules", &self.core.rules);
+        debug.field("variables", &self.core.variables);
+        debug.field("variable_indices", &self.core.variable_indices);
+        debug.field("schema", &self.core.schema);
+        debug.field("contexts", &self.core.contexts);
+        debug.field("positive_anchors", &self.core.positive_anchors);
+        debug.field("enum_groups", &self.core.enum_groups);
+        debug.field("enum_source_buckets", &self.core.enum_source_buckets);
+        debug.field("enum_pair_blocks", &self.core.enum_pair_blocks);
+        debug.field(
+            "collection_composition_groups",
+            &self.core.collection_composition_groups,
+        );
+        debug.field("range_sectors", &self.core.range_sectors);
+        debug.field("single_negatives", &self.core.single_negatives);
+        debug.field("negative_ids", &self.core.negative_ids);
+        debug.field("marker", &self.marker);
+        debug.field("catalog", &self.core.catalog);
+        debug.field("positive_candidates", &self.core.positive_candidates);
+        debug.field("enum_classes", &self.core.enum_classes);
+        debug.field("fixed_operands", &self.core.fixed_operands);
+        debug.finish()
+    }
+}
+impl<T: DomainInput> CompiledDomain<T> {
+    pub(crate) fn compile(domain: Domain<T>) -> Result<Self, AnalysisError> {
+        let schema = T::schema();
+        Ok(Self {
+            core: CompiledDomainCore::compile(domain.rules, schema)?,
+            marker: PhantomData,
+        })
+    }
+    pub(crate) fn solver(&self) -> &CompiledDomainCore {
+        &self.core
+    }
+    pub fn classify(&self, input: &T) -> Result<CaseDomainCoordinate, AnalysisError> {
+        self.solver().coordinate(&input.to_domain_value())
+    }
+    pub(crate) fn target_counts(&self) -> [usize; 3] {
+        self.solver().target_counts()
+    }
+    pub(crate) fn coverage_catalog(&self) -> &DomainCoverageCatalog {
+        self.solver().coverage_catalog()
+    }
+    pub(crate) fn next(
+        &self,
+        category: usize,
+        cursor: &mut usize,
+        seed: u64,
+        occupied: &BTreeSet<Vec<(CaseDomainCoordinateSector, CaseDomainCoordinateSlot)>>,
+    ) -> Result<Option<(T, CaseDomainCoordinate)>, AnalysisError> {
+        self.solver()
+            .next(category, cursor, seed, occupied)?
+            .map(|(value, coordinate)| T::from_domain_value(value).map(|input| (input, coordinate)))
+            .transpose()
+    }
 }
 fn get<'a>(
     env: &'a [(InputPath, DomainValue)],
@@ -964,8 +1029,8 @@ enum PreflightRegion {
 
 // Unknown operands preserve exact identity. Fully evaluated scalar predicates permit one
 // representative per source-membership, structural activity and relation-outcome region.
-fn preflight_regions<T: DomainInput>(
-    domain: &CompiledDomain<T>,
+fn preflight_regions(
+    domain: &CompiledDomainCore,
     context: &Assignment,
     purpose: RegionPurpose,
 ) -> Vec<PreflightRegion> {
@@ -1101,18 +1166,11 @@ fn flatten(
         }),
     }
 }
-impl<T: DomainInput> CompiledDomain<T> {
-    pub(crate) fn compile(mut domain: Domain<T>) -> Result<Self, AnalysisError> {
-        let schema = T::schema();
+impl CompiledDomainCore {
+    fn compile(mut rules: Vec<DomainRule>, schema: DomainSchema) -> Result<Self, AnalysisError> {
         let mut variables = vec![];
-        flatten(
-            &schema,
-            vec![],
-            String::new(),
-            &domain.rules,
-            &mut variables,
-        );
-        for rule in &mut domain.rules {
+        flatten(&schema, vec![], String::new(), &rules, &mut variables);
+        for rule in &mut rules {
             if let DomainRuleKind::Source(source) = &mut rule.kind {
                 let var = variables
                     .iter()
@@ -1196,7 +1254,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                             deps.push(p)
                         }
                     }
-                    for r in &domain.rules {
+                    for r in &rules {
                         if matches!(&r.kind,DomainRuleKind::Source(s) if s.path==v.path) {
                             for g in &r.gates {
                                 deps.extend(g.paths())
@@ -1212,7 +1270,7 @@ impl<T: DomainInput> CompiledDomain<T> {
             ordered.push(pending.remove(position));
         }
         let mut result = Self {
-            rules: domain.rules,
+            rules,
             variable_indices: ordered
                 .iter()
                 .enumerate()
@@ -1229,7 +1287,6 @@ impl<T: DomainInput> CompiledDomain<T> {
             range_sectors: vec![],
             single_negatives: vec![],
             negative_ids: vec![],
-            marker: PhantomData,
             catalog: DomainCoverageCatalog::default(),
             positive_candidates: vec![],
             enum_classes: BTreeMap::new(),
@@ -1630,8 +1687,8 @@ impl<T: DomainInput> CompiledDomain<T> {
                 }
             }
         }
-        fn dfs<T: DomainInput>(
-            d: &CompiledDomain<T>,
+        fn dfs(
+            d: &CompiledDomainCore,
             i: usize,
             env: &mut Assignment,
             known: &mut Assignment,
@@ -2678,9 +2735,6 @@ impl<T: DomainInput> CompiledDomain<T> {
         }
         None
     }
-    pub fn classify(&self, input: &T) -> Result<CaseDomainCoordinate, AnalysisError> {
-        self.coordinate(&input.to_domain_value())
-    }
     fn composition_element_forced(
         &self,
         base_env: &Assignment,
@@ -2801,8 +2855,8 @@ impl<T: DomainInput> CompiledDomain<T> {
         target: &DomainTarget,
         seed: u64,
     ) -> Result<DomainValue, AnalysisError> {
-        fn build<T: DomainInput>(
-            domain: &CompiledDomain<T>,
+        fn build(
+            domain: &CompiledDomainCore,
             schema: &DomainSchema,
             path: &InputPath,
             env: &Assignment,
@@ -2995,7 +3049,7 @@ impl<T: DomainInput> CompiledDomain<T> {
         cursor: &mut usize,
         seed: u64,
         occupied: &BTreeSet<Vec<(CaseDomainCoordinateSector, CaseDomainCoordinateSlot)>>,
-    ) -> Result<Option<(T, CaseDomainCoordinate)>, AnalysisError> {
+    ) -> Result<Option<(DomainValue, CaseDomainCoordinate)>, AnalysisError> {
         match category {
             0 => {
                 let anchors_len = self.positive_anchors.len();
@@ -3037,8 +3091,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                         if !occupied.contains(&coordinate_key(&coordinate))
                             && !target.is_covered(&coordinate, occupied)
                         {
-                            let input = T::from_domain_value(domain_value)?;
-                            return Ok(Some((input, coordinate)));
+                            return Ok(Some((domain_value, coordinate)));
                         }
                     }
                 }
@@ -3060,8 +3113,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                         if !occupied.contains(&coordinate_key(&coordinate))
                             && !target.is_covered(&coordinate, occupied)
                         {
-                            let input = T::from_domain_value(domain_value)?;
-                            return Ok(Some((input, coordinate)));
+                            return Ok(Some((domain_value, coordinate)));
                         }
                     }
                 }
@@ -3114,8 +3166,7 @@ impl<T: DomainInput> CompiledDomain<T> {
                         if !occupied.contains(&coordinate_key(&coordinate))
                             && !target.is_covered(&coordinate, occupied)
                         {
-                            let input = T::from_domain_value(domain_value)?;
-                            return Ok(Some((input, coordinate)));
+                            return Ok(Some((domain_value, coordinate)));
                         }
                     }
                 }

@@ -173,7 +173,7 @@ impl ValueSpace {
         CaseDomainCoordinateSlot::Real(value.key())
     }
 }
-impl<T: DomainInput> CompiledDomain<T> {
+impl CompiledDomainCore {
     pub(super) fn coordinate(
         &self,
         input: &DomainValue,
