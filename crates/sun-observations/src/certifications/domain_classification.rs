@@ -272,9 +272,7 @@ impl CompiledDomainCore {
                                     constraint: id,
                                     region: DomainRegion::Relation,
                                 },
-                                slot: CaseDomainCoordinateSlot::Negative(
-                                    self.relation_distance(relation, &context, input)?,
-                                ),
+                                slot: self.relation_negative_slot(relation, &context, input)?,
                                 name: self.relation_name(relation),
                                 value: "violated".into(),
                             });
@@ -295,12 +293,12 @@ impl CompiledDomainCore {
             violated: violated.into_iter().collect(),
         })
     }
-    fn relation_distance(
+    fn relation_negative_slot(
         &self,
         relation: &DomainRelation,
         context: &RowContext,
         input: &impl InputProjection,
-    ) -> Result<DomainNegativeDistance, AnalysisError> {
+    ) -> Result<CaseDomainCoordinateSlot, AnalysisError> {
         let candidates = SolverCandidates::new(&[], 0);
         let empty = vec![];
         let left = self
@@ -313,7 +311,13 @@ impl CompiledDomainCore {
             .ok_or_else(|| domain_error("missing relation operand"))?;
         let b = operand_value(&relation.right, context, input)?
             .ok_or_else(|| domain_error("missing relation operand"))?;
-        Ok(relation.negative_distance(&a, &b, &left, &right))
+        let ordering = a
+            .cmp_scalar(&b)
+            .ok_or_else(|| domain_error("incomparable relation operands"))?;
+        Ok(CaseDomainCoordinateSlot::RelationNegative {
+            ordering,
+            distance: relation.negative_distance(&a, &b, &left, &right),
+        })
     }
     fn relation_name(&self, r: &DomainRelation) -> String {
         let operand = |o: &DomainOperand| match o {

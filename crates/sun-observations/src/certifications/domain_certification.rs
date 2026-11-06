@@ -753,15 +753,28 @@ fn ordinary_relation_limits_required_enum_pairs() {
     assert_eq!(report.coverage().pairwise_combinations, (2, 2));
 }
 
+fn scalar_relation_truth_table<T: PartialOrd>(left: &T, right: &T) -> [bool; 6] {
+    [
+        left < right,
+        left <= right,
+        left > right,
+        left >= right,
+        left == right,
+        left != right,
+    ]
+}
+
 #[test]
 fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_overflow() {
     use super::domain::{DomainOperand, DomainRelation, DomainValue, RelationKind};
     let sets = [
         vec![
+            DomainValue::Int(i128::MIN),
             DomainValue::Int(-9),
             DomainValue::Int(0),
             DomainValue::Int(0),
             DomainValue::Int(23),
+            DomainValue::Int(i128::MAX),
         ],
         vec![
             DomainValue::UInt(0),
@@ -776,6 +789,11 @@ fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_ov
         ],
         vec![DomainValue::Bool(false), DomainValue::Bool(true)],
         vec![DomainValue::Text("a".into()), DomainValue::Text("z".into())],
+        vec![
+            DomainValue::Enum(0, vec![]),
+            DomainValue::Enum(0, vec![DomainValue::Int(1)]),
+            DomainValue::Enum(1, vec![]),
+        ],
     ];
     let distance = |a: &DomainValue, b: &DomainValue| match (a, b) {
         (DomainValue::Int(a), DomainValue::Int(b)) => a.abs_diff(*b) as f64,
@@ -784,14 +802,17 @@ fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_ov
         _ => 0.,
     };
     for values in sets {
-        for kind in [
+        for (index, kind) in [
             RelationKind::LessThan,
             RelationKind::LessEqual,
             RelationKind::GreaterThan,
             RelationKind::GreaterEqual,
             RelationKind::Equal,
             RelationKind::NotEqual,
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let relation = DomainRelation {
                 left: DomainOperand::Value(values[0].clone()),
                 right: DomainOperand::Value(values[0].clone()),
@@ -801,14 +822,33 @@ fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_ov
             let mut reference = Vec::new();
             for a in &values {
                 for b in &values {
-                    let comparison = DomainRelation {
-                        left: DomainOperand::Value(a.clone()),
-                        right: DomainOperand::Value(b.clone()),
-                        kind,
+                    let outcomes = match (a, b) {
+                        (DomainValue::Int(a), DomainValue::Int(b)) => {
+                            scalar_relation_truth_table(a, b)
+                        }
+                        (DomainValue::UInt(a), DomainValue::UInt(b)) => {
+                            scalar_relation_truth_table(a, b)
+                        }
+                        (DomainValue::Real(a), DomainValue::Real(b)) => {
+                            scalar_relation_truth_table(a, b)
+                        }
+                        (DomainValue::Bool(a), DomainValue::Bool(b)) => {
+                            scalar_relation_truth_table(a, b)
+                        }
+                        (DomainValue::Text(a), DomainValue::Text(b)) => {
+                            scalar_relation_truth_table(a, b)
+                        }
+                        (DomainValue::Enum(a, _), DomainValue::Enum(b, _)) => {
+                            scalar_relation_truth_table(a, b)
+                        }
+                        _ => unreachable!(),
                     };
-                    if comparison.evaluate(&[]) == Some(false)
-                        && !reference.contains(&(a.clone(), b.clone()))
-                    {
+                    assert_eq!(
+                        relation.evaluate_values(a, b),
+                        Some(outcomes[index]),
+                        "{kind:?}: {a:?}, {b:?}"
+                    );
+                    if !outcomes[index] && !reference.contains(&(a.clone(), b.clone())) {
                         reference.push((a.clone(), b.clone()));
                     }
                 }
@@ -819,9 +859,9 @@ fn streamed_negative_distances_match_ordered_pair_extrema_with_duplicates_and_ov
                     .then_with(|| (a.key(), b.key()).cmp(&(c.key(), d.key())))
             });
             assert_eq!(format!("{pairs:?}"), format!("{reference:?}"));
-            for (a, b) in &pairs {
-                let low = distance(&pairs.first().unwrap().0, &pairs.first().unwrap().1);
-                let high = distance(&pairs.last().unwrap().0, &pairs.last().unwrap().1);
+            for (a, b) in &reference {
+                let low = distance(&reference.first().unwrap().0, &reference.first().unwrap().1);
+                let high = distance(&reference.last().unwrap().0, &reference.last().unwrap().1);
                 let value = distance(a, b);
                 let expected = if high <= low || value <= low + (high - low) / 3. {
                     DomainNegativeDistance::Near
@@ -957,40 +997,231 @@ struct Pair {
     right: i32,
 }
 #[test]
-fn all_scalar_relations_use_their_own_exact_negative_semantics() {
+fn scalar_field_relations_match_exhaustive_truth_tables_and_generate_every_order_boundary() {
     let domains = [
-        domain!(Pair{left.in_range(0..=9),right.in_range(0..=9),left.less_than(right)}),
-        domain!(Pair{left.in_range(0..=9),right.in_range(0..=9),left.less_equal(right)}),
-        domain!(Pair{left.in_range(0..=9),right.in_range(0..=9),left.greater_than(right)}),
-        domain!(Pair{left.in_range(0..=9),right.in_range(0..=9),left.greater_equal(right)}),
-        domain!(Pair{left.in_range(0..=9),right.in_range(0..=9),left.equal(right)}),
-        domain!(Pair{left.in_range(0..=9),right.in_range(0..=9),left.not_equal(right)}),
+        domain!(Pair{left.in_range(0..=2),right.in_range(0..=2),left.less_than(right)}),
+        domain!(Pair{left.in_range(0..=2),right.in_range(0..=2),left.less_equal(right)}),
+        domain!(Pair{left.in_range(0..=2),right.in_range(0..=2),left.greater_than(right)}),
+        domain!(Pair{left.in_range(0..=2),right.in_range(0..=2),left.greater_equal(right)}),
+        domain!(Pair{left.in_range(0..=2),right.in_range(0..=2),left.equal(right)}),
+        domain!(Pair{left.in_range(0..=2),right.in_range(0..=2),left.not_equal(right)}),
     ];
     for (kind, domain) in domains.into_iter().enumerate() {
-        let d = domain.compile().unwrap();
-        let mut cursor = 0;
-        let mut occupied = BTreeSet::new();
-        let mut relation_negative = false;
-        while let Some((i, c)) = d.next(1, &mut cursor, 1, &occupied).unwrap() {
-            if c.violated == [2] {
-                let valid = match kind {
-                    0 => i.left < i.right,
-                    1 => i.left <= i.right,
-                    2 => i.left > i.right,
-                    3 => i.left >= i.right,
-                    4 => i.left == i.right,
-                    _ => i.left != i.right,
-                };
-                assert!(!valid);
-                assert!((0..=9).contains(&i.left));
-                assert!((0..=9).contains(&i.right));
-                relation_negative = true;
+        let compiled = domain.compile().unwrap();
+        let expected_violations = |input: &Pair| {
+            [
+                !(0..=2).contains(&input.left),
+                !(0..=2).contains(&input.right),
+                !scalar_relation_truth_table(&input.left, &input.right)[kind],
+            ]
+            .into_iter()
+            .enumerate()
+            .filter_map(|(id, invalid)| invalid.then_some(id))
+            .collect::<Vec<_>>()
+        };
+        let mut required_orders = [BTreeSet::new(), BTreeSet::new()];
+        for left in -1..=3 {
+            for right in -1..=3 {
+                let input = Pair { left, right };
+                let expected = expected_violations(&input);
+                assert_eq!(
+                    compiled.classify(&input).unwrap().violated,
+                    expected,
+                    "relation {kind}: {input:?}"
+                );
+                if (0..=2).contains(&left) && (0..=2).contains(&right) {
+                    required_orders[usize::from(!expected.is_empty())].insert(left.cmp(&right));
+                }
             }
-            occupied.insert(coordinate_key(&c));
         }
-        assert!(relation_negative);
+        for seed in [1, 719, 184729361] {
+            let mut observed_orders = [BTreeSet::new(), BTreeSet::new()];
+            for category in 0..3 {
+                let mut cursor = 0;
+                let mut occupied = BTreeSet::new();
+                while let Some((input, coordinate)) = compiled
+                    .next(category, &mut cursor, seed, &occupied)
+                    .unwrap()
+                {
+                    assert_eq!(
+                        coordinate.violated,
+                        expected_violations(&input),
+                        "relation {kind}: {input:?}"
+                    );
+                    assert_eq!(coordinate.violated.len(), category);
+                    if coordinate.violated.is_empty() {
+                        observed_orders[0].insert(input.left.cmp(&input.right));
+                    } else if coordinate.violated == [2] {
+                        observed_orders[1].insert(input.left.cmp(&input.right));
+                    }
+                    assert!(occupied.insert(coordinate_key(&coordinate)));
+                }
+                assert!(!occupied.is_empty(), "relation {kind}, category {category}");
+            }
+            assert_eq!(
+                observed_orders, required_orders,
+                "relation {kind}, seed {seed}"
+            );
+        }
     }
 }
+
+#[test]
+fn scalar_constant_relations_match_native_truth_tables_at_numeric_extremes_and_adjacent_floats() {
+    fn certify<T: DomainOrdered + Clone + PartialOrd + std::fmt::Debug>(values: [T; 3]) {
+        let field = DomainField::<T>::root();
+        for right in &values {
+            let relations = [
+                field.less_than(right.clone()),
+                field.less_equal(right.clone()),
+                field.greater_than(right.clone()),
+                field.greater_equal(right.clone()),
+                field.equal(right.clone()),
+                field.not_equal(right.clone()),
+            ];
+            for (kind, relation) in relations.into_iter().enumerate() {
+                let mut domain = Domain::<T>::new();
+                domain.add(field.selected_values(values.clone()), &[]);
+                domain.add(relation, &[]);
+                let expected_violations = |value: &T| {
+                    [
+                        !values.contains(value),
+                        !scalar_relation_truth_table(value, right)[kind],
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(id, invalid)| invalid.then_some(id))
+                    .collect::<Vec<_>>()
+                };
+                if !values
+                    .iter()
+                    .any(|left| scalar_relation_truth_table(left, right)[kind])
+                {
+                    assert!(domain
+                        .compile()
+                        .unwrap_err()
+                        .message
+                        .contains("unsatisfiable Domain"));
+                    continue;
+                }
+                let compiled = domain.compile().unwrap();
+                for left in &values {
+                    assert_eq!(
+                        compiled.classify(left).unwrap().violated,
+                        expected_violations(left),
+                        "relation {kind}: {left:?}, {right:?}"
+                    );
+                }
+                let mut relation_negative = false;
+                for category in 0..2 {
+                    let mut cursor = 0;
+                    let mut occupied = BTreeSet::new();
+                    while let Some((input, coordinate)) =
+                        compiled.next(category, &mut cursor, 71, &occupied).unwrap()
+                    {
+                        assert_eq!(
+                            coordinate.violated,
+                            expected_violations(&input),
+                            "relation {kind}: {input:?}, {right:?}"
+                        );
+                        assert_eq!(coordinate.violated.len(), category);
+                        relation_negative |= coordinate.violated == [1];
+                        assert!(occupied.insert(coordinate_key(&coordinate)));
+                    }
+                    if category == 0 {
+                        assert!(!occupied.is_empty());
+                    }
+                }
+                assert_eq!(
+                    relation_negative,
+                    values
+                        .iter()
+                        .any(|left| !scalar_relation_truth_table(left, right)[kind])
+                );
+            }
+        }
+    }
+    certify([i128::MIN, 0, i128::MAX]);
+    certify([0u128, 1, u128::MAX]);
+    certify([-f32::from_bits(1), -0.0, f32::from_bits(1)]);
+    certify([-f64::from_bits(1), -0.0, f64::from_bits(1)]);
+}
+#[test]
+fn equality_negatives_preserve_both_operand_orders_after_prefill_and_reject_one_sided_validators() {
+    use std::cmp::Ordering;
+    let domain = domain!(Pair {
+        left.fixed_value(0),
+        right.selected_values(std::iter::once(-10).chain(0..=13)),
+        left.equal(right),
+    });
+    let compiled = domain.clone().compile().unwrap();
+    let below = compiled
+        .classify(&Pair {
+            left: 0,
+            right: -10,
+        })
+        .unwrap();
+    let above = compiled.classify(&Pair { left: 0, right: 10 }).unwrap();
+    let relation_slot = |coordinate: &CaseDomainCoordinate| {
+        coordinate
+            .entries
+            .iter()
+            .find(|entry| entry.sector.constraint == 2)
+            .unwrap()
+            .slot
+            .clone()
+    };
+    assert_ne!(relation_slot(&below), relation_slot(&above));
+    for (prefill, order) in [(&below, Ordering::Greater), (&above, Ordering::Less)] {
+        let mut occupied = BTreeSet::from([coordinate_key(prefill)]);
+        let mut cursor = 0;
+        let mut orders = BTreeSet::from([order]);
+        while let Some((input, coordinate)) = compiled.next(1, &mut cursor, 71, &occupied).unwrap()
+        {
+            if coordinate.violated == [2] {
+                orders.insert(input.left.cmp(&input.right));
+            }
+            occupied.insert(coordinate_key(&coordinate));
+        }
+        assert_eq!(orders, BTreeSet::from([Ordering::Less, Ordering::Greater]));
+    }
+    for accepted_order in [Ordering::Less, Ordering::Greater] {
+        let wrongly_accepted = Cell::new(0);
+        let mut runner =
+            certification("equality rejects both unequal orders").executor(|input: &Pair| {
+                if input.left != 0 || !(input.right == -10 || (0..=13).contains(&input.right)) {
+                    return Err(());
+                }
+                let order = input.left.cmp(&input.right);
+                if order == Ordering::Equal {
+                    Ok(())
+                } else if order == accepted_order {
+                    wrongly_accepted.set(wrongly_accepted.get() + 1);
+                    Ok(())
+                } else {
+                    Err(())
+                }
+            });
+        runner
+            .domain(domain.clone())
+            .cases_budget(128)
+            .failure_budget(1)
+            .seed(71);
+        let report = runner.report();
+        assert!(!report.is_pass(), "{accepted_order:?}: {report}");
+        assert!(report.evaluation_error().is_none(), "{report}");
+        assert!(wrongly_accepted.get() > 0, "{accepted_order:?}");
+        assert!(
+            report
+                .failures()
+                .iter()
+                .any(|failure| failure.category == CaseCategory::SingleNegative
+                    && failure.diagnostic.contains("invalid input accepted")),
+            "{report}"
+        );
+    }
+}
+
 #[derive(DomainInput, Debug, Clone, PartialEq)]
 enum Choice {
     A,
@@ -1058,6 +1289,180 @@ fn excluded_enum_and_selected_scalar_cases_use_the_real_rejection_path() {
 struct Single {
     value: i32,
 }
+fn assert_invalid_range_definition<T: DomainInput + Clone + std::fmt::Debug>(
+    name: &str,
+    domain: Domain<T>,
+    input: T,
+    expected_error: &str,
+) {
+    let error = domain.clone().compile().unwrap_err();
+    assert!(error.message.contains(expected_error), "{name}: {error:?}");
+    for budget in [1, 20] {
+        let calls = Cell::new(0);
+        let mut runner = certification(name).executor(|_: &T| {
+            calls.set(calls.get() + 1);
+            Ok::<_, ()>(())
+        });
+        runner.data_source([input.clone()]);
+        runner.domain(domain.clone()).cases_budget(budget);
+        let report = runner.report();
+        assert!(!report.is_pass(), "{name}: {report}");
+        assert_eq!(
+            report.evaluation_error().unwrap().message,
+            error.message,
+            "{name}"
+        );
+        assert_eq!(report.cases_executed(), 0, "{name}");
+        assert!(report.failures().is_empty(), "{name}: {report}");
+        assert_eq!(calls.get(), 0, "{name}");
+    }
+}
+
+fn assert_range_definition_matrix<T: DomainOrdered + Clone + PartialOrd + std::fmt::Debug>(
+    values: [T; 4],
+    nonfinite: &[T],
+) {
+    let [a, b, c, d] = values.clone();
+    let mut invalid = vec![
+        ("empty ranges", vec![], "empty ranges"),
+        (
+            "reversed range",
+            vec![d.clone()..=a.clone()],
+            "invalid range",
+        ),
+        (
+            "overlapping ranges",
+            vec![a.clone()..=c.clone(), b.clone()..=d.clone()],
+            "ordered and disjoint",
+        ),
+        (
+            "shared inclusive endpoint",
+            vec![a.clone()..=b.clone(), b.clone()..=d.clone()],
+            "ordered and disjoint",
+        ),
+        (
+            "duplicate ranges",
+            vec![a.clone()..=b.clone(), a.clone()..=b.clone()],
+            "ordered and disjoint",
+        ),
+        (
+            "contained range",
+            vec![a.clone()..=d.clone(), b.clone()..=c.clone()],
+            "ordered and disjoint",
+        ),
+    ];
+    for value in nonfinite {
+        invalid.extend([
+            (
+                "nonfinite lower bound",
+                vec![value.clone()..=d.clone()],
+                "invalid range",
+            ),
+            (
+                "nonfinite upper bound",
+                vec![a.clone()..=value.clone()],
+                "invalid range",
+            ),
+            (
+                "nonfinite singleton",
+                vec![value.clone()..=value.clone()],
+                "invalid range",
+            ),
+            (
+                "nonfinite disconnected branch",
+                vec![
+                    a.clone()..=b.clone(),
+                    value.clone()..=value.clone(),
+                    c.clone()..=d.clone(),
+                ],
+                "invalid range",
+            ),
+        ]);
+    }
+    for (name, ranges, expected_error) in invalid {
+        assert_invalid_range_definition(
+            name,
+            domain!(T { one_of_ranges(ranges) }),
+            a.clone(),
+            expected_error,
+        );
+    }
+    for (name, ranges) in [
+        ("singleton range", vec![b.clone()..=b.clone()]),
+        (
+            "distinct inclusive endpoints",
+            vec![a.clone()..=b.clone(), c.clone()..=d.clone()],
+        ),
+        (
+            "unordered disjoint ranges",
+            vec![c.clone()..=d.clone(), a.clone()..=b.clone()],
+        ),
+        (
+            "disconnected ranges",
+            vec![a.clone()..=a.clone(), c.clone()..=d.clone()],
+        ),
+    ] {
+        let domain = domain!(T { one_of_ranges(ranges.clone()) });
+        let compiled = domain.clone().compile().unwrap();
+        for value in &values {
+            let valid = ranges.iter().any(|range| range.contains(value));
+            assert_eq!(
+                compiled.classify(value).unwrap().violated,
+                if valid { vec![] } else { vec![0] },
+                "{name}: {value:?}"
+            );
+        }
+        let mut runner = certification(name).executor(|value: &T| {
+            if ranges.iter().any(|range| range.contains(value)) {
+                Ok::<_, ()>(())
+            } else {
+                Err(())
+            }
+        });
+        runner.data_source(values.clone());
+        runner.domain(domain).cases_budget(32).seed(71);
+        let report = runner.report();
+        assert!(report.is_pass(), "{name}: {report}");
+        assert!(report.categories()[0] > 0, "{name}");
+    }
+}
+
+#[test]
+fn integer_range_definitions_reject_invalid_bounds_and_overlaps_before_execution() {
+    assert_range_definition_matrix([0i32, 1, 2, 3], &[]);
+    assert_range_definition_matrix([0u128, 1, 2, 3], &[]);
+    assert_invalid_range_definition(
+        "signed inclusive width overflow",
+        domain!(i128 { in_range(i128::MIN..=i128::MAX) }),
+        0,
+        "invalid range",
+    );
+    assert_invalid_range_definition(
+        "unsigned inclusive width overflow",
+        domain!(u128 { in_range(0..=u128::MAX) }),
+        0,
+        "invalid range",
+    );
+}
+
+#[test]
+fn floating_range_definitions_reject_nonfinite_bounds_and_overlaps_before_execution() {
+    assert_range_definition_matrix(
+        [0.0f32, 1.0, 2.0, 3.0],
+        &[f32::NAN, f32::NEG_INFINITY, f32::INFINITY],
+    );
+    assert_range_definition_matrix(
+        [0.0f64, 1.0, 2.0, 3.0],
+        &[f64::NAN, f64::NEG_INFINITY, f64::INFINITY],
+    );
+    assert_invalid_range_definition(
+        "finite bounds with overflowing width",
+        domain!(f64 { in_range(-f64::MAX..=f64::MAX) }),
+        0.0,
+        "invalid range",
+    );
+}
+
 #[test]
 fn disconnected_ranges_keep_gap_and_branch_sectors_separate() {
     let d = domain!(Single{value.one_of_ranges([1..=3,10..=12])})
@@ -2335,18 +2740,20 @@ mod edge_cases {
             if c.violated == [2] {
                 for e in &c.entries {
                     if e.sector.constraint == 2 {
-                        distances.insert(e.slot.clone());
+                        let CaseDomainCoordinateSlot::RelationNegative { ordering, distance } =
+                            e.slot
+                        else {
+                            panic!("{:?}", e.slot);
+                        };
+                        assert_eq!(ordering, std::cmp::Ordering::Greater);
+                        distances.insert(distance);
                     }
                 }
             }
             occupied.insert(coordinate_key(&c));
         }
-        assert!(distances.contains(&CaseDomainCoordinateSlot::Negative(
-            DomainNegativeDistance::Near
-        )));
-        assert!(distances.contains(&CaseDomainCoordinateSlot::Negative(
-            DomainNegativeDistance::Far
-        )));
+        assert!(distances.contains(&DomainNegativeDistance::Near));
+        assert!(distances.contains(&DomainNegativeDistance::Far));
     }
 
     #[test]

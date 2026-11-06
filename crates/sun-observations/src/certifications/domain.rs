@@ -758,6 +758,11 @@ pub enum CaseDomainCoordinateSlot {
     Stratum(u64),
     Combination,
     Negative(DomainNegativeDistance),
+    /// Left-to-right operand ordering and distance are independent negative axes.
+    RelationNegative {
+        ordering: Ordering,
+        distance: DomainNegativeDistance,
+    },
     ExcludedVariant(usize),
     Real(DomainValueKey),
 }

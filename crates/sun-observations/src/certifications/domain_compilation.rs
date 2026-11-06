@@ -1839,36 +1839,42 @@ impl CompiledDomainCore {
             .possible_operand(&relation.right, context, context, &candidates)
             .unwrap_or_default();
         let pairs = relation.invalid_pairs(&left, &right);
-        if pairs.is_empty() {
-            return vec![];
-        }
         let mut result = vec![];
-        for (depth, index) in [0, pairs.len() / 2, pairs.len() - 1]
-            .into_iter()
-            .enumerate()
-        {
-            let (a, b) = &pairs[index];
-            let mut forced = context.clone();
-            let mut compatible = true;
-            for (operand, value) in [(&relation.left, a), (&relation.right, b)] {
-                if let DomainOperand::Field(path) = operand {
-                    if get(&forced, path).is_some_and(|v| v != value) {
-                        compatible = false;
-                        break;
-                    }
-                    if get(&forced, path).is_none() {
-                        forced.push((path.clone(), value.clone()));
+        for ordering in [Ordering::Less, Ordering::Equal, Ordering::Greater] {
+            let region_pairs: Vec<_> = pairs
+                .iter()
+                .filter(|(a, b)| a.cmp_scalar(b) == Some(ordering))
+                .collect();
+            if region_pairs.is_empty() {
+                continue;
+            }
+            for (depth, index) in [0, region_pairs.len() / 2, region_pairs.len() - 1]
+                .into_iter()
+                .enumerate()
+            {
+                let (a, b) = region_pairs[index];
+                let mut forced = context.clone();
+                let mut compatible = true;
+                for (operand, value) in [(&relation.left, a), (&relation.right, b)] {
+                    if let DomainOperand::Field(path) = operand {
+                        if get(&forced, path).is_some_and(|v| v != value) {
+                            compatible = false;
+                            break;
+                        }
+                        if get(&forced, path).is_none() {
+                            forced.push((path.clone(), value.clone()));
+                        }
                     }
                 }
-            }
-            if compatible {
-                result.push(DomainTarget {
-                    forced,
-                    violated: vec![id],
-                    focus: vec![],
-                    composition: None,
-                    depth,
-                });
+                if compatible {
+                    result.push(DomainTarget {
+                        forced,
+                        violated: vec![id],
+                        focus: vec![],
+                        composition: None,
+                        depth,
+                    });
+                }
             }
         }
         result

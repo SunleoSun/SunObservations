@@ -1,5 +1,5 @@
 ---
-description: Domain compilation ownership, type-independent solver boundary, indexed selection coordinates, semantic preflight, and enum feasibility invariants.
+description: Domain compilation ownership, type-independent solver boundary, indexed selections, semantic preflight, enum feasibility, and relation-negative coverage identity.
 ---
 # Domain compilation
 
@@ -8,6 +8,8 @@ The canonical owner is crates/sun-observations/src/certifications/domain_compila
 CompiledDomain<T> embeds a crate-private CompiledDomainCore. Schema solving, preflight, target traversal, value construction and coordinate classification operate on DomainSchema/DomainValue in that non-generic core; keep T at schema acquisition, input conversion and typed materialization boundaries to avoid duplicating the solver for every client input type. The read-only solver() accessor also serves crate-private stage benchmarks, not the portable client API. Typed materialization errors propagate after the traversal cursor has advanced, without crediting occupied coverage or calling the executor.
 
 Integer range compilation accepts inclusive widths representable in the scalar arithmetic. Classification must preserve that accepted set: wide proportional strata invert the same overflow-safe ceil boundaries used by generation when offset-times-strata cannot fit. Signed and unsigned paths share this arithmetic owner; never use wrapping/saturating products or floating-point approximations for integer coordinates.
+
+Single-negative relation slots preserve left-to-right operand Ordering independently of negative distance. Relation targets choose distance representatives within each invalid ordering, rather than across a pooled pair list. An equality witness or real-case prefill on one unequal side cannot cover the opposite side, even at the same distance. Source negatives retain their ordinary distance slots; multi-negative coverage remains identified by the exact violated constraint set.
 
 ValueSelection preserves three distinct identities: exact structural membership, first original source position for Discrete regions, and deduplicated/normalized anchor position for slots. Enum scalar comparison ignores payloads although selected membership does not. f32 anchor normalization is prepared once against the variable schema. Signed zeros compare equal. Do not substitute the public DomainValueKey::Composite for full structural identity.
 
